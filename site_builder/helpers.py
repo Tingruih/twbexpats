@@ -570,15 +570,19 @@ def _compute_advanced_stats(s):
         if strikes is not None and pitches and pitches > 0:
             s["strike_pct"] = _fmt_avg(strikes / pitches)
 
-    # Pitcher BABIP = (H - HR) / (BF - SO - HR - BB)
+    # Pitcher BABIP = (H - HR) / (AB - SO - HR + SF),與上面打者版公式對稱
+    # 這裡改用 p_ab(對方打數)而不是 bf(面對打者數)當分母基準:
+    # AB 依官方規則定義本來就已經排除 BB/HBP/SH,只需再加回 SF;
+    # 舊版用 BF(≈PA)當基準卻只扣掉 BB,漏扣 HBP 和 SH(犧牲短打),
+    # 導致分母灌水、BABIP 被系統性低估。
     if s.get("p_babip") is None:
         p_hits = s.get("p_hits")
         p_hr   = s.get("p_hr")
-        bf     = s.get("bf")
+        p_ab   = s.get("p_ab")
         so     = s.get("so")
-        bb     = s.get("bb")
-        if all(v is not None for v in [p_hits, p_hr, bf, so, bb]):
-            denom = bf - so - p_hr - bb
+        p_sf   = s.get("p_sac_flies") or 0
+        if all(v is not None for v in [p_hits, p_hr, p_ab, so]):
+            denom = p_ab - so - p_hr + p_sf
             if denom > 0:
                 s["p_babip"] = round((p_hits - p_hr) / denom, 3)
 
