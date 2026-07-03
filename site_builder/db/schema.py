@@ -79,6 +79,14 @@ def init_db(conn: sqlite3.Connection):
             UNIQUE(year, level_code, league)
         );
 
+        CREATE TABLE IF NOT EXISTS league_fip_constants (
+            year INTEGER NOT NULL,
+            sport_level TEXT NOT NULL,
+            league_name TEXT NOT NULL DEFAULT '',
+            fip_constant REAL NOT NULL,
+            UNIQUE(year, sport_level, league_name)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_season_stats_player_year
             ON season_stats(player_mlb_id, year);
         CREATE INDEX IF NOT EXISTS idx_game_logs_player_date

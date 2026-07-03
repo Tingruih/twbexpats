@@ -32,7 +32,8 @@ Options:
     python build.py build    --base-url /twbexpats/
     python build.py refresh  --update-constants  # force-refresh the tjstats.ca
                                                   # park-factor/league-constant
-                                                  # cache used for wRC+
+                                                  # cache (wRC+) and past-season
+                                                  # MiLB FIP constants
 """
 
 import argparse
@@ -74,6 +75,7 @@ def cmd_statcast(args):
         roster_file=args.roster,
         year=args.year,
         only_player=args.player,
+        update_constants=args.update_constants,
     )
 
 
@@ -93,6 +95,7 @@ def cmd_refresh(args):
         roster_file=args.roster,
         year=args.year,
         only_player=args.player,
+        update_constants=args.update_constants,
     )
     build_static_site(
         db_path=args.db,
@@ -160,6 +163,13 @@ def main():
     sp_statcast.add_argument(
         "--player", type=int, default=None, help="Single MLB ID only"
     )
+    sp_statcast.add_argument(
+        "--update-constants",
+        action="store_true",
+        help="Force a fresh fetch of past-season MiLB FIP constants "
+        "instead of using the cached SQLite values (the current season's "
+        "constants are always fetched fresh regardless)",
+    )
     sp_statcast.set_defaults(func=cmd_statcast)
 
     # refresh — fast update + statcast + build (the standard daily/CI command)
@@ -182,7 +192,8 @@ def main():
         "--update-constants",
         action="store_true",
         help="Force a fresh scrape of tjstats.ca park factors/league constants "
-        "instead of using the cached SQLite values",
+        "and a fresh fetch of past-season MiLB FIP constants, instead of "
+        "using the cached SQLite values",
     )
     sp_refresh.set_defaults(func=cmd_refresh)
 
@@ -223,7 +234,8 @@ def main():
         "--update-constants",
         action="store_true",
         help="Force a fresh scrape of tjstats.ca park factors/league constants "
-        "instead of using the cached SQLite values",
+        "and a fresh fetch of past-season MiLB FIP constants, instead of "
+        "using the cached SQLite values",
     )
     sp_all.set_defaults(func=cmd_all)
 

@@ -22,6 +22,8 @@
 6. [生涯／賽季彙總邏輯](#六生涯賽季彙總邏輯)
 7. [跨層級 Statcast 合併邏輯](#七跨層級-statcast-合併邏輯)
 8. [總結：API vs 計算 比例](#八總結api-vs-計算-比例)
+9. [逐球進階物理量與跑壘／守備歸屬](#九逐球進階物理量與跑壘守備歸屬2026-07-新增擷取)
+10. [球員每場比賽詳細分析報告 — 設計構想](#十球員每場比賽詳細分析報告--設計構想)
 
 ---
 
@@ -429,3 +431,116 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
   2. **wOBA / wRC+（TJBat+）**：全等級自算，還需結合外部網站 tjstats.ca 的球場因子與聯盟常數（唯一會呼叫 MLB 官方 API 以外資料來源的部分）
   3. **整套 Statcast 逐球分析**（選球紀律、打擊品質、Barrel%、拉打方向、球種細節、Pitch Plinko、球路移動圖，以及跨層級加權合併）：完全從原始逐球 JSON 現場推導，`statcast.py` 一支檔案就有1400多行邏輯
 - 此外還有大量「缺值補算」（`helpers.py _compute_advanced_stats()`）—— 這些欄位**優先使用 API 給的值**，只在 API 未提供時才用公式補算，因此同一欄位在不同層級/年份可能一部分是 API 值、一部分是程式算的，屬於「混合來源」欄位。
+
+---
+
+## 九、逐球進階物理量與跑壘／守備歸屬（2026-07 新增擷取）
+
+`extract_pitch_logs()`（`site_builder/sync/extract.py`）原本只萃取球速、pfx 位移、轉速/轉向、出球初速/角度/距離等「Statcast 核心欄位」。以下欄位是**新增擷取**的，全部來自同一份 `GET /game/{game_pk}/feed/live` 回應，不需要新的 API 端點，只是走訪原本就有的 JSON 節點：
+
+### 9.1 新增的逐球物理量（每一球都有）
+
+| 新欄位 | API 原始路徑 | 分類 | 說明 |
+|---|---|---|---|
+| `plate_time` | `pitchData.plateTime` | 🔵 API | 從出手到進壘的飛行時間（秒），數字越小代表打者反應時間越少 |
+| `strike_zone_top` / `strike_zone_bottom` | `pitchData.strikeZoneTop` / `strikeZoneBottom` | 🔵 API | **這一球當下、這位打者站姿實際的好球帶上下界**（呎），逐球都可能因打者不同而變動，比固定的 `zone` 1–14 代碼精確 |
+| `type_confidence` | `pitchData.typeConfidence` | 🔵 API | 球種自動分類的信心值（0–1），可用來過濾誤判球種 |
+| `vx0` / `vy0` / `vz0` | `pitchData.coordinates.vX0/vY0/vZ0` | 🔵 API | 出手瞬間三軸初速度（呎/秒） |
+| `ax` / `ay` / `az` | `pitchData.coordinates.aX/aY/aZ` | 🔵 API | 三軸加速度（含重力與 Magnus 力，呎/秒²） |
+| `break_angle` / `break_length` / `break_y` | `pitchData.breaks.breakAngle/breakLength/breakY` | 🔵 API | 舊版 PITCHf/x 系統的位移量測（非 Statcast 的 pfx 系統），可當作 `ivb`/`hb` 的交叉驗證，本身分析價值不高 |
+
+### 9.2 新增的打席結果節點（僅該打席最後一球，`is_pa_final=True` 時才有值）
+
+| 新欄位 | API 原始路徑 | 說明 |
+|---|---|---|
+| `runners` | `play.runners[]`（經 `_extract_runners()` 精簡） | 該打席**每一位壘上跑者**的移動結果與守備功勞，見下表 |
+
+`runners` 內每筆物件：
+
+| 子欄位 | 說明 |
+|---|---|
+| `runner_id` | 跑者 MLB ID |
+| `origin_base` / `start_base` / `end_base` | 出發前所在壘包 / 這個打席開始時壘包 / 打席結束後壘包（`null` 代表得分回本壘或出局） |
+| `out_base` / `is_out` / `out_number` | 若在哪個壘包被封殺、是否出局、這是本局第幾個出局數 |
+| `event` / `event_type` | 這名跑者的移動事件（如 `Single`／`Caught Stealing`／`Fielders Choice`） |
+| `movement_reason` | 移動原因代碼（如 `r_force_out`、`r_stolen_base_2b`） |
+| `is_scoring_event` | 是否為得分 |
+| `rbi` | 這名跑者得分是否算打點（歸給打擊者） |
+| `earned` | 這分是否為自責分 |
+| `responsible_pitcher_id` | 該分責任歸屬的投手（換投後跑者得分歸前一位投手時用得到） |
+| `credits[]` | 守備功勞列表：`{player_id, position, credit}`，`credit` 如 `f_assist`／`f_putout`／`f_error` |
+
+> 已用真實比賽資料驗證（`Kai-Wei Teng` 2024-03-31 出賽），格式與欄位命名皆已確認正確可用。
+
+### 9.3 這些新欄位能算出什麼——投手視角
+
+**進場角度 VAA / HAA（Vertical / Horizontal Approach Angle）**
+目前業界（Baseball Savant／各球團分析部門）最主流的「球路立體感」指標，需要 `vy0`/`vz0`/`az`/`ax`/`vx0` 才能算，過去完全沒存就無法回頭補算：
+```
+t = (vy_f − vy0) / ay        # vy_f 為進壘瞬間的 y 方向速度，由能量守恆解出
+VAA = -atan(vz0 + az×t, vy_f) 轉角度
+HAA = -atan(vx0 + ax×t, vy_f) 轉角度
+```
+VAA 數值越「平」（越接近 0°，即負得越少）代表球路進壘軌跡越平，對上打者的仰角更難產生高質量接觸，是評估「四縫線是否適合衝高」的核心指標之一，目前网站完全没有這個能力。
+
+**精確 Zone%／Edge%**
+現有 `zone_pct`/`o_swing_pct` 靠固定 `zone` 1–14 代碼判斷好壞球，同一顆球對不同身高/站姿的打者其實好球帶不同。有了逐球的 `strike_zone_top/bottom` 搭配既有的 `px`/`pz`，可以：
+- 重算「真實好球帶內外」而非用代碼概估
+- 新增 `edge_pct`（好球帶邊緣 ±2 吋內的球數比例）—— 抓「投手是否敢挑戰邊緣」
+
+**球種分類品質過濾**
+`type_confidence` 可以在算 `pitch_arsenal`／`vs_pitch_types` 前先過濾低信心球種（如 <0.5 直接併入「未分類」），避免罕見球路因誤判混進主要球種統計，讓球種佔比更準。
+
+**節奏／知覺球速**
+`plate_time` 搭配既有的 `extension`，可算「知覺球速」（Perceived Velocity，出手點離本壘板越近，同樣球速對打者來說反應時間越短，等同球更快）：
+```
+perceived_velo ≈ start_speed × (聯盟平均 extension / 該投手 extension)
+```
+`plate_time` 本身也可以直接當「打者反應時間」欄位呈現，比反推的知覺球速更直觀。
+
+**責任分攤（繼承跑者失分）**
+`runners[].responsible_pitcher_id` + `earned` 讓「這場比賽/這局失分該算在哪個投手頭上」可以逐球precisely重建，而不是只看 `ir`/`irs`（繼承跑者/繼承跑者得分）這種賽季彙總數字。
+
+### 9.4 這些新欄位能算出什麼——打者視角
+
+**打點／得分的逐球歸戶**
+`runners[].rbi`／`is_scoring_event` 讓「這一球打點是誰打的、哪個跑者回本壘」可以逐球重建，能拿來做打席敘事文字（例如「二壘安打，讓二壘跑者回本壘得分」），而不是只顯示賽季 RBI 總數。
+
+**跑壘價值（Baserunning Value）**
+`origin_base`→`end_base` 的差距可以算「超前進壘」（Extra Bases Taken，如一壘安打時跑者從二壘直接衝回本壘），以及盜壘/阻殺的逐球細節（`movement_reason` 判斷 stolen_base/caught_stealing 種類）。這是目前完全沒有、也無法從賽季彙總數字回推的資訊。
+
+**真實好球帶熱區圖**
+同 9.3，`strike_zone_top/bottom` 讓打者的 swing/take 熱區圖可以用「這位打者當下實際好球帶」正規化，而不是套用聯盟固定尺寸的好球帶框。
+
+**守備歸戶（連動 spray/BABIP 分析）**
+`credits[]` 可以做到「這球被誰接殺／誰失誤」，未來若想做「運氣調整版 BABIP」（例如扣掉守備失誤造成的上壘），或是單純在打席敘事秀出「游擊手美技接殺」這類文字，都有資料基礎了。
+
+---
+
+## 十、球員每場比賽詳細分析報告 — 設計構想
+
+以下是根據上述新欄位，針對「每場比賽詳細分析報告」這個未來功能的資料面規劃，分投手/打者兩個視角：
+
+### 10.1 投手單場報告
+
+- **逐打席敘事列表**：依打席分組（用 `is_pa_final` 分段），每組列出對戰打者、逐球球種/球速/位置/結果、最終打席結果（`pa_event_desc`）
+- **好球帶疊圖**：用 `px`/`pz` 對照 `strike_zone_top/bottom` 畫出該場所有球的落點（現有 `pitch_movement` 只畫 IVB/HB 散佈圖，沒有畫好球帶落點圖）
+- **VAA/HAA 依球種拆分**：驗證投手當天是否維持一致的進場角度（同球種角度飄動可能代表放球點跑掉、體能下滑）
+- **單場版選球紀律指標**：`csw_pct`/`whiff_pct`/`o_swing_pct` 現有公式直接套用在單場的 pitches 子集合即可，不需要新邏輯
+- **責任失分拆解**：用 `runners[].responsible_pitcher_id`/`earned` 重建「這場比賽的失分，哪些是自己造成、哪些是繼承來的」
+
+### 10.2 打者單場報告
+
+- **逐打席敘事列表**：面對的投手、逐球球種/好壞球/揮空與否/進球方式、最終打席結果，可做成類似「第3打席：對左投，4球（96mph速球外角/滑球揮空/…）→ 二壘安打，打點1分」的敘事文字
+- **好球帶熱區圖（單場版）**：同 9.4，用該打者當天實際好球帶正規化
+- **單場版 Chase%/Whiff%/Zone%**：套用現有 `_discipline_metrics()` 在單場 pitches 子集合
+- **打點/得分敘事**：用 `runners[].rbi`/`is_scoring_event` 標出每個打點的來源打席
+
+**⚠️ 打者跑壘資料的架構限制（需要額外處理）**：
+`extract_pitch_logs(game_data, player_id, role="batter")` 目前只會抓「這位球員站在打擊區時」發生的球與 `runners`。但一個打者的**跑壘貢獻**（例如他自己上壘後被別人打回本壘、或自己盜壘）發生在**別的打席**——那個打席的打者是別人，`runners[]` 陣列裡才會出現這位球員的 `runner_id`。
+
+換句話說，要完整重建「打者本場的跑壘表現」，現有的 `role="pitcher"/"batter"` 兩種掃描邏輯**都涵蓋不到**，需要新增第三種走訪方式：不看 `matchup.pitcher/batter`，而是走訪該場**所有** play 的 `runners[]`，篩出 `runner_id == player_id` 的紀錄。這塊目前完全沒有實作，是把「打者單場報告」做完整之前必須補上的一塊，建議放在 `site_builder/sync/extract.py` 新增一個 `extract_baserunning_events(game_data, player_id)` 函式，走訪 `liveData.plays.allPlays[].runners[]`（不受目前逐球迴圈的 batter/pitcher 過濾限制）。
+
+### 10.3 回填既有比賽資料的注意事項
+
+`sync_statcast()` 的判斷邏輯是「`pitches_json` 非空就跳過重抓」（`site_builder/sync/statcast.py` 第410行 `needs_fetch = pitches_json in (None, "[]")`），所以**已經抓過的歷史比賽不會自動補上這批新欄位**——新欄位只會出現在下次爬到的「新比賽」裡。如果要讓歷史比賽也補齊，需要先把對應的 `game_logs.pitches_json` 清空（例如 `UPDATE game_logs SET pitches_json='[]', hit_coord_checked=0`）再重跑 `python build.py statcast`，這樣會強迫重新呼叫 playByPlay 端點重新萃取。目前沒有現成指令做這件事，如果需要我可以加一個 `--reextract` 選項。

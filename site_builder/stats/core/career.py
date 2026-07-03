@@ -1,9 +1,7 @@
 """Career and per-year aggregations over season-stat rows."""
 
-from ...util.obj import Obj
-from .aggregate import aggregate_stats, compute_rate_stats, sum_counting
+from .aggregate import aggregate_stats
 from .annotate import annotate_row
-from .innings import ip_to_outs, outs_to_ip
 
 
 def compute_career(stats, level_filter=None):
@@ -72,11 +70,7 @@ def compute_year_groups(all_stats):
         # Sort rows: MLB first, then by level order
         yr_stats.sort(key=lambda s: s.level_order)
 
-        summary = Obj()
-        sum_counting(yr_stats, summary)
-        total_outs = sum(ip_to_outs(s.ip) for s in yr_stats)
-        summary["ip"] = outs_to_ip(total_outs)
-        compute_rate_stats(summary)
+        summary = aggregate_stats(yr_stats)
         summary["year"] = yr
 
         # np alias for template compatibility

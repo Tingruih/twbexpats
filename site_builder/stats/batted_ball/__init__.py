@@ -7,13 +7,14 @@ counts produced by ``stats.core.pitches.aggregate_pitches``.
 
 from ...constants import BATTED_BALL_RATE_DIGITS
 from ...util.numbers import ratio
+from .barrel import compute_barrel_pct
 from .exit_velocity import compute_avg_ev
+from .hard_hit import compute_hard_hit_pct
 
 
 def batted_ball_metrics(agg: dict) -> dict:
     """Build the batted-ball metrics dict from aggregate_pitches output."""
     n_ip = len(agg["in_play"])
-    n_ev = len(agg["bbe_ev"])
     spray_available = (agg.get("spray_total") or 0) > 0
     metrics = {
         "bbe": n_ip,
@@ -28,8 +29,8 @@ def batted_ball_metrics(agg: dict) -> dict:
         "straight_pct": None,
         "oppo_pct": None,
         "pull_air_pct": None,
-        "barrel_pct": ratio(agg["barrels"], n_ip),
-        "hard_hit_pct": ratio(agg["hard_hits"], n_ev),
+        "barrel_pct": compute_barrel_pct(agg),
+        "hard_hit_pct": compute_hard_hit_pct(agg),
         "avg_ev": compute_avg_ev(agg["bbe_ev"]),
     }
     if spray_available:

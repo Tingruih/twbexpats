@@ -6,9 +6,10 @@ Layout (keep new constants in the right section):
   1. Paths & runtime config     — project paths, timeouts, worker counts.
   2. ANNUAL CONSTANTS           — values that must be refreshed each spring.
                                   SEASON_YEAR rolls over automatically;
-                                  FIP_CONSTANTS/LEAGUE_RA9 need a manual entry
-                                  each year (fall back to the latest year
-                                  otherwise).
+                                  LEAGUE_RA9 needs a manual entry each year
+                                  (falls back to the latest year otherwise).
+                                  The MiLB FIP constant is no longer manual —
+                                  see db.fip_constants_cache.
   3. Stable domain constants    — pitch codes, wOBA weights, chart definitions.
                                   These do not change year to year; every entry
                                   carries a source note.
@@ -49,10 +50,14 @@ GAME_FETCH_WORKERS = 10
 # Season-start checklist (one place, one commit):
 #   1. SEASON_YEAR rolls over automatically (see _auto_season_year below) —
 #      nothing to bump by hand.
-#   2. Add FIP_CONSTANTS entries for the new year (source: TJStats/FanGraphs guts).
-#   3. Add LEAGUE_RA9 entries for the new year.
-# get_fip_constant/get_league_ra9 fall back to the latest available year, so
-# a season without a new entry keeps working — just with a stale constant.
+#   2. Add LEAGUE_RA9 entries for the new year.
+# get_league_ra9 falls back to the latest available year, so a season
+# without a new entry keeps working — just with a stale constant.
+#
+# FIP_CONSTANTS is no longer a manual table: the MiLB FIP constant is computed
+# from real league-wide pitching totals fetched from the MLB Stats API (see
+# db.fip_constants_cache / api.league_stats / stats.advanced.fip). Nothing to
+# refresh here by hand.
 
 
 def _auto_season_year() -> int:
@@ -70,19 +75,14 @@ def _auto_season_year() -> int:
 _env_season_year = os.environ.get("DEFAULT_SEASON_YEAR")
 SEASON_YEAR = int(_env_season_year) if _env_season_year else _auto_season_year()
 
-# FIP constant per (sport_level, year).
-# Source: https://tjstats.ca/glossary/ (league run environments per level).
-FIP_CONSTANTS = {
-    ("MLB", 2024): 3.247,
-    ("AAA", 2024): 3.896,
-    ("AA", 2024): 3.613,
-    ("A+", 2024): 3.586,
-    ("A", 2024): 3.733,
-}
-FIP_DEFAULT_CONSTANT = 3.2  # last-resort fallback when a level has no entry at all
+# Last-resort FIP constant when db.fip_constants_cache can't resolve one at
+# all (fetch failure, unrecognized level, season hasn't started yet).
+FIP_DEFAULT_CONSTANT = 3.2
 
 # League RA/9 per (sport_level, year), used in the xWPCT (Pythagenpat) formula.
-# Approximate values; refresh alongside FIP_CONSTANTS.
+# Approximate values; refresh manually each spring (source: TJStats/FanGraphs
+# guts). Candidate for the same auto-computed treatment as the FIP constant
+# (db.fip_constants_cache) — deferred for now.
 LEAGUE_RA9 = {
     ("MLB", 2024): 4.40,
     ("AAA", 2024): 5.10,
@@ -107,11 +107,6 @@ def _lookup_annual(table: dict, level: str, year: Optional[int]):
     if candidates:
         return candidates[max(candidates)], False
     return None, False
-
-
-def get_fip_constant(level: str, year: Optional[int]) -> tuple[Optional[float], bool]:
-    """FIP constant for *level*/*year*; falls back to the latest year at *level*."""
-    return _lookup_annual(FIP_CONSTANTS, level, year)
 
 
 def get_league_ra9(level: str, year: Optional[int] = None) -> tuple[Optional[float], bool]:

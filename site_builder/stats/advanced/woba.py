@@ -1,7 +1,7 @@
 """wOBA — weighted on-base average (TJStats fixed linear weights).
 
 Two entry points for the two data sources:
-  - :func:`compute_pitch_woba` from cached pitch-level PA outcomes
+  - :func:`compute_pitch_woba` from a ``compute_pa_outcome_totals`` result
   - :func:`compute_season_woba` from a season_stats row's counting stats
 Both share the weights in ``constants.WOBA_WEIGHTS`` and exclude intentional
 walks / sacrifice bunts from the denominator.
@@ -10,17 +10,17 @@ walks / sacrifice bunts from the denominator.
 from typing import Optional
 
 from ...constants import WOBA_WEIGHTS
-from ..core.pa_outcomes import compute_pa_outcome_totals
+from ...util.numbers import ratio
 
 
-def compute_pitch_woba(pa_final: list[dict]) -> tuple[float, int]:
-    """Compute wOBA numerator and denominator from PA-final pitches.
+def compute_pitch_woba(totals: dict) -> Optional[float]:
+    """Compute wOBA from a ``compute_pa_outcome_totals()`` result.
 
-    Excludes intentional walks, sacrifice bunts, and non-PA baserunning
-    events (caught stealing, pickoffs) from the denominator.
+    Takes the already-tallied totals rather than the raw pitch list so
+    callers that also need ``totals["hits"]``/``totals["ab"]`` (e.g. AVG)
+    can share a single pass instead of re-tallying PA outcomes.
     """
-    totals = compute_pa_outcome_totals(pa_final)
-    return totals["woba_num"], totals["woba_den"]
+    return ratio(totals["woba_num"], totals["woba_den"])
 
 
 def compute_season_woba(stat: dict) -> Optional[float]:

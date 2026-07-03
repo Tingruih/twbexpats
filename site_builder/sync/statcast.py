@@ -15,6 +15,7 @@ from ..api import (
     sport_obj_to_abbr,
 )
 from ..constants import GAME_FETCH_WORKERS
+from ..db.fip_constants_cache import get_fip_constants
 from ..db.game_logs import load_all_pitches_for_player
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
@@ -84,6 +85,7 @@ def _merge_statcast_into_season(
     year: int,
     position: str,
     statcast_data: dict,
+    fip_constants_lookup,
     sport_level: str = "",
     sabermetrics: Optional[dict] = None,
     expected_stats: Optional[dict] = None,
@@ -104,6 +106,11 @@ def _merge_statcast_into_season(
     to the row whose sport_level matches ``sport_level`` (not broadcast to all
     rows). This prevents shuttle-player rows at MiLB levels from receiving
     MLB-derived aggregate stats.
+
+    ``fip_constants_lookup(sport_level, year) -> {league_name: fip_constant}``
+    resolves the MiLB FIP constant per-league (see db.fip_constants_cache);
+    callers should memoize it across a whole sync run so the same
+    (level, year) isn't re-fetched for every player.
     """
     cur.execute(
         "SELECT team_name, league_name, sport_level, stat_json, fielding_json "
@@ -158,17 +165,20 @@ def _merge_statcast_into_season(
         # Compute FIP (MiLB path) if we have enough inputs
         if is_pitcher and row_sport_level and row_sport_level != "MLB":
             ip = stat_doc.get("ip")
+            league_constants = fip_constants_lookup(row_sport_level, year)
+            c_fip = league_constants.get(league_name) or league_constants.get("")
             fip_val = compute_fip(
                 hr=stat_doc.get("p_hr"),
                 bb=stat_doc.get("bb"),
                 hbp=stat_doc.get("p_hbp"),
                 k=stat_doc.get("so"),
                 ip=safe_float(ip),
-                sport_level=row_sport_level,
-                year=year,
+                c_fip=c_fip,
             )
             if fip_val is not None:
-                stat_doc["fip"] = fip_val
+                # Store FIP rounded for display, but feed the raw value into
+                # xwpct so the downstream stat isn't computed off a truncated FIP.
+                stat_doc["fip"] = round(fip_val, 2)
                 stat_doc["xwpct"] = compute_xwpct(fip_val, row_sport_level, year)
         elif is_pitcher and row_sport_level == "MLB" and sabermetrics:
             fip_val = safe_float(sabermetrics.get("fip"))
@@ -287,6 +297,7 @@ def sync_statcast(
     roster_file: str,
     year: int,
     only_player: Optional[int] = None,
+    update_constants: bool = False,
 ):
     """Fetch playByPlay for every un-processed game and compute Statcast.
 
@@ -301,11 +312,26 @@ def sync_statcast(
       6. For each affected player-year, recompute Statcast aggregates and
          merge into season_stats.stat_json. Also fetch sabermetrics (MLB)
          and expectedStatistics (all levels).
+
+    ``update_constants`` forces a fresh fetch of the MiLB FIP constants for
+    *past* seasons too (see db.fip_constants_cache) — the current season's
+    constants are always fetched fresh regardless, since its league totals
+    keep changing as games are played.
     """
     db_file = Path(db_path)
     conn = sqlite3.connect(db_file)
     init_db(conn)
     cur = conn.cursor()
+
+    fip_constants_cache: dict[tuple[str, int], dict[str, float]] = {}
+
+    def _fip_constants(sport_level: str, yr: int) -> dict[str, float]:
+        key = (sport_level, yr)
+        if key not in fip_constants_cache:
+            fip_constants_cache[key] = get_fip_constants(
+                conn, sport_level, yr, force_refresh=update_constants
+            )
+        return fip_constants_cache[key]
 
     roster_map = build_roster_map(roster_file)
     if only_player is not None:
@@ -501,6 +527,7 @@ def sync_statcast(
                         year=yr,
                         position=position,
                         statcast_data=data["statcast"],
+                        fip_constants_lookup=_fip_constants,
                         sport_level=lvl,
                         sabermetrics=data["sabermetrics"],
                         expected_stats=data["expected_stats"],

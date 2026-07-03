@@ -5,6 +5,48 @@
 """
 
 
+def _extract_runners(play: dict) -> list[dict]:
+    """Condense a play's ``runners`` node (baserunning movement + defensive
+    credit) into a compact list, dropping the API's verbose link/copyright
+    boilerplate.
+
+    Only called on the last pitch of a PA — this data describes the play's
+    final outcome, not a single pitch.
+    """
+    out: list[dict] = []
+    for r in play.get("runners", []) or []:
+        movement = r.get("movement", {}) or {}
+        details = r.get("details", {}) or {}
+        runner = details.get("runner", {}) or {}
+        responsible_pitcher = details.get("responsiblePitcher") or {}
+        credits = [
+            {
+                "player_id": c.get("player", {}).get("id"),
+                "position": c.get("position", {}).get("abbreviation", ""),
+                "credit": c.get("credit", ""),
+            }
+            for c in r.get("credits", []) or []
+        ]
+        out.append({
+            "runner_id": runner.get("id"),
+            "origin_base": movement.get("originBase"),
+            "start_base": movement.get("start"),
+            "end_base": movement.get("end"),
+            "out_base": movement.get("outBase"),
+            "is_out": bool(movement.get("isOut")),
+            "out_number": movement.get("outNumber"),
+            "event": details.get("event", ""),
+            "event_type": details.get("eventType", ""),
+            "movement_reason": details.get("movementReason", ""),
+            "is_scoring_event": bool(details.get("isScoringEvent")),
+            "rbi": bool(details.get("rbi")),
+            "earned": details.get("earned"),
+            "responsible_pitcher_id": responsible_pitcher.get("id"),
+            "credits": credits,
+        })
+    return out
+
+
 def extract_pitch_logs(
     game_data: dict, player_id: int, role: str
 ) -> list[dict]:
@@ -88,16 +130,29 @@ def extract_pitch_logs(
                 "start_speed": pdata.get("startSpeed"),
                 "end_speed": pdata.get("endSpeed"),
                 "extension": pdata.get("extension"),
+                "plate_time": pdata.get("plateTime"),
+                "strike_zone_top": pdata.get("strikeZoneTop"),
+                "strike_zone_bottom": pdata.get("strikeZoneBottom"),
+                "type_confidence": pdata.get("typeConfidence"),
                 "pfx_x": coords.get("pfxX"),
                 "pfx_z": coords.get("pfxZ"),
                 "px": coords.get("pX"),
                 "pz": coords.get("pZ"),
                 "x0": coords.get("x0"),
                 "z0": coords.get("z0"),
+                "vx0": coords.get("vX0"),
+                "vy0": coords.get("vY0"),
+                "vz0": coords.get("vZ0"),
+                "ax": coords.get("aX"),
+                "ay": coords.get("aY"),
+                "az": coords.get("aZ"),
                 "ivb": breaks.get("breakVerticalInduced"),
                 "hb": breaks.get("breakHorizontal"),
                 "spin_rate": breaks.get("spinRate"),
                 "spin_dir": breaks.get("spinDirection"),
+                "break_angle": breaks.get("breakAngle"),
+                "break_length": breaks.get("breakLength"),
+                "break_y": breaks.get("breakY"),
                 "ev": hdata.get("launchSpeed"),
                 "la": hdata.get("launchAngle"),
                 "hit_distance": hdata.get("totalDistance"),
@@ -118,6 +173,7 @@ def extract_pitch_logs(
                 "is_pa_final": is_final,
                 "pa_event": event_type if is_final else "",
                 "pa_event_desc": event_desc if is_final else "",
+                "runners": _extract_runners(play) if is_final else None,
             })
 
             # Advance pre-pitch tracker: next pitch's pre-count =

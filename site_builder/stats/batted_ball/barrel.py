@@ -2,6 +2,12 @@
 
 from typing import Optional
 
+from ...util.numbers import ratio
+
+
+def compute_barrel_pct(agg: dict):
+    return ratio(agg["barrels"], len(agg["in_play"]))
+
 
 def is_barrel(ev: Optional[float], la: Optional[float]) -> bool:
     """Statcast barrel definition.

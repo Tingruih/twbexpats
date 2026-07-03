@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ..constants import DEFAULT_ROSTER_FILE, MIN_WRC_YEAR, STATIC_DIR, WRC_LEVELS
 from ..db.bundles import load_player_bundle
+from ..db.players import warn_orphaned_players
 from ..db.schema import init_db
 from ..levels import level_rank
 from ..roster import is_active_player, parse_roster_from_file
@@ -137,17 +138,7 @@ def build_static_site(
     rows = cur.fetchall()
 
     if roster_ids:
-        cur.execute("SELECT mlb_id, name_en, name_tw FROM players ORDER BY mlb_id")
-        orphans = [
-            (mlb_id, name_en, name_tw)
-            for mlb_id, name_en, name_tw in cur.fetchall()
-            if mlb_id not in roster_ids
-        ]
-        if orphans:
-            print(f"  WARNING: {len(orphans)} DB player(s) not in roster (skipped):")
-            for mlb_id, name_en, name_tw in orphans:
-                label = f"{name_tw} / {name_en}" if name_tw else name_en
-                print(f"    {mlb_id}  {label}")
+        warn_orphaned_players(conn, roster_ids)
 
     bundles = [load_player_bundle(cur, row) for row in rows]
 

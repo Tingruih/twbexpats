@@ -1,11 +1,20 @@
 """Vs-pitch-types table — how a batter fares against each pitch type."""
 
 from ...constants import BATTER_PLINKO_SKIP_TYPES
-from ...util.numbers import ratio
+from ..advanced.woba import compute_pitch_woba
+from ..batted_ball.barrel import compute_barrel_pct
+from ..batted_ball.hard_hit import compute_hard_hit_pct
+from ..batting.avg import compute_avg
 from ..core.pa_outcomes import compute_pa_outcome_totals
 from ..core.pitches import aggregate_pitches
+from ..discipline.csw_pct import compute_csw_pct
+from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.pitch_strike_pct import compute_pitch_strike_pct
 from ..discipline.put_away import compute_put_away
+from ..discipline.swstr_pct import compute_swstr_pct
+from ..discipline.whiff_pct import compute_whiff_pct
+from ..discipline.z_swing_pct import compute_z_swing_pct
+from ..discipline.zone_pct import compute_zone_pct
 from .weighted import combine_pitch_type_data
 
 
@@ -40,18 +49,18 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
             "name": name,
             "count": n,
             "strike_pct": compute_pitch_strike_pct(ps),
-            "zone_pct": ratio(len(agg["in_zone"]), len(agg["in_zone"]) + len(agg["out_zone"])),
-            "z_swing_pct": ratio(len(agg["in_zone_swings"]), len(agg["in_zone"])),
-            "o_swing_pct": ratio(len(agg["out_zone_swings"]), len(agg["out_zone"])),
-            "whiff_pct": ratio(len(agg["whiffs"]), len(agg["swings"])),
-            "swstr_pct": ratio(len(agg["whiffs"]), n),
-            "csw_pct": ratio(len(agg["called"]) + len(agg["whiffs"]), n),
+            "zone_pct": compute_zone_pct(agg),
+            "z_swing_pct": compute_z_swing_pct(agg),
+            "o_swing_pct": compute_o_swing_pct(agg),
+            "whiff_pct": compute_whiff_pct(agg),
+            "swstr_pct": compute_swstr_pct(agg),
+            "csw_pct": compute_csw_pct(agg),
             "put_away_pct": put_away_pct,
             "two_strike_count": two_strike_count,
-            "avg": ratio(totals["hits"], totals["ab"]),
-            "woba": ratio(totals["woba_num"], totals["woba_den"]),
-            "barrel_pct": ratio(agg["barrels"], len(agg["in_play"])),
-            "hard_hit_pct": ratio(agg["hard_hits"], len(agg["bbe_ev"])),
+            "avg": compute_avg(totals["hits"], totals["ab"]),
+            "woba": compute_pitch_woba(totals),
+            "barrel_pct": compute_barrel_pct(agg),
+            "hard_hit_pct": compute_hard_hit_pct(agg),
         })
     out.sort(key=lambda r: r.get("count", 0), reverse=True)
     return out

@@ -3,8 +3,12 @@
 
 from ...util.numbers import mean_round, ratio
 from ..advanced.woba import compute_pitch_woba
+from ..core.pa_outcomes import compute_pa_outcome_totals
 from ..core.pitches import aggregate_pitches, filter_known_pitch_events
+from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.put_away import compute_put_away
+from ..discipline.whiff_pct import compute_whiff_pct
+from ..discipline.zone_pct import compute_zone_pct
 from .weighted import combine_pitch_type_data
 
 
@@ -25,7 +29,7 @@ def compute_pitch_arsenal(pitches: list[dict]) -> list[dict]:
     for ptype, ps in by_type.items():
         n = len(ps)
         agg = aggregate_pitches(ps)
-        woba_num, woba_den = compute_pitch_woba(agg["pa_final"])
+        totals = compute_pa_outcome_totals(agg["pa_final"])
         name = next((p.get("pitch_name") for p in ps if p.get("pitch_name")), ptype)
         put_away_pct, two_strike_count = compute_put_away(ps)
 
@@ -41,12 +45,12 @@ def compute_pitch_arsenal(pitches: list[dict]) -> list[dict]:
             "extension": mean_round([p.get("extension") for p in ps], 2),
             "v_rel": mean_round([p.get("z0") for p in ps], 2),
             "h_rel": mean_round([p.get("x0") for p in ps], 2),
-            "zone_pct": ratio(len(agg["in_zone"]), len(agg["in_zone"]) + len(agg["out_zone"])),
-            "chase_pct": ratio(len(agg["out_zone_swings"]), len(agg["out_zone"])),
-            "whiff_pct": ratio(len(agg["whiffs"]), len(agg["swings"])),
+            "zone_pct": compute_zone_pct(agg),
+            "chase_pct": compute_o_swing_pct(agg),
+            "whiff_pct": compute_whiff_pct(agg),
             "put_away_pct": put_away_pct,
             "two_strike_count": two_strike_count,
-            "woba": ratio(woba_num, woba_den),
+            "woba": compute_pitch_woba(totals),
         })
     out.sort(key=lambda r: r.get("count", 0), reverse=True)
     return out
