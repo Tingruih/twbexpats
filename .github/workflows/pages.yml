@@ -8,6 +8,11 @@ on:
     - cron: "17 3 * * *" # 11:17 AM (UTC+8)
     - cron: "17 6 * * *" # 2:17 PM (UTC+8)
   workflow_dispatch:
+    inputs:
+      update_constants:
+        description: "Force-refresh the tjstats.ca park-factor/league-constant cache (wRC+)"
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -19,7 +24,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  DEFAULT_SEASON_YEAR: "2026"
   GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
   GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
   GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
@@ -75,7 +79,14 @@ jobs:
           ls -lh data/tracker.sqlite3
 
       - name: Refresh & Build
-        run: python build.py refresh --base-url "$PAGES_BASE_URL"
+        env:
+          UPDATE_CONSTANTS: ${{ github.event.inputs.update_constants }}
+        run: |
+          EXTRA_ARGS=()
+          if [ "$UPDATE_CONSTANTS" = "true" ]; then
+            EXTRA_ARGS+=(--update-constants)
+          fi
+          python build.py refresh --base-url "$PAGES_BASE_URL" "${EXTRA_ARGS[@]}"
 
       - name: Upload DB to Google Drive
         if: success()

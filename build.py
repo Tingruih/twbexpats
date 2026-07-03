@@ -30,12 +30,15 @@ Options:
     python build.py statcast --player 678906   # single player only
     python build.py refresh  --player 678906   # single player only
     python build.py build    --base-url /twbexpats/
+    python build.py refresh  --update-constants  # force-refresh the tjstats.ca
+                                                  # park-factor/league-constant
+                                                  # cache used for wRC+
 """
 
 import argparse
 import sys
 
-from site_builder.helpers import DEFAULT_SEASON_YEAR
+from site_builder.constants import SEASON_YEAR
 
 
 def cmd_sync(args):
@@ -50,7 +53,7 @@ def cmd_sync(args):
 
 
 def cmd_build(args):
-    from site_builder.builder import build_static_site
+    from site_builder.render import build_static_site
 
     build_static_site(
         db_path=args.db,
@@ -58,6 +61,7 @@ def cmd_build(args):
         output_dir=args.output,
         base_url=args.base_url,
         roster_file=args.roster,
+        update_constants=args.update_constants,
     )
 
 
@@ -76,7 +80,7 @@ def cmd_statcast(args):
 def cmd_refresh(args):
     """Three-step daily update: basic stats → Statcast → build."""
     from site_builder.sync import update_database, sync_statcast
-    from site_builder.builder import build_static_site
+    from site_builder.render import build_static_site
 
     update_database(
         db_path=args.db,
@@ -96,6 +100,7 @@ def cmd_refresh(args):
         output_dir=args.output,
         base_url=args.base_url,
         roster_file=args.roster,
+        update_constants=args.update_constants,
     )
 
 
@@ -126,7 +131,7 @@ def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", default="data/tracker.sqlite3", help="SQLite path")
     common.add_argument(
-        "--year", type=int, default=DEFAULT_SEASON_YEAR, help="Season year"
+        "--year", type=int, default=SEASON_YEAR, help="Season year"
     )
 
     # sync — full historical sync (all years, all game logs)
@@ -173,6 +178,12 @@ def main():
     sp_refresh.add_argument(
         "--base-url", default="/", help="Site base URL (e.g. /repo/)"
     )
+    sp_refresh.add_argument(
+        "--update-constants",
+        action="store_true",
+        help="Force a fresh scrape of tjstats.ca park factors/league constants "
+        "instead of using the cached SQLite values",
+    )
     sp_refresh.set_defaults(func=cmd_refresh)
 
     # build — render HTML from existing database
@@ -186,6 +197,12 @@ def main():
     )
     sp_build.add_argument("--output", default="dist", help="Output directory")
     sp_build.add_argument("--base-url", default="/", help="Site base URL (e.g. /repo/)")
+    sp_build.add_argument(
+        "--update-constants",
+        action="store_true",
+        help="Force a fresh scrape of tjstats.ca park factors/league constants "
+        "instead of using the cached SQLite values",
+    )
     sp_build.set_defaults(func=cmd_build)
 
     # all — full sync then build
@@ -202,6 +219,12 @@ def main():
     )
     sp_all.add_argument("--output", default="dist", help="Output directory")
     sp_all.add_argument("--base-url", default="/", help="Site base URL")
+    sp_all.add_argument(
+        "--update-constants",
+        action="store_true",
+        help="Force a fresh scrape of tjstats.ca park factors/league constants "
+        "instead of using the cached SQLite values",
+    )
     sp_all.set_defaults(func=cmd_all)
 
     args = parser.parse_args()
