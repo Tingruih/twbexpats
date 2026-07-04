@@ -12,13 +12,13 @@ from ..api import (
     get_game_sport_level,
     get_player_expected_stats,
     get_player_sabermetrics,
-    sport_obj_to_abbr,
 )
 from ..constants import GAME_FETCH_WORKERS
 from ..db.fip_constants_cache import get_fip_constants
 from ..db.game_logs import load_all_pitches_for_player
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
+from ..levels import sport_obj_to_abbr
 from ..roster import build_roster_map
 from ..stats.advanced.fip import compute_fip
 from ..stats.advanced.xwpct import compute_xwpct

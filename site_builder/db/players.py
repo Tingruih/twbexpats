@@ -35,17 +35,6 @@ def warn_orphaned_players(conn: sqlite3.Connection, roster_ids: set[int]):
         f"({','.join(str(i) for i in roster_ids)});\""
     )
 
-
-def get_positions(cur, mlb_ids) -> dict[int, str]:
-    """Return {mlb_id: position} for the given players (empty string if unknown)."""
-    positions: dict[int, str] = {}
-    for mlb_id in mlb_ids:
-        cur.execute("SELECT position FROM players WHERE mlb_id = ?", (mlb_id,))
-        row = cur.fetchone()
-        positions[mlb_id] = (row[0] if row else "") or ""
-    return positions
-
-
 def get_cached_is_active(cur) -> dict[int, bool]:
     """Return {mlb_id: is_active} as cached from the last profile fetch."""
     cur.execute("SELECT mlb_id, is_active FROM players")

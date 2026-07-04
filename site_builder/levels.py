@@ -144,6 +144,19 @@ def sport_name_to_code(name: str) -> str:
     return tier.modern or tier.legacy
 
 
+def sport_obj_to_abbr(sport: Optional[dict]) -> str:
+    """Convert an MLB Stats API sport object to a stored level code.
+
+    Prefers sportId; falls back to the sport name.
+    """
+    if not sport:
+        return ""
+    abbr = sport_id_to_code(sport.get("id", 0))
+    if abbr:
+        return abbr
+    return sport_name_to_code(sport.get("name", ""))
+
+
 def tier_keys_ordered() -> list:
     """Tier keys ordered by rank (highest level first) — for SQL CASE ordering."""
     return [t.key for t in sorted(TIERS, key=lambda t: t.rank)]

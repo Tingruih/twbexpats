@@ -10,7 +10,6 @@ walks / sacrifice bunts from the denominator.
 from typing import Optional
 
 from ...constants import WOBA_WEIGHTS
-from ...util.numbers import ratio
 
 
 def compute_pitch_woba(totals: dict) -> Optional[float]:
@@ -19,8 +18,15 @@ def compute_pitch_woba(totals: dict) -> Optional[float]:
     Takes the already-tallied totals rather than the raw pitch list so
     callers that also need ``totals["hits"]``/``totals["ab"]`` (e.g. AVG)
     can share a single pass instead of re-tallying PA outcomes.
+
+    Returns the unrounded ratio (mirrors :func:`compute_season_woba`) so that
+    PA-weighted combining across levels (``combine.py``) rounds exactly once,
+    at final display time, instead of rounding here and again after weighting.
     """
-    return ratio(totals["woba_num"], totals["woba_den"])
+    den = totals["woba_den"]
+    if not den:
+        return None
+    return totals["woba_num"] / den
 
 
 def compute_season_woba(stat: dict) -> Optional[float]:

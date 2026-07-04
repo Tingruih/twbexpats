@@ -13,11 +13,7 @@ Public functions are re-exported here so callers can simply
 ``from site_builder.api import get_player_profile``.
 """
 
-from .games import (  # noqa: F401
-    get_game_play_by_play,
-    get_game_sport_level,
-    sport_obj_to_abbr,
-)
+from .games import get_game_play_by_play, get_game_sport_level  # noqa: F401
 from .league_stats import fetch_team_league_map, fetch_team_pitching_totals  # noqa: F401
 from .players import get_player_profile  # noqa: F401
 from .schedule import get_next_game  # noqa: F401
