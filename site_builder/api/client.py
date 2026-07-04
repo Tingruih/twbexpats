@@ -4,7 +4,7 @@ import requests
 
 from ..constants import API_TIMEOUT
 
-BASE_URL = "    "
+BASE_URL = "https://statsapi.mlb.com/api/v1"
 # The live feed (play-by-play) lives on the v1.1 API.
 BASE_URL_V11 = "https://statsapi.mlb.com/api/v1.1"
 
