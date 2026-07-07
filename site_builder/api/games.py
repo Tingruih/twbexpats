@@ -1,21 +1,21 @@
-"""Game live-feed endpoints and sport-level helpers."""
+"""Game play-by-play endpoints and sport-level helpers."""
 
 import logging
 
 from ..constants import LIVE_FEED_TIMEOUT
 from ..levels import sport_obj_to_abbr
-from .client import BASE_URL_V11, get_json
+from .client import BASE_URL, BASE_URL_V11, get_json
 
 logger = logging.getLogger(__name__)
 
 
 def get_game_play_by_play(game_pk: int) -> dict:
-    """Fetch the full live-feed JSON for a single game.
+    """Fetch the full withMetrics JSON for a single game.
 
     Returns the raw dict from MLB Stats API. Caller is responsible for
     walking ``liveData.plays.allPlays`` and extracting pitches.
     """
-    url = f"{BASE_URL_V11}/game/{game_pk}/feed/live"
+    url = f"{BASE_URL}/game/{game_pk}/withMetrics"
     try:
         return get_json(url, timeout=LIVE_FEED_TIMEOUT)
     except Exception as e:
