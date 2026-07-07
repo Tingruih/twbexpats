@@ -53,6 +53,7 @@ def init_db(conn: sqlite3.Connection):
             is_home INTEGER,
             stats_json TEXT NOT NULL DEFAULT '{}',
             pitches_json TEXT NOT NULL DEFAULT '[]',
+            events_json TEXT NOT NULL DEFAULT '[]',
             UNIQUE(player_mlb_id, game_id)
         );
 
@@ -119,6 +120,14 @@ def init_db(conn: sqlite3.Connection):
     try:
         conn.execute(
             "ALTER TABLE game_logs ADD COLUMN hit_coord_checked INTEGER NOT NULL DEFAULT 0"
+        )
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    # Forward-migration: add events_json column to game_logs if it does not yet
+    # exist (withMetrics non-pitch events: pickoff/stepoff).
+    try:
+        conn.execute(
+            "ALTER TABLE game_logs ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'"
         )
     except sqlite3.OperationalError:
         pass  # column already exists
