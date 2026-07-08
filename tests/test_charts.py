@@ -3,6 +3,7 @@ from pathlib import Path
 
 from site_builder.charts import style
 from site_builder.charts.plate import render_game_pitch_map
+from site_builder.charts.velocity import render_velocity_sequence
 from site_builder.charts.zones import overlay_points_from_pitches, render_hot_zone
 from tests.recent_fixtures import make_pitch, make_untracked_pitch
 
@@ -81,3 +82,20 @@ def test_render_hot_zone(tmp_path):
 
 def test_render_hot_zone_empty(tmp_path):
     assert render_hot_zone({}, tmp_path / "z.png") is False
+
+
+def test_render_velocity_sequence(tmp_path):
+    pitches = (
+        [make_pitch(start_speed=94 + i * 0.2, inning=1) for i in range(6)]
+        + [make_pitch(pitch_type="SL", start_speed=85.0, inning=2) for _ in range(4)]
+    )
+    arsenal = [{"type": "FF", "velo": 94.8}, {"type": "SL", "velo": 84.9},
+               {"type": "CH", "velo": 88.0}]  # CH 本場沒投 → 不畫線
+    out = tmp_path / "velo.png"
+    assert render_velocity_sequence(pitches, out, season_arsenal=arsenal) is True
+    assert out.stat().st_size > 5000
+
+
+def test_render_velocity_sequence_untracked(tmp_path):
+    assert render_velocity_sequence(
+        [make_untracked_pitch() for _ in range(10)], tmp_path / "v.png") is False
