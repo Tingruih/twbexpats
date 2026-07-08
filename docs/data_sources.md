@@ -180,7 +180,7 @@ xWPCT（Pythagenpat 1.83）= 1 / (1 + (FIP / 聯盟RA9)^1.83)
 
 ### 2.7 Statcast 逐球指標（🟢 全部計算，`statcast.py compute_pitcher_statcast()` 969–1003行）
 
-原始輸入：`GET /game/{game_pk}/feed/live`（play-by-play）逐球資料，經 `extract_pitch_logs()`（206–326行）萃取成逐球 dict，快取在 `game_logs.pitches_json`。這些逐球欄位（球速 `start_speed`/`end_speed`、位移 `pfx_x/z`／`ivb`/`hb`、轉速 `spin_rate`、出球速度角度 `ev`/`la`、進壘位置 `zone` 等）本身是 🔵 API 算好的物理量，程式只是萃取存下來；下列才是程式在其上「聚合、分類、二次計算」出來的指標：
+原始輸入：`GET /game/{game_pk}/withMetrics`（play-by-play）逐球資料，經 `extract_pitch_logs()`（206–326行）萃取成逐球 dict，快取在 `game_logs.pitches_json`。這些逐球欄位（球速 `start_speed`/`end_speed`、位移 `pfx_x/z`／`ivb`/`hb`、轉速 `spin_rate`、出球速度角度 `ev`/`la`、進壘位置 `zone` 等）本身是 🔵 API 算好的物理量，程式只是萃取存下來；下列才是程式在其上「聚合、分類、二次計算」出來的指標：
 
 **選球紀律**（`_discipline_metrics()` 917–929行）
 | 欄位 | 公式 |
