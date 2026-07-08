@@ -33,8 +33,9 @@ logger = logging.getLogger(__name__)
 
 def _fetch_and_extract_game(
     game_pk: int, players_in_game: list[tuple[int, str]]
-) -> tuple[dict[int, list[dict]], str]:
-    """Fetch one game's live feed and extract pitches for every relevant player.
+) -> tuple[dict[int, list[dict]], dict[int, list[dict]], str]:
+    """Fetch one game's live feed and extract pitches + non-pitch events for
+    every relevant player.
 
     Args:
         game_pk: the game primary key.
@@ -42,15 +43,17 @@ def _fetch_and_extract_game(
                          care about that appeared in this game.
 
     Returns:
-        A 2-tuple of:
+        A 3-tuple of:
           - {mlb_id: [pitch_dict, ...]}  (may be empty per player)
+          - {mlb_id: [event_dict, ...]}  (pickoff/stepoff, may be empty per player)
           - sport_level string (e.g. "MLB", "AAA") extracted from the live feed,
             or "" if unavailable.
     """
     game_data = get_game_play_by_play(game_pk)
     out: dict[int, list[dict]] = {}
+    events_out: dict[int, list[dict]] = {}
     if not game_data:
-        return out, ""
+        return out, events_out, ""
     sport_obj = (
         game_data.get("gameData", {})
         .get("teams", {})
@@ -60,13 +63,14 @@ def _fetch_and_extract_game(
     sport_level: str = sport_obj_to_abbr(sport_obj)
     for mlb_id, position in players_in_game:
         role = "pitcher" if position == "P" else "batter"
-        pitches = extract_pitch_logs(game_data, mlb_id, role)
+        pitches, events = extract_pitch_logs(game_data, mlb_id, role)
         if not pitches:
             # try the opposite role as fallback (two-way / misconfigured roster)
             alt = "batter" if role == "pitcher" else "pitcher"
-            pitches = extract_pitch_logs(game_data, mlb_id, alt)
+            pitches, events = extract_pitch_logs(game_data, mlb_id, alt)
         out[mlb_id] = pitches
-    return out, sport_level
+        events_out[mlb_id] = events
+    return out, events_out, sport_level
 
 
 def _pitches_need_hit_coord_backfill(pitches: list[dict]) -> bool:
@@ -427,6 +431,7 @@ def sync_statcast(
 
     # ── Phase 2: parallel fetch + extract ──
     extracted: dict[tuple[int, int], list[dict]] = {}  # (player_id, game_pk) -> pitches
+    extracted_events: dict[tuple[int, int], list[dict]] = {}  # (player_id, game_pk) -> events
     game_sport_levels: dict[int, str] = {}  # game_pk -> sport_level
     with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
         future_to_gpk = {
@@ -436,10 +441,12 @@ def sync_statcast(
         for i, future in enumerate(as_completed(future_to_gpk), 1):
             gpk = future_to_gpk[future]
             try:
-                result, sport_level = future.result()
+                result, events_result, sport_level = future.result()
                 game_sport_levels[gpk] = sport_level
                 for mlb_id, pitches in result.items():
                     extracted[(mlb_id, gpk)] = pitches
+                for mlb_id, events in events_result.items():
+                    extracted_events[(mlb_id, gpk)] = events
                 if i % 25 == 0 or i == total_games:
                     print(f"  [{i}/{total_games}] games fetched")
             except Exception as e:
@@ -468,24 +475,28 @@ def sync_statcast(
                 pass
 
         lvl = game_sport_levels.get(gpk, "")
+        events = extracted_events.get((mlb_id, gpk), [])
         # Empty pitch list means the player didn't appear at the plate in this
         # game (AB=0, PA=0: defensive sub, pinch runner, DNP).  Write JSON null
         # instead of '[]' so Phase 1's needs_fetch check won't mistake it for
         # "not yet fetched" and trigger an infinite re-fetch loop.
         stored_pitches = dumps_json(pitches) if pitches else "null"
+        # events_json has no needs_fetch dependency on a sentinel value, so an
+        # empty event list is simply written as "[]".
+        stored_events = dumps_json(events) if events else "[]"
         # Only overwrite sport_level when we got a valid one from the live
         # feed; otherwise preserve whatever the main sync already stored.
         if lvl:
             cur.execute(
-                "UPDATE game_logs SET pitches_json = ?, sport_level = ?, hit_coord_checked = 1 "
-                "WHERE player_mlb_id = ? AND game_id = ?",
-                (stored_pitches, lvl, mlb_id, gpk),
+                "UPDATE game_logs SET pitches_json = ?, events_json = ?, sport_level = ?, "
+                "hit_coord_checked = 1 WHERE player_mlb_id = ? AND game_id = ?",
+                (stored_pitches, stored_events, lvl, mlb_id, gpk),
             )
         else:
             cur.execute(
-                "UPDATE game_logs SET pitches_json = ?, hit_coord_checked = 1 "
+                "UPDATE game_logs SET pitches_json = ?, events_json = ?, hit_coord_checked = 1 "
                 "WHERE player_mlb_id = ? AND game_id = ?",
-                (stored_pitches, mlb_id, gpk),
+                (stored_pitches, stored_events, mlb_id, gpk),
             )
         if yr is not None:
             affected_years_by_player.setdefault(mlb_id, set()).add(yr)
