@@ -100,7 +100,7 @@
 
 | 檔案 | 內容 |
 |---|---|
-| `schema.py` | `init_db(conn)`：`CREATE TABLE IF NOT EXISTS` 建立 `players` / `season_stats` / `game_logs` / `playbyplay_processed`，以及 3 張新表 `tjstats_park_factors` / `tjstats_league_constants` / `league_fip_constants` + 2 個索引；接著跑 4 個包在 `try/except sqlite3.OperationalError` 裡的 `ALTER TABLE ... ADD COLUMN` 正向遷移（`game_logs.pitches_json`/`sport_level`、`players.roster_status_code`/`roster_is_active`、`game_logs.hit_coord_checked`）。 |
+| `schema.py` | `init_db(conn)`：`CREATE TABLE IF NOT EXISTS` 建立 `players` / `season_stats` / `game_logs` / `playbyplay_processed`，以及 3 張新表 `tjstats_park_factors` / `tjstats_league_constants` / `league_fip_constants` + 2 個索引；接著跑 5 個包在 `try/except sqlite3.OperationalError` 裡的 `ALTER TABLE ... ADD COLUMN` 正向遷移（`game_logs.pitches_json`/`sport_level`、`players.roster_status_code`/`roster_is_active`、`game_logs.hit_coord_checked`、`game_logs.events_json`）。 |
 | `season_stats.py` | `load_season_row` / `save_season_row`（`INSERT ... ON CONFLICT DO UPDATE`，key 是 `(player_mlb_id, year, team_name)`）；`players_with_existing_stats(conn)`：找出已有資料的球員 id，用來判斷是否為「首次同步」（首次同步即使在 `update`/`refresh` 模式下也要做完整回補）。 |
 | `players.py` | `warn_orphaned_players`：印出資料庫裡有、但 roster.json 已移除的球員（並附上可直接執行的清理 SQL）；`get_positions` / `get_cached_is_active`：批次查詢輔助函式。 |
 | `game_logs.py` | `load_all_pitches_for_player(cur, mlb_id)` → `{(year, sport_level): [pitch,...]}`。對舊資料裡 `sport_level` 為空字串的列做消歧義：若該球員該年只待過一個等級就直接指派，否則歸到 `(year, "")` 交給呼叫端處理。 |
@@ -255,7 +255,7 @@
 
 | 檔案 | 內容 |
 |---|---|
-| `extract.py` | `_extract_runners(play)`：濃縮跑壘/守備功勞資料。`extract_pitch_logs(game_data, player_id, role)`：走訪 live-feed JSON，回傳定義了 `game_logs.pitches_json` 快取 schema 的 pitch dict 清單（含球種/結果/好壞球/好球帶座標/位移/轉速/擊球初速仰角/落點座標/計數/跑壘者等約 50 個欄位）。 |
+| `extract.py` | `_extract_runners(play)`：濃縮跑壘/守備功勞資料。`_condense_defense`/`_condense_offense`/`_condense_nonpitch_event`/`_pa_context`：4 個小 condenser，分別濃縮守備站位、攻方壘況、牽制/踏板事件、打席最終 WP/LI/drama 等 withMetrics 新節點。`extract_pitch_logs(game_data, player_id, role)`：走訪 withMetrics JSON，回傳 `(pitches, nonpitch_events)` 2-tuple——`pitches` 定義了 `game_logs.pitches_json` 快取 schema（含球種/結果/好壞球/好球帶座標/位移/轉速/擊球初速仰角/落點座標/計數/跑壘者，加上這次新增的 `play_id`/`pitch_number`/`sz_*`/`break_vertical`/`defense`/`offense`/PA-final WP/LI/drama 等約 25 個新欄位，共約 75 個欄位）；`nonpitch_events` 定義了 `game_logs.events_json` schema（`pickoff`/`stepoff` 非投球事件）。 |
 | `field_maps.py` | `apply_yearbyyear_fields`（約 45 個投手欄位、25 個打者欄位，API camelCase → 內部 snake_case，經 `safe_float`/`safe_int`）、`apply_advanced_fields`（seasonAdvanced 專屬欄位：roe/wo/gidpo/xbh/babip/pitches_per_pa 等）。 |
 
 ---

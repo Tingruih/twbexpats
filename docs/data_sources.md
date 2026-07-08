@@ -24,6 +24,7 @@
 8. [總結：API vs 計算 比例](#八總結api-vs-計算-比例)
 9. [逐球進階物理量與跑壘／守備歸屬](#九逐球進階物理量與跑壘守備歸屬2026-07-新增擷取)
 10. [球員每場比賽詳細分析報告 — 設計構想](#十球員每場比賽詳細分析報告--設計構想)
+11. [withMetrics 端點新增欄位（2026-07 遷移）](#十一withmetrics-端點新增欄位2026-07-遷移)
 
 ---
 
@@ -388,7 +389,7 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
 **端點**：`GET /people/{mlb_id}/stats?stats=gameLog&season={year}&group=hitting,pitching`
 對應：`api.py get_game_logs()`，直接把該場的 `stats` dict 原封存成 `game_logs.stats_json`（🔵 API，欄位與第二、三節的 yearByYear 欄位同名）。
 
-逐場的**逐球**資料（`pitches_json`）來自 `GET /game/{game_pk}/feed/live`，經 `extract_pitch_logs()` 萃取，欄位詳見第 2.7 節「原始輸入」說明，展開頁面用 `summarize_pitch_for_display()`（1388–1406行）做顯示用投影，未做二次計算。
+逐場的**逐球**資料（`pitches_json`）來自 `GET /game/{game_pk}/withMetrics`，經 `extract_pitch_logs()` 萃取，欄位詳見第 2.7 節「原始輸入」說明，展開頁面用 `summarize_pitch_for_display()`（1388–1406行）做顯示用投影，未做二次計算。
 
 ---
 
@@ -436,7 +437,7 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
 
 ## 九、逐球進階物理量與跑壘／守備歸屬（2026-07 新增擷取）
 
-`extract_pitch_logs()`（`site_builder/sync/extract.py`）原本只萃取球速、pfx 位移、轉速/轉向、出球初速/角度/距離等「Statcast 核心欄位」。以下欄位是**新增擷取**的，全部來自同一份 `GET /game/{game_pk}/feed/live` 回應，不需要新的 API 端點，只是走訪原本就有的 JSON 節點：
+`extract_pitch_logs()`（`site_builder/sync/extract.py`）原本只萃取球速、pfx 位移、轉速/轉向、出球初速/角度/距離等「Statcast 核心欄位」。以下欄位是**新增擷取**的，全部來自同一份 `GET /game/{game_pk}/withMetrics` 回應，不需要新的 API 端點，只是走訪原本就有的 JSON 節點：
 
 ### 9.1 新增的逐球物理量（每一球都有）
 
@@ -544,3 +545,75 @@ perceived_velo ≈ start_speed × (聯盟平均 extension / 該投手 extension)
 ### 10.3 回填既有比賽資料的注意事項
 
 `sync_statcast()` 的判斷邏輯是「`pitches_json` 非空就跳過重抓」（`site_builder/sync/statcast.py` 第410行 `needs_fetch = pitches_json in (None, "[]")`），所以**已經抓過的歷史比賽不會自動補上這批新欄位**——新欄位只會出現在下次爬到的「新比賽」裡。如果要讓歷史比賽也補齊，需要先把對應的 `game_logs.pitches_json` 清空（例如 `UPDATE game_logs SET pitches_json='[]', hit_coord_checked=0`）再重跑 `python build.py statcast`，這樣會強迫重新呼叫 playByPlay 端點重新萃取。目前沒有現成指令做這件事，如果需要我可以加一個 `--reextract` 選項。
+
+---
+
+## 十一、withMetrics 端點新增欄位（2026-07 遷移）
+
+`site_builder/api/games.py::get_game_play_by_play()` 這次改打 `GET /game/{game_pk}/withMetrics`
+取代舊的 `GET /game/{game_pk}/feed/live`——`withMetrics` 是 `feed/live` 的**嚴格超集**，同一份
+`liveData.plays` 結構下多了一批逐球/逐打席進階欄位。`extract_pitch_logs()`
+（`site_builder/sync/extract.py`）擴充擷取這些欄位，且新增回傳值：現在是
+`(pitches, nonpitch_events)` 2-tuple，`nonpitch_events` 對應新的 `game_logs.events_json`
+欄位。完整的欄位實測結論（含兩處文檔更正：event 層級沒有 WP/LI/drama、`pitchNumber` 是
+「每打席」而非「單場累計」）見 `docs/withmetrics_field_reference.md`。
+
+### 11.1 新增的逐球欄位（每一球都有；`contextMetrics`/`hitData` 系列僅 MLB 有值，MiLB 為空）
+
+| 新欄位 | API 原始路徑 | 分類 | 說明 |
+|---|---|---|---|
+| `play_id` | `playEvents[].playId` | 🔵 API | 這顆球的全域唯一 ID（UUID），可對接 Baseball Savant 逐球資料/影片，也可當穩定去重 key |
+| `pitch_number` | `playEvents[].pitchNumber` | 🔵 API | **該打席內**第幾球（含界外），非投手單場累計球數（見上方更正說明） |
+| `pre_outs` | `playEvents[].preCount.outs` | 🔵 API | 這顆球**投出之前**的出局數；`pre_balls`/`pre_strikes`（原本就有）現在也優先取 `preCount.balls`/`.strikes`，缺值才 fallback 手動累加 |
+| `break_vertical` | `playEvents[].pitchData.breaks.breakVertical` | 🔵 API | 垂直位移（含重力），可做 `ivb`（誘導垂直位移）的交叉驗證 |
+| `sz_plate_x`/`sz_plate_y`/`sz_plate_z` | `playEvents[].pitchData.strikeZoneInfo.plateX`/`.plateY`/`.plateZ` | 🔵 API | 新版好球帶模型下，球通過本壘板平面的三維座標 |
+| `sz_top`/`sz_bottom` | `playEvents[].pitchData.strikeZoneInfo.strikeZoneTop`/`.strikeZoneBottom` | 🔵 API | 新版模型的好球帶上下緣（與既有 `strike_zone_top/bottom` 用不同建模管線，可能有微小差異） |
+| `sz_flat`/`sz_rounded` | `playEvents[].pitchData.strikeZoneInfo.strikeZoneFlat`/`.strikeZoneRounded` | 🔵 API | 好球帶形狀模型是否套用平面版/圓角版邊界 |
+| `sz_corner_radius` | `playEvents[].pitchData.strikeZoneInfo.strikeZoneCornerRadiusInches` | 🔵 API | 圓角好球帶模型的轉角半徑 |
+| `sz_width_in`/`sz_depth_in` | `playEvents[].pitchData.strikeZoneInfo.widthInches`/`.depthInches` | 🔵 API | 3D 好球帶模型的寬度/景深 |
+| `sz_edge_distance` | `playEvents[].pitchData.strikeZoneInfo.edgeDistance` | 🔵 API | 球心到好球帶邊緣的最短距離（可量化「差一點點的好壞球」） |
+| `sz_is_strike` | `playEvents[].pitchData.strikeZoneInfo.isStrike` | 🔵 API | 新版模型下這球是否落在好球帶內，可能與裁判實際判決不同 |
+| `avg_pitch_speed_player`/`max_pitch_speed_player`/`pitch_speed_pct`/`hr_ballparks` | `playEvents[].contextMetrics.averagePitchSpeedPlayer`/`.maxPitchSpeedPlayer`/`.pitchSpeedPlayerRank`/`.homeRunBallparks` | 🔵 API | 該投手當場同球種的平均/最快球速、這顆球速的球種內百分位排名、（若為全壘打）幾座球場也會出牆 |
+| `hit_probability`/`bat_speed`/`is_sword_swing` | `playEvents[].hitData.hitProbability`/`.batSpeed`/`.isSwordSwing` | 🔵 API | 該擊球初速+仰角組合的聯盟平均安打機率、揮棒最大球棒速度（bat-tracking，2024/25 季起才有覆蓋）、是否為「劍擊」防禦性揮棒 |
+| `defense` | `playEvents[].defense` | 🔵 API（濃縮巢狀結構） | 投球當下 9 個守備位置球員 id，經 `_condense_defense()` 只留 id（原節點含每個位置的完整 `{id, link}` dict） |
+| `offense` | `playEvents[].offense` | 🔵 API（濃縮巢狀結構） | 投球當下打者防守位置＋投球前/後壘上跑者 id，經 `_condense_offense()` 濃縮（含代打/代跑偵測用的 `batter_pos`），不重存 `batter_id` |
+
+### 11.2 新增的打席結果欄位（僅該打席最後一球，`is_pa_final=True` 時才有值，經 `_pa_context()`）
+
+| 新欄位 | API 原始路徑 | 分類 | 說明 |
+|---|---|---|---|
+| `home_wp` | `play.homeTeamWinProbability` | 🔵 API | 打席結束當下主隊獲勝機率（百分比）；客隊視角未落地存欄位，讀取時用 `100 - home_wp` 反推 |
+| `wpa` | `play.homeTeamWinProbabilityAdded` | 🔵 API | 這個打席讓主隊勝率增減多少個百分點（主隊視角，可正可負） |
+| `leverage_index` | `play.leverageIndex` | 🔵 API | 局勢緊張度指數（LI），1.0 為聯盟平均 |
+| `drama_index` | `play.dramaIndex` | 🔵 API | MLB 官方「精彩程度」綜合指標，混合勝率變化與比賽情境 |
+| `pa_xwoba` | `play.contextMetrics.xWoba` | 🔵 API | 這個打席實際結果對應的期望 wOBA 貢獻值 |
+| `catch_probability` | `play.contextMetrics.catchProbability` | 🔵 API | 若該打席是飛球，野手接殺這顆球的機率（Statcast Catch Probability） |
+| `pa_final_balls`/`pa_final_strikes`/`pa_final_outs` | `play.count.balls`/`.strikes`/`.outs` | 🔵 API | 打席**結束當下**的球數，與逐球用的 `playEvents[].count`（投球後球數）不同 |
+
+> ⚠️ **注意（經 2026-07 實測驗證）**：以上欄位在 **event（逐球）層級**也存在同名節點
+> （`playEvents[].homeTeamWinProbability`/`.leverageIndex`/`.dramaIndex`），但實測抽樣
+> 4 場（含 2024 世界大賽 G1）發現逐球層級這些欄位全部恆為 0，並非真正逐球更新——
+> WP/LI/drama 只做到逐打席精度，因此程式**只在 `is_pa_final` 時**從 play 層級讀取，
+> 完全不讀 event 層級的同名欄位。
+
+### 11.3 新增的非投球事件：`events_json`（pickoff／stepoff）
+
+`playEvents[]` 除了 `pitch`（投球）外還有 `action`/`pickoff`/`stepoff`/`no_pitch` 幾種
+`type`。這次新增擷取其中的 `pickoff`（牽制）與 `stepoff`（投手板脫離）兩種，寫入
+`game_logs.events_json`（`ALTER TABLE` 新增欄位，`TEXT NOT NULL DEFAULT '[]'`），經
+`_condense_nonpitch_event()` 濃縮；`action`/`no_pitch` 這兩類事件本身仍完全略過。
+
+| 新欄位（`events_json` 內每筆物件） | API 原始路徑 | 分類 | 說明 |
+|---|---|---|---|
+| `type` | `playEvents[].type` | 🔵 API | `pickoff` 或 `stepoff` |
+| `index` | `playEvents[].index` | 🔵 API | 事件在 `playEvents[]` 中的序號 |
+| `play_id` | `playEvents[].playId` | 🔵 API | 事件的全域唯一 ID |
+| `inning` | `play.about.inning` | 🔵 API | 第幾局 |
+| `pre_balls`/`pre_strikes`/`pre_outs` | `playEvents[].preCount.balls`/`.strikes`/`.outs` | 🔵 API | 事件發生前的球數 |
+| `balls`/`strikes`/`outs` | `playEvents[].count.balls`/`.strikes`/`.outs` | 🔵 API | 事件發生後的球數 |
+| `result_code`/`result_desc` | `playEvents[].details.code`/`.description` | 🔵 API | 結果代碼與播報文字 |
+| `disengagement_num` | `playEvents[].details.disengagementNum` | 🔵 API | 該打席第幾次「脫離投手板」（2023 起限制牽制次數規則的計數） |
+| `from_catcher` | `playEvents[].details.fromCatcher` | 🔵 API | 牽制是否由捕手發動 |
+| `runner_going` | `playEvents[].details.runnerGoing` | 🔵 API | 跑者是否正在起跑（盜壘中）；僅部分事件有值 |
+| `is_out` | `playEvents[].details.isOut` | 🔵 API | 是否造成出局 |
+| `pitcher_id`/`batter_id` | `play.matchup.pitcher.id`/`.batter.id` | 🔵 API | 該打席的投打對戰雙方（events_json 本身不受 `role="pitcher"/"batter"` 過濾，附加這兩個欄位方便下游識別） |
