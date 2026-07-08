@@ -267,25 +267,25 @@
 }
 
 .mc-badge--w {
-    background: rgba(16, 185, 129, 0.12);
-    border-color: rgba(16, 185, 129, 0.3);
+    background: rgb(var(--green-rgb) / 0.12);
+    border-color: rgb(var(--green-rgb) / 0.3);
     color: #34d399;
 }
 
 .mc-badge--l {
-    background: rgba(239, 68, 68, 0.12);
-    border-color: rgba(239, 68, 68, 0.3);
+    background: rgb(var(--red-rgb) / 0.12);
+    border-color: rgb(var(--red-rgb) / 0.3);
     color: #f87171;
 }
 
 .mc-badge--sv {
-    background: rgba(59, 130, 246, 0.12);
-    border-color: rgba(59, 130, 246, 0.3);
+    background: rgb(var(--blue-rgb) / 0.12);
+    border-color: rgb(var(--blue-rgb) / 0.3);
     color: #93c5fd;
 }
 
 .mc-badge--hld {
-    background: rgba(20, 184, 166, 0.12);
-    border-color: rgba(20, 184, 166, 0.3);
+    background: rgb(var(--teal-rgb) / 0.12);
+    border-color: rgb(var(--teal-rgb) / 0.3);
     color: #2dd4bf;
 }

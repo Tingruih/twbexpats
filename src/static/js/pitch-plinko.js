@@ -79,14 +79,7 @@
     });
 
     // XSS 防護
-    function escapeHtml(value) {
-        return String(value == null ? "" : value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
+    var escapeHtml = window.TW.escapeHtml;  // 共用於 util.js（單一真相來源）
 
     function pct(value, digits) {
         if (value == null || value === "") return "-";
@@ -356,14 +349,7 @@
             var yearContainer = document.getElementById("plinko-" + yrSel.value);
             if (!yearContainer) return;
             var containers = yearContainer.querySelectorAll(".pitch-plinko-level-container");
-            lvSel.innerHTML = "";
-            containers.forEach(function(c, i) {
-                var opt = document.createElement("option");
-                opt.value = c.dataset.level;
-                opt.textContent = c.dataset.levelLabel;
-                if (i === 0) opt.selected = true;
-                lvSel.appendChild(opt);
-            });
+            window.TW.populateLevelSelect(lvSel, window.TW.levelItemsFromContainers(containers));
         }
 
         function showLevel() {

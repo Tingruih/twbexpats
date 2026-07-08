@@ -98,10 +98,10 @@
 }
 
 /* 球種顏色（沿用 gamelogs.css pitch-tag 的色相，提高飽和度供色塊使用） */
-.m-useg.pitch-ff, .m-useg.pitch-fa { background: rgba(239, 68, 68, 0.55); }
+.m-useg.pitch-ff, .m-useg.pitch-fa { background: rgb(var(--red-rgb) / 0.55); }
 .m-useg.pitch-si                   { background: rgba(249, 115, 22, 0.55); }
 .m-useg.pitch-fc                   { background: rgba(234, 179, 8, 0.5); }
-.m-useg.pitch-sl                   { background: rgba(59, 130, 246, 0.55); }
+.m-useg.pitch-sl                   { background: rgb(var(--blue-rgb) / 0.55); }
 .m-useg.pitch-st                   { background: rgba(99, 102, 241, 0.55); }
 .m-useg.pitch-cu, .m-useg.pitch-cs,
 .m-useg.pitch-kc                   { background: rgba(139, 92, 246, 0.55); }

@@ -1,73 +1,38 @@
-(function() {
-    var yearSel;
-    var levelSel;
-
-    function activeYearContainer() {
-        return yearSel ? document.getElementById('m-gamelogs-' + yearSel.value) : null;
-    }
-
-    function updateLevelOptions() {
-        var container = activeYearContainer();
-        if (!container || !levelSel) return;
-        var levels = [];
-        container.querySelectorAll('.m-gamelog-card').forEach(function(card) {
-            var level = card.dataset.level;
-            if (level && levels.indexOf(level) === -1) levels.push(level);
-        });
-
-        levelSel.innerHTML = '';
-        if (levels.length > 1) {
-            var all = document.createElement('option');
-            all.value = '_all';
-            all.textContent = 'All Levels';
-            levelSel.appendChild(all);
-        }
-        levels.forEach(function(level) {
-            var option = document.createElement('option');
-            option.value = level;
-            option.textContent = level;
-            levelSel.appendChild(option);
-        });
-    }
-
-    function filterCards() {
-        var container = activeYearContainer();
-        if (!container || !levelSel) return;
-        var level = levelSel.value;
-        container.querySelectorAll('.m-gamelog-card').forEach(function(card) {
-            var show = level === '_all' || level === '' || card.dataset.level === level;
-            card.style.display = show ? '' : 'none';
-            if (!show) {
-                var panel = card.querySelector('.m-pitch-log-panel');
-                if (panel) panel.style.display = 'none';
-            }
-        });
-    }
-
-    function showYear() {
-        if (!yearSel) return;
-        document.querySelectorAll('.m-gamelog-year').forEach(function(container) {
-            container.style.display = 'none';
-        });
-        var container = activeYearContainer();
-        if (container) container.style.display = 'flex';
-        updateLevelOptions();
-        filterCards();
-    }
-
+/**
+ * m-gamelogs.js — 手機版逐場紀錄年份/聯盟篩選
+ * 對應 m_gamelogs.j2；依賴 filters.js（window.TWFilters）
+ *
+ * 核心篩選共用自 filters.js::createLevelFilter；本檔僅保留手機專屬的
+ * pitch log 預熱串接（切到逐場 Tab 時）。手機卡片不套用「空 level 一律顯示」。
+ */
+(function () {
     function warmupVisiblePitchLogs() {
         if (typeof window.prefetchMobilePitchLogs !== 'function') return;
         window.prefetchMobilePitchLogs();
     }
 
     function init() {
-        yearSel = document.getElementById('m-gamelog-year-select');
-        levelSel = document.getElementById('m-gamelog-level-select');
-        if (yearSel) yearSel.addEventListener('change', showYear);
-        if (levelSel) levelSel.addEventListener('change', filterCards);
-        showYear();
+        window.TWFilters.createLevelFilter({
+            yearSelectId: "m-gamelog-year-select",
+            levelSelectId: "m-gamelog-level-select",
+            yearContainerPrefix: "m-gamelogs-",
+            hideYearContainers: function () {
+                document.querySelectorAll(".m-gamelog-year").forEach(function (c) {
+                    c.style.display = "none";
+                });
+            },
+            itemSelector: ".m-gamelog-card",
+            activeDisplay: "flex",
+            showEmptyLevel: false,
+            allLevelsOption: true,
+            // 隱藏卡片時，一併收合其內的逐球面板
+            onHideItem: function (card) {
+                var panel = card.querySelector(".m-pitch-log-panel");
+                if (panel) panel.style.display = "none";
+            },
+        });
 
-        document.addEventListener('player-mobile-tab-change', function(event) {
+        document.addEventListener('player-mobile-tab-change', function (event) {
             if (event.detail && event.detail.tab === 'gamelogs') warmupVisiblePitchLogs();
         });
     }

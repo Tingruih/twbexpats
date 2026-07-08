@@ -75,6 +75,8 @@
 {% endblock %}
 
 {% block extra_scripts %}
+{# 篩選共用引擎 — 必須在 gamelogs / arsenal / m-gamelogs / m-advanced 之前 #}
+<script defer src="{{ static_url('js/filters.js') }}"></script>
 <script defer src="{{ static_url('js/stats-table.js') }}"></script>
 <script defer src="{{ static_url('js/stats-tooltip.js') }}"></script>
 <script defer src="{{ static_url('js/pitch-log.js') }}"></script>

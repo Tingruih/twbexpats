@@ -89,6 +89,8 @@
             </a>
         </footer>
     </div>
+    {# 全站共用小工具（escapeHtml / populateLevelSelect）— 必須最先載入，defer 保證順序 #}
+    <script defer src="{{ static_url('js/util.js') }}"></script>
     {% block extra_scripts %}{% endblock %}
 
 <script defer src="{{ static_url('js/nav.js') }}"></script>

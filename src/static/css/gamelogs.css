@@ -161,7 +161,7 @@
 /* 控制【逐場紀錄 Tab / 每個打席最後一球的分隔底線（teal 色）】
    視覺上區隔不同打席 */
 .pitch-pa-final {
-    border-bottom: 2px solid rgba(20, 184, 166, 0.25) !important; /* teal 半透明粗線 */
+    border-bottom: 2px solid rgb(var(--teal-rgb) / 0.25) !important; /* teal 半透明粗線 */
 }
 
 /* 控制【逐場紀錄 Tab / 打席結果標籤（如「三振」「安打」）】 */
@@ -169,8 +169,8 @@
     display: inline-block;                      /* 依內容收縮寬度 */
     padding: 0.1rem 0.4rem;                     /* 內邊距 */
     border-radius: 4px;                         /* 圓角 */
-    background: rgba(20, 184, 166, 0.15);       /* 半透明 teal 背景 */
-    color: #14b8a6;                             /* teal 文字 */
+    background: rgb(var(--teal-rgb) / 0.15);    /* 半透明 teal 背景（衍生自 --teal-rgb） */
+    color: var(--teal);                         /* teal 文字 */
     font-size: 0.7rem;                          /* 小文字 */
     font-weight: 600;                           /* 半粗體 */
 }
@@ -200,10 +200,10 @@
    FF/FA=四縫速球（紅） | SI=伸卡球（橙） | FC=切球（黃）
    SL=滑球（藍） | ST=掃球（靛） | CU/CS/KC=曲球（紫）
    CH/FS=變速（綠） | KN=蝴蝶球（粉紅） */
-.pitch-ff, .pitch-fa { background: rgba(239,68,68,0.2);   color: #fca5a5; } /* 紅色：四縫速球 */
+.pitch-ff, .pitch-fa { background: rgb(var(--red-rgb) / 0.2);   color: #fca5a5; } /* 紅色：四縫速球 */
 .pitch-si            { background: rgba(249,115,22,0.2);  color: #fdba74; } /* 橙色：伸卡球 */
 .pitch-fc            { background: rgba(234,179,8,0.2);   color: #fde047; } /* 黃色：切球 */
-.pitch-sl            { background: rgba(59,130,246,0.2);  color: #93c5fd; } /* 藍色：滑球 */
+.pitch-sl            { background: rgb(var(--blue-rgb) / 0.2);  color: #93c5fd; } /* 藍色：滑球 */
 .pitch-st            { background: rgba(99,102,241,0.2);  color: #a5b4fc; } /* 靛藍：掃球 */
 .pitch-cu, .pitch-cs, .pitch-kc { background: rgba(139,92,246,0.2); color: #c4b5fd; } /* 紫色：曲球 */
 .pitch-ch, .pitch-fs { background: rgba(34,197,94,0.2);   color: #86efac; } /* 綠色：變速 */
@@ -211,7 +211,7 @@
 
 /* 控制【逐場紀錄 Tab / 可展開逐球資料的逐場列（hover 效果）】 */
 .game-row-expandable:hover {
-    background: rgba(20, 184, 166, 0.04); /* 極淡的 teal 背景（提示可點擊） */
+    background: rgb(var(--teal-rgb) / 0.04); /* 極淡的 teal 背景（提示可點擊） */
 }
 
 /* 控制【逐場紀錄 Tab / 可展開逐場列 hover 時箭頭顏色】 */

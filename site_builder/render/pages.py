@@ -1,6 +1,7 @@
 """Static site builder: reads SQLite data and renders Jinja2 templates to HTML."""
 
 import datetime
+import re
 import shutil
 import sqlite3
 from pathlib import Path
@@ -67,6 +68,50 @@ def _pick_display_stat(stats_current, player):
     return stats_current[0]
 
 
+_CSS_IMPORT_RE = re.compile(r"""^\s*@import\s+["']([^"']+)["']\s*;\s*$""")
+
+
+def _inline_css_imports(css_path: Path, seen=None) -> str:
+    """Recursively inline a CSS file's ``@import`` statements.
+
+    Returns the flattened stylesheet with every ``@import "x.css";`` replaced by
+    the referenced file's (also-flattened) contents, preserving declaration
+    order so the cascade is identical.  Each file is inlined at most once, which
+    guards against accidental import cycles.
+    """
+    if seen is None:
+        seen = set()
+    css_path = css_path.resolve()
+    if css_path in seen or not css_path.is_file():
+        return ""
+    seen.add(css_path)
+    parts = []
+    for line in css_path.read_text(encoding="utf-8").splitlines(keepends=True):
+        match = _CSS_IMPORT_RE.match(line)
+        if match:
+            child = css_path.parent / match.group(1)
+            parts.append(_inline_css_imports(child, seen))
+        else:
+            parts.append(line)
+    return "".join(parts)
+
+
+def _bundle_css(static_out_dir: Path):
+    """Flatten ``style.css``'s ``@import`` graph into a single file.
+
+    The source CSS stays modular (one concern per file) for maintainability, but
+    the CSS ``@import`` chain is render-blocking *and* serial — the browser must
+    download & parse ``style.css`` before it even discovers the ~24 imported
+    files, then fetches them one after another.  Inlining them at build time
+    turns that waterfall into a single request without changing the source.
+    """
+    entry = static_out_dir / "css" / "style.css"
+    if not entry.is_file():
+        return
+    flattened = _inline_css_imports(entry)
+    entry.write_text(flattened, encoding="utf-8")
+
+
 def build_static_site(
     db_path: str,
     year: int,
@@ -100,6 +145,8 @@ def build_static_site(
     # Copy static files from src/static
     if STATIC_DIR.is_dir():
         shutil.copytree(STATIC_DIR, out_dir / "static")
+        # Flatten the CSS @import waterfall into a single style.css request.
+        _bundle_css(out_dir / "static")
 
     env = create_jinja_env(base_url=base_url)
     normalized_base_url = env.globals["base_url"]

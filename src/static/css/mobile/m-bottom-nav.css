@@ -42,5 +42,5 @@
 
 .m-bottom-nav-btn--active {
     background: rgba(255, 255, 255, 0.1);
-    color: #fafafa;
+    color: var(--text-1);
 }

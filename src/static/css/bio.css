@@ -218,7 +218,7 @@
 /* 控制【個人資料 Tab / 最新一筆異動的圓點（teal 高亮）】 */
 .tx-item:first-child .tx-dot {
     background: var(--teal);                        /* teal 青綠色（最新） */
-    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.15); /* 外發光（讓最新一筆更顯眼） */
+    box-shadow: 0 0 0 3px rgb(var(--teal-rgb) / 0.15); /* 外發光（讓最新一筆更顯眼） */
 }
 
 /* 控制【個人資料 Tab / 每筆異動的內容卡片】 */
@@ -240,8 +240,8 @@
 
 /* 控制【個人資料 Tab / 最新一筆異動卡片（teal 邊框高亮）】 */
 .tx-item:first-child .tx-content {
-    border-color: rgba(20, 184, 166, 0.45);             /* teal 邊框 */
-    box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.15) inset; /* 內陰影（加強高亮感） */
+    border-color: rgb(var(--teal-rgb) / 0.45);             /* teal 邊框 */
+    box-shadow: 0 0 0 1px rgb(var(--teal-rgb) / 0.15) inset; /* 內陰影（加強高亮感） */
 }
 
 /* 控制【個人資料 Tab / 每筆異動卡片的標題列（日期 + 異動類型）】 */
@@ -271,8 +271,8 @@
     font-size: .62rem;                              /* 很小文字 */
     padding: .13rem .45rem;                         /* 內邊距 */
     border-radius: 999px;                           /* 膠囊形 */
-    background: rgba(20, 184, 166, 0.14);           /* 半透明 teal 背景 */
-    border: 1px solid rgba(20, 184, 166, 0.3);      /* 半透明 teal 邊框 */
+    background: rgb(var(--teal-rgb) / 0.14);           /* 半透明 teal 背景 */
+    border: 1px solid rgb(var(--teal-rgb) / 0.3);      /* 半透明 teal 邊框 */
     color: #7ff2e6;                                 /* 淡青綠文字 */
     font-weight: 600;                               /* 半粗體 */
     text-transform: none;                           /* 不強制大小寫（保留原始文字） */

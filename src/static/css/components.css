@@ -82,9 +82,9 @@
 
 /* 控制【球員詳細頁 Hero / 狀態膠囊：「上場中」（綠色）】 */
 .status-pill.active {
-    background: rgba(16, 185, 129, .1);     /* 半透明綠色背景 */
-    color: var(--green);                    /* 綠色文字 */
-    border-color: rgba(16, 185, 129, .2);   /* 半透明綠色邊框 */
+    background: rgb(var(--green-rgb) / .1);     /* 半透明綠色背景（衍生自 --green-rgb） */
+    color: var(--green);                        /* 綠色文字 */
+    border-color: rgb(var(--green-rgb) / .2);   /* 半透明綠色邊框 */
 }
 
 /* 控制【球員詳細頁 Hero / 狀態膠囊：「未上場」（灰色）】 */
@@ -95,23 +95,23 @@
 
 /* 控制【球員詳細頁 Hero / 狀態膠囊：「傷病名單」（橙色）】 */
 .status-pill.injured {
-    background: rgba(245, 158, 11, .1);     /* 半透明橙色背景 */
-    color: #f59e0b;                         /* 橙色文字 */
-    border-color: rgba(245, 158, 11, .2);   /* 半透明橙色邊框 */
+    background: rgb(var(--amber-rgb) / .1);     /* 半透明橙色背景（衍生自 --amber-rgb） */
+    color: var(--amber);                        /* 橙色文字 */
+    border-color: rgb(var(--amber-rgb) / .2);   /* 半透明橙色邊框 */
 }
 
 /* 控制【球員詳細頁 Hero / 狀態膠囊：「限制名單」（紅色）】 */
 .status-pill.restricted {
-    background: rgba(239, 68, 68, .1);      /* 半透明紅色背景 */
-    color: var(--red);                      /* 紅色文字 */
-    border-color: rgba(239, 68, 68, .2);    /* 半透明紅色邊框 */
+    background: rgb(var(--red-rgb) / .1);       /* 半透明紅色背景（衍生自 --red-rgb） */
+    color: var(--red);                          /* 紅色文字 */
+    border-color: rgb(var(--red-rgb) / .2);     /* 半透明紅色邊框 */
 }
 
 /* 控制【球員詳細頁 Hero / 狀態膠囊：其他狀態（藍色）】 */
 .status-pill.other {
-    background: rgba(59, 130, 246, .1);     /* 半透明藍色背景 */
-    color: var(--blue);                     /* 藍色文字 */
-    border-color: rgba(59, 130, 246, .2);   /* 半透明藍色邊框 */
+    background: rgb(var(--blue-rgb) / .1);      /* 半透明藍色背景（衍生自 --blue-rgb） */
+    color: var(--blue);                         /* 藍色文字 */
+    border-color: rgb(var(--blue-rgb) / .2);    /* 半透明藍色邊框 */
 }
 
 /* 控制【首頁球員卡 / 狀態小圓點（狀態指示燈）】
@@ -123,7 +123,7 @@
 
 .status-dot.active     { color: var(--green); }    /* 上場中 → 綠色 */
 .status-dot.inactive   { color: var(--text-3); }   /* 未上場 → 深灰 */
-.status-dot.injured    { color: #f59e0b; }          /* 傷病 → 橙色 */
+.status-dot.injured    { color: var(--amber); }    /* 傷病 → 橙色 */
 .status-dot.restricted { color: var(--red); }      /* 限制 → 紅色 */
 .status-dot.other      { color: var(--blue); }     /* 其他 → 藍色 */
 

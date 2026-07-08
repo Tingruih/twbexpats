@@ -115,7 +115,7 @@
 }
 
 .m-timeline-item {
-    border-left: 2px solid rgba(20, 184, 166, 0.32);
+    border-left: 2px solid rgb(var(--teal-rgb) / 0.32);
     padding-left: 0.75rem;
 }
 

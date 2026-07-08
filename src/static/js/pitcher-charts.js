@@ -44,14 +44,7 @@
     };
 
     // XSS 防護：將字串中的 HTML 特殊字元做 escape
-    function escapeHtml(value) {
-        return String(value == null ? "" : value)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;")
-            .replace(/'/g, "&#39;");
-    }
+    var escapeHtml = window.TW.escapeHtml;  // 共用於 util.js（單一真相來源）
 
     // 從 DOM 中讀取 <script type="application/json"> 的 JSON 資料
     function readJson(container, selector) {

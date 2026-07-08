@@ -38,10 +38,14 @@ DEFAULT_ROSTER_FILE = SRC_DIR / "data" / "roster.json"
 API_TIMEOUT = 15
 LIVE_FEED_TIMEOUT = 30
 
+# MLB Stats API rate limit (requests/second), enforced process-wide in
+# site_builder/api/client.py::get_json regardless of how many threads call it.
+API_RATE_LIMIT = 25
+
 # Thread-pool sizes. The two sync pipelines parallelise different units of
 # work (players vs. games), so they are tuned independently.
-PLAYER_FETCH_WORKERS = 10
-GAME_FETCH_WORKERS = 10
+PLAYER_FETCH_WORKERS = 20
+GAME_FETCH_WORKERS = 50
 
 # ══════════════════════════════════════════════════════════════════════════
 # 2. ANNUAL CONSTANTS — refresh each spring

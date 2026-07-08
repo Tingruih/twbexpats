@@ -26,7 +26,15 @@
     --blue: #3b82f6;            /* 藍色（用於某些 badge 狀態） */
     --green: #10b981;           /* 綠色（用於「上場中」狀態膠囊） */
     --red: #ef4444;             /* 紅色（用於「限制名單」等狀態） */
+    --amber: #f59e0b;           /* 琥珀橙色（用於「傷病名單」狀態） */
     --teal: #14b8a6;            /* 主題色青綠色 → 改這裡換 Tab 選中色、滑桿等強調色 */
+    /* 上列強調色的 RGB 通道值 → 供 rgb(var(--x-rgb) / a) 產生半透明底色/邊框，
+       確保「改一個 token，膠囊背景與文字一起同步」，不再各處硬編碼 RGB */
+    --green-rgb: 16 185 129;
+    --red-rgb: 239 68 68;
+    --blue-rgb: 59 130 246;
+    --amber-rgb: 245 158 11;
+    --teal-rgb: 20 184 166;
     --text-secondary: var(--text-2); /* text-2 的別名，保留相容性 */
     --scroll-track: #131318;    /* 捲軸軌道背景色 */
     --scroll-thumb: #2f3640;    /* 捲軸滑塊顏色 */
@@ -114,7 +122,7 @@ input[type="range"]::-webkit-slider-thumb {
     border: 2px solid #101015;                      /* 深色邊框，製造立體感 */
     background: var(--teal);                        /* 滑塊顏色（teal 青綠色） → 改 --teal 變色 */
     margin-top: -4px;                               /* 垂直置中對齊軌道 */
-    box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2); /* 外發光效果（半透明 teal 圈） */
+    box-shadow: 0 0 0 2px rgb(var(--teal-rgb) / 0.2); /* 外發光效果（半透明 teal 圈） */
 }
 
 /* 控制【全站 / Range 滑桿軌道（Firefox）】 */
@@ -131,7 +139,7 @@ input[type="range"]::-moz-range-thumb {
     border-radius: 50%;
     border: 2px solid #101015;
     background: var(--teal);
-    box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+    box-shadow: 0 0 0 2px rgb(var(--teal-rgb) / 0.2);
 }
 
 /* 控制【全站 / 標題 h1~h4】

@@ -207,7 +207,7 @@
     padding: 0.68rem 0.78rem;                       /* 內邊距 */
     border-radius: 8px;                             /* 圓角 */
     background: rgba(30, 31, 41, 0.96);             /* 深色半透明背景 */
-    color: #fff;                                    /* 白色文字 */
+    color: var(--text-1);                           /* 白色文字 */
     box-shadow: 0 20px 42px rgba(15, 23, 42, 0.24); /* 陰影 */
     pointer-events: none;                           /* 不接受滑鼠事件（避免遮住圓點） */
     backdrop-filter: blur(4px);                     /* 背景模糊 */
@@ -221,7 +221,7 @@
 
 /* 控制【圖表 Tab / Tooltip 球種名稱標題】 */
 .pitch-chart-tooltip-title {
-    color: #fff;            /* 白色 */
+    color: var(--text-1);   /* 白色 */
     font-size: 1rem;        /* 大一點的標題 */
     font-weight: 800;       /* 特粗 */
     line-height: 1.2;       /* 行高 */
@@ -241,7 +241,7 @@
 
 /* 控制【圖表 Tab / Tooltip 數值的 <strong> 文字（白色等寬數字）】 */
 .pitch-chart-tooltip-row strong {
-    color: #fff;                        /* 數值用純白色（比標籤更突出） */
+    color: var(--text-1);               /* 數值用純白色（比標籤更突出） */
     font-weight: 800;                   /* 特粗 */
     font-variant-numeric: tabular-nums; /* 等寬數字 */
 }
@@ -452,7 +452,7 @@
     padding: 0.72rem 0.82rem;                       /* 內邊距 */
     border-radius: 8px;                             /* 圓角 */
     background: rgba(30, 31, 41, 0.96);             /* 深色半透明背景 */
-    color: #ffffff;                                 /* 白色文字 */
+    color: var(--text-1);                           /* 白色文字 */
     box-shadow: 0 20px 42px rgba(15, 23, 42, 0.24); /* 陰影 */
     pointer-events: none;                           /* 不接受滑鼠事件 */
     backdrop-filter: blur(4px);                     /* 背景模糊 */

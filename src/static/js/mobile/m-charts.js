@@ -76,14 +76,12 @@
         function updateLevelOptions() {
             var yearContainer = activeYearContainer();
             if (!yearContainer) return;
-            levelSel.innerHTML = '';
-            yearContainer.querySelectorAll('.m-pitch-plinko-level-container').forEach(function(container, index) {
-                var option = document.createElement('option');
-                option.value = container.dataset.level;
-                option.textContent = container.dataset.levelLabel;
-                if (index === 0) option.selected = true;
-                levelSel.appendChild(option);
-            });
+            window.TW.populateLevelSelect(
+                levelSel,
+                window.TW.levelItemsFromContainers(
+                    yearContainer.querySelectorAll('.m-pitch-plinko-level-container')
+                )
+            );
         }
 
         function showLevel() {
