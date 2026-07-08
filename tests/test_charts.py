@@ -3,6 +3,7 @@ from pathlib import Path
 
 from site_builder.charts import style
 from site_builder.charts.plate import render_game_pitch_map
+from site_builder.charts.zones import overlay_points_from_pitches, render_hot_zone
 from tests.recent_fixtures import make_pitch, make_untracked_pitch
 
 
@@ -55,3 +56,28 @@ def test_render_game_pitch_map_untracked_returns_false(tmp_path):
     out = tmp_path / "no.png"
     assert render_game_pitch_map([make_untracked_pitch()], out) is False
     assert not out.exists()
+
+
+def _zone_stats():
+    zs = {}
+    for z in range(1, 10):
+        zs[z] = {"n": 30, "swings": 15, "whiffs": 4, "ab": 10, "hits": 3,
+                 "avg": 0.300, "swing_pct": 0.5, "whiff_pct": 0.267}
+    zs[11] = {"n": 12, "swings": 4, "whiffs": 2, "ab": 2, "hits": 0,
+              "avg": 0.0, "swing_pct": 0.333, "whiff_pct": 0.5}  # ab<5 → 遮罩
+    return zs
+
+
+def test_render_hot_zone(tmp_path):
+    out = tmp_path / "zones.png"
+    overlay = overlay_points_from_pitches([make_pitch(px=0.0, pz=2.5)])
+    assert render_hot_zone(_zone_stats(), out, overlay_points=overlay,
+                           title="Season AVG by zone") is True
+    assert out.is_file() and out.stat().st_size > 5000
+    assert len(overlay) == 1
+    x, y = overlay[0]
+    assert 1.0 < x < 2.0 and 1.0 < y < 2.0  # 正中＝中央格
+
+
+def test_render_hot_zone_empty(tmp_path):
+    assert render_hot_zone({}, tmp_path / "z.png") is False
