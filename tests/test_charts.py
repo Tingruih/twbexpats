@@ -2,6 +2,8 @@
 from pathlib import Path
 
 from site_builder.charts import style
+from site_builder.charts.plate import render_game_pitch_map
+from tests.recent_fixtures import make_pitch, make_untracked_pitch
 
 
 def test_pitch_color_registry_is_stable():
@@ -27,3 +29,29 @@ def test_save_chart_writes_png(tmp_path):
     out = tmp_path / "sub" / "smoke.png"
     style.save_chart(fig, out)
     assert out.is_file() and out.stat().st_size > 1000
+
+
+def _game_pitches():
+    return [
+        make_pitch(px=-0.5, pz=2.8),
+        make_pitch(px=0.3, pz=2.1, result_code="S"),
+        make_pitch(px=0.9, pz=1.5, pitch_type="SL", result_code="F"),
+        make_pitch(px=-1.2, pz=3.6, pitch_type="CH", result_code="B",
+                   is_strike=False, is_ball=True),
+        make_pitch(px=0.1, pz=2.4, result_code="E", is_in_play=True,
+                   is_pa_final=True, pa_event="home_run", ev=105.0, la=28.0,
+                   trajectory="fly_ball", hit_coord_x=140.0, hit_coord_y=60.0,
+                   hit_distance=410, hardness="hard"),
+    ]
+
+
+def test_render_game_pitch_map(tmp_path):
+    out = tmp_path / "pitchmap.png"
+    assert render_game_pitch_map(_game_pitches(), out, title="07/06 vs BUF") is True
+    assert out.is_file() and out.stat().st_size > 5000
+
+
+def test_render_game_pitch_map_untracked_returns_false(tmp_path):
+    out = tmp_path / "no.png"
+    assert render_game_pitch_map([make_untracked_pitch()], out) is False
+    assert not out.exists()
