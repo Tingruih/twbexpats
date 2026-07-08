@@ -6,3 +6,4 @@ charset-normalizer==3.4.7
 idna==3.11
 urllib3==2.6.3
 beautifulsoup4==4.15.0
+matplotlib==3.10.3
