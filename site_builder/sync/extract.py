@@ -154,11 +154,14 @@ def extract_pitch_logs(
             continue
 
         events = play.get("playEvents", [])
-        # Find the index of the LAST pitch in the PA (for wOBA attribution)
+        # Find the index of the LAST pitch in the PA (for wOBA attribution).
+        # A play can have zero pitches (e.g. a pickoff that ends the inning
+        # before any pitch is thrown) — don't skip the whole play in that
+        # case, since its nonpitch events (pickoff/stepoff) still need to be
+        # captured below; last_pitch_idx just never matches when there are
+        # no pitches, so the isPitch branch below simply never fires.
         pitch_indices = [i for i, e in enumerate(events) if e.get("isPitch")]
-        if not pitch_indices:
-            continue
-        last_pitch_idx = pitch_indices[-1]
+        last_pitch_idx = pitch_indices[-1] if pitch_indices else None
 
         result = play.get("result", {}) or {}
         event_type = result.get("eventType", "")
