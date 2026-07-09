@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ..constants import DEFAULT_ROSTER_FILE, MIN_WRC_YEAR, STATIC_DIR, WRC_LEVELS
 from ..db.bundles import load_player_bundle
+from ..db.play_videos import load_video_map
 from ..db.players import warn_orphaned_players
 from ..db.schema import init_db
 from ..levels import level_rank
@@ -189,6 +190,9 @@ def build_static_site(
         warn_orphaned_players(conn, roster_ids)
 
     bundles = [load_player_bundle(cur, row) for row in rows]
+
+    # 逐球精華影片對照表（MLB 場的 pitch log JSON 會帶 play_id/video）
+    videos_by_game = load_video_map(cur)
 
     # Compute TJBat+ (wRC+) for qualifying batters before any page rendering
     # so both the active-player and retired-player detail pages (which both
@@ -372,7 +376,8 @@ def build_static_site(
                     all_fielding.append(entry)
 
         # ── Statcast context ──
-        write_pitch_log_files(logs_by_year, out_dir, normalized_base_url, player.mlb_id)
+        write_pitch_log_files(logs_by_year, out_dir, normalized_base_url,
+                              player.mlb_id, videos_by_game=videos_by_game)
 
         # Season-level Statcast data keyed by year → list of {sport_level, team_name, sc}
         statcast_by_year: dict[int, list] = {}

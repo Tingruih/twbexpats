@@ -22,11 +22,14 @@ function _fmt(v, d) {
 }
 // 將逐球 JSON 數據轉成 HTML 表格字串（編號/球數/局倒/球種/車速/區帶等欄位）
 function _buildPitchTable(pitches) {
+    var hasVideo = pitches.some(function (p) { return p.play_id || p.video; });
     var h = '<table class="pitch-log-table"><thead><tr>' +
         '<th data-tooltip="逐球序號">#</th><th data-tooltip="投球前球數">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種">Type</th><th data-tooltip="球速">Speed</th>' +
         '<th data-tooltip="進壘區域">Zone</th><th data-tooltip="單球結果">Result</th><th data-tooltip="擊球初速">EV</th><th data-tooltip="擊球仰角">LA</th>' +
         '<th data-tooltip="誘導垂直位移">iVB</th><th data-tooltip="水平位移">HB</th><th data-tooltip="轉速">Spin</th><th data-tooltip="出手延伸距離">Ext</th>' +
-        '<th data-tooltip="打席結果">PA Event</th></tr></thead><tbody>';
+        '<th data-tooltip="打席結果">PA Event</th>' +
+        (hasVideo ? '<th data-tooltip="逐球影片">▶</th>' : '') +
+        '</tr></thead><tbody>';
     var prevBalls = 0, prevStrikes = 0, paEnded = true;
     for (var i = 0; i < pitches.length; i++) {
         var p = pitches[i];
@@ -54,7 +57,9 @@ function _buildPitchTable(pitches) {
             '<td class="num">' + _fmt(p.hb,1) + '</td>' +
             '<td class="num">' + _fmt(p.spin) + '</td>' +
             '<td class="num">' + _fmt(p.extension,2) + '</td>' +
-            '<td>' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td></tr>';
+            '<td>' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td>' +
+            (hasVideo ? _videoCell(p) : '') +
+            '</tr>';
     }
     h += '</tbody></table>';
     return h;
@@ -196,4 +201,56 @@ function togglePitchLog(id) {
             }
         }
     }
+}
+
+/* ── 逐球影片 ──
+ * 資料層已做層級 gating：只有 MLB 場的 JSON 才帶 play_id/video。
+ * p.video  → 站內 <video>（statsapi content 精華，永久 CDN 連結）
+ * p.play_id（無 video）→ Baseball Savant iframe + 外部連結 fallback
+ */
+var SAVANT_VIDEO_URL = 'https://baseballsavant.mlb.com/sporty-videos?playId=';
+
+function _videoCell(p) {
+    if (p.video) {
+        return '<td class="num"><button type="button" class="pitch-video-btn"' +
+            ' data-video="' + p.video + '"' +
+            ' onclick="openPitchVideo(event, this)" title="播放精華影片">▶</button></td>';
+    }
+    if (p.play_id) {
+        return '<td class="num"><button type="button" class="pitch-video-btn pitch-video-btn--savant"' +
+            ' data-play-id="' + p.play_id + '"' +
+            ' onclick="openPitchVideo(event, this)" title="在 Baseball Savant 查看">SV</button></td>';
+    }
+    return '<td class="num">-</td>';
+}
+
+function closePitchVideo() {
+    var overlay = document.getElementById('pitch-video-overlay');
+    if (overlay) overlay.remove();
+}
+
+function openPitchVideo(evt, btn) {
+    evt.stopPropagation();
+    closePitchVideo();
+    var mp4 = btn.dataset.video;
+    var playId = btn.dataset.playId;
+    var overlay = document.createElement('div');
+    overlay.id = 'pitch-video-overlay';
+    overlay.className = 'pitch-video-overlay';
+    var inner = '<div class="pitch-video-box">' +
+        '<button type="button" class="pitch-video-close" onclick="closePitchVideo()" aria-label="關閉">×</button>';
+    if (mp4) {
+        inner += '<video controls autoplay playsinline src="' + mp4 + '"></video>';
+    } else {
+        var url = SAVANT_VIDEO_URL + encodeURIComponent(playId);
+        inner += '<iframe src="' + url + '" allowfullscreen loading="lazy"></iframe>' +
+            '<p class="pitch-video-note">影片可能需要 1 天以上才會上架；若無畫面請' +
+            '<a href="' + url + '" target="_blank" rel="noopener noreferrer">前往 Baseball Savant</a>。</p>';
+    }
+    inner += '</div>';
+    overlay.innerHTML = inner;
+    overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closePitchVideo();
+    });
+    document.body.appendChild(overlay);
 }
