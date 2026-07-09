@@ -26,6 +26,7 @@ from ..util.numbers import safe_float
 from ..util.units import height_to_cm, lbs_to_kg
 from .env import create_jinja_env
 from .pitch_log import write_pitch_log_files
+from .recents import build_recents_page
 from .seo import (
     RETIRED_SEO_DESCRIPTION,
     RETIRED_SEO_TITLE,
@@ -468,6 +469,11 @@ def build_static_site(
         player_dir.mkdir(parents=True, exist_ok=True)
         (player_dir / "index.html").write_text(html, encoding="utf-8")
 
+    # ── /recents 近期出賽分析頁 ──
+    recents_sitemap_entry = build_recents_page(
+        env, conn, out_dir, year, roster_ids
+    )
+
     # ── 404 page ──
     template_404 = env.get_template("404.j2")
     (out_dir / "404.html").write_text(template_404.render(), encoding="utf-8")
@@ -483,6 +489,7 @@ def build_static_site(
             "lastmod": now_utc8.date().isoformat(),
         },
     ]
+    sitemap_urls.append(recents_sitemap_entry)
     for player, _, logs in bundles:
         last_game_date = next((log.date for log in logs if log.date), None)
         sitemap_urls.append(
