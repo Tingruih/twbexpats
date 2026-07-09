@@ -2,6 +2,11 @@
 from pathlib import Path
 
 from site_builder.charts import style
+from site_builder.charts.batted import (
+    render_ev_la,
+    render_quality_fallback,
+    render_spray,
+)
 from site_builder.charts.movement_game import render_game_movement
 from site_builder.charts.plate import render_game_pitch_map
 from site_builder.charts.velocity import render_velocity_sequence
@@ -113,3 +118,42 @@ def test_render_game_movement(tmp_path):
 
 def test_render_game_movement_no_data(tmp_path):
     assert render_game_movement([make_untracked_pitch()], [], tmp_path / "m.png") is False
+
+
+def _bbe(ev, la, traj="fly_ball", hx=140.0, hy=60.0, hardness="hard"):
+    return make_pitch(is_in_play=True, result_code="D", ev=ev, la=la,
+                      trajectory=traj, hit_coord_x=hx, hit_coord_y=hy,
+                      hardness=hardness, is_pa_final=True, pa_event="single")
+
+
+def test_render_ev_la(tmp_path):
+    game = [_bbe(103.0, 27.0), _bbe(88.0, 5.0, traj="ground_ball")]
+    season = [_bbe(90 + i, 10 + i) for i in range(10)]
+    out = tmp_path / "evla.png"
+    assert render_ev_la(game, season, out) is True
+    assert out.stat().st_size > 5000
+
+
+def test_render_ev_la_no_bbe(tmp_path):
+    assert render_ev_la([make_pitch()], [], tmp_path / "e.png") is False
+
+
+def test_render_spray(tmp_path):
+    game = [_bbe(95.0, 12.0, hx=100.0, hy=80.0)]
+    out = tmp_path / "spray.png"
+    assert render_spray(game, [], out) is True
+
+
+def test_render_spray_tier3_hit_coords_still_work(tmp_path):
+    # AA 球也有 hit_coord → spray 各層級可用
+    p = make_untracked_pitch(is_in_play=True, hit_coord_x=110.0, hit_coord_y=90.0,
+                             trajectory="line_drive")
+    assert render_spray([p], [], tmp_path / "s.png") is True
+
+
+def test_render_quality_fallback(tmp_path):
+    week = [_bbe(None, None, hardness="hard"), _bbe(None, None, hardness="medium")]
+    season = [_bbe(None, None, hardness="soft") for _ in range(6)]
+    out = tmp_path / "quality.png"
+    assert render_quality_fallback(week, season, out) is True
+    assert render_quality_fallback([make_pitch()], season, tmp_path / "q2.png") is False
