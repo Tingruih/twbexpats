@@ -9,6 +9,10 @@ from ..core.pitches import is_swing, is_whiff
 
 HIT_EVENTS = frozenset({"single", "double", "triple", "home_run"})
 
+# 注意：這是加法式白名單（未列出的事件一律不計入 AB），刻意與
+# stats/core/pa_outcomes.py 的減法式邏輯（PA 終結扣掉 BB/HBP/犧牲，其餘皆計入
+# AB）不同 —— 對本頁這種視覺化用途，漏未來新事件型別時「少算」比「多算」安全。
+# 兩者在常見事件上結果一致，但增修任一邊時請同步檢查另一邊是否也該更新。
 # 計入打數（AB）的 PA 結果（安打 + 出局型 + 失誤/野選）；BB/HBP/犧牲不入。
 AB_EVENTS = HIT_EVENTS | frozenset({
     "strikeout", "strikeout_double_play",
