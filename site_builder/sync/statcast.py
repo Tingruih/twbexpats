@@ -8,14 +8,21 @@ from pathlib import Path
 from typing import Optional
 
 from ..api import (
+    get_game_content,
     get_game_play_by_play,
     get_game_sport_level,
     get_player_expected_stats,
     get_player_sabermetrics,
 )
-from ..constants import GAME_FETCH_WORKERS
+from ..api.content import extract_play_videos
+from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS
 from ..db.fip_constants_cache import get_fip_constants
 from ..db.game_logs import load_all_pitches_for_player
+from ..db.play_videos import (
+    content_fetch_candidates,
+    mark_content_processed,
+    save_play_videos,
+)
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
 from ..levels import sport_obj_to_abbr
@@ -296,6 +303,43 @@ def _compute_player_statcast_bundle(
     return mlb_id, results
 
 
+def fetch_highlight_videos(conn, roster_ids, *, now_iso=None) -> int:
+    """Fetch MLB /content play highlight mp4 URLs and cache them by play_id."""
+    now_iso = now_iso or datetime.datetime.now(datetime.timezone.utc).isoformat()
+    cur = conn.cursor()
+    retry_cutoff = (
+        datetime.date.today() - datetime.timedelta(days=CONTENT_RETRY_DAYS)
+    ).isoformat()
+    candidates = content_fetch_candidates(cur, roster_ids, retry_cutoff)
+    if not candidates:
+        return 0
+
+    print(f"Statcast: fetching highlight content for {len(candidates)} MLB game(s) ...")
+    contents: dict[int, dict] = {}
+    with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
+        future_to_gpk = {
+            executor.submit(get_game_content, game_pk): game_pk
+            for game_pk in candidates
+        }
+        for future in as_completed(future_to_gpk):
+            game_pk = future_to_gpk[future]
+            try:
+                contents[game_pk] = future.result()
+            except Exception as exc:
+                logger.warning("content fetch failed for game_pk=%s: %s", game_pk, exc)
+                contents[game_pk] = {}
+
+    written = 0
+    for game_pk, content in contents.items():
+        videos = extract_play_videos(content)
+        save_play_videos(cur, game_pk, videos, now_iso)
+        mark_content_processed(cur, game_pk, len(videos), now_iso)
+        written += len(videos)
+    conn.commit()
+    print(f"  saved {written} play video(s) across {len(candidates)} game(s)")
+    return written
+
+
 def sync_statcast(
     db_path: str,
     roster_file: str,
@@ -548,6 +592,11 @@ def sync_statcast(
             except Exception as e:
                 print(f"  error for {name}: {e}")
                 logger.exception("Statcast aggregation failed for %s", name)
+
+    # ── Phase 5: StatsAPI highlight videos (MLB games only) ──
+    # Baseball Savant videos are resolved client-side on demand so refresh does
+    # not spend minutes prefetching historical playIds.
+    fetch_highlight_videos(conn, list(roster_map.keys()))
 
     conn.close()
     print("Statcast sync complete")

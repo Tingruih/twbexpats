@@ -5,9 +5,13 @@ from pathlib import Path
 from ..util.json import dumps_json
 
 
-def summarize_pitch_for_display(p: dict) -> dict:
+def summarize_pitch_for_display(
+    p: dict,
+    video_map: dict | None = None,
+    include_video: bool = False,
+) -> dict:
     """Thin projection of a pitch dict for use in the per-game expandable row."""
-    return {
+    pitch = {
         "inning": p.get("inning"),
         "pitch_type": p.get("pitch_type", ""),
         "pitch_name": p.get("pitch_name", ""),
@@ -24,10 +28,19 @@ def summarize_pitch_for_display(p: dict) -> dict:
         "balls": p.get("balls"),
         "strikes": p.get("strikes"),
     }
+    if include_video:
+        play_id = p.get("play_id")
+        if play_id:
+            pitch["play_id"] = play_id
+            video_url = (video_map or {}).get(play_id)
+            if video_url:
+                pitch["video"] = video_url
+    return pitch
 
 
 def write_pitch_log_files(logs_by_year: dict, out_dir: Path,
-                          normalized_base_url: str, mlb_id) -> None:
+                          normalized_base_url: str, mlb_id,
+                          videos_by_game: dict | None = None) -> None:
     """Write summarised pitch logs as external JSON and annotate each log row.
 
     Summarised pitch logs are lazy-loaded by the browser when a game row is
@@ -39,8 +52,15 @@ def write_pitch_log_files(logs_by_year: dict, out_dir: Path,
     for y_key in logs_by_year:
         for log in logs_by_year[y_key]:
             if log.pitches_json:
+                is_mlb = log.sport_level == "MLB"
+                video_map = (videos_by_game or {}).get(log.game_id) if is_mlb else None
                 pitch_display = [
-                    summarize_pitch_for_display(p) for p in log.pitches_json
+                    summarize_pitch_for_display(
+                        p,
+                        video_map=video_map,
+                        include_video=is_mlb,
+                    )
+                    for p in log.pitches_json
                 ]
                 if pitch_display:
                     pitchlog_dir.mkdir(parents=True, exist_ok=True)

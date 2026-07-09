@@ -218,3 +218,71 @@
 .game-row-expandable:hover .toggle-arrow {
     border-color: transparent transparent transparent var(--text-1); /* hover 時箭頭變白 */
 }
+
+/* 控制【逐場紀錄 Tab / 逐球影片按鈕與播放 overlay】 */
+.pitch-video-btn {
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    color: var(--teal);
+    border-radius: 4px;
+    padding: 1px 7px;
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1.4;
+}
+
+.pitch-video-btn:hover {
+    border-color: var(--teal);
+}
+
+.pitch-video-btn--savant {
+    color: var(--text-2);
+}
+
+.pitch-video-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgb(0 0 0 / 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.pitch-video-box {
+    position: relative;
+    width: min(92vw, 860px);
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+}
+
+.pitch-video-box video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 0;
+    border-radius: 4px;
+    background: #000;
+}
+
+.pitch-video-close {
+    position: absolute;
+    top: 4px;
+    right: 10px;
+    background: none;
+    border: none;
+    color: var(--text-2);
+    font-size: 1.4rem;
+    cursor: pointer;
+}
+
+.pitch-video-message {
+    min-height: min(52vw, 420px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-2);
+    background: #000;
+    border-radius: 4px;
+}

@@ -22,11 +22,14 @@ function _fmt(v, d) {
 }
 // 將逐球 JSON 數據轉成 HTML 表格字串（編號/球數/局倒/球種/車速/區帶等欄位）
 function _buildPitchTable(pitches) {
+    var hasVideo = pitches.some(function (p) { return p.video || p.play_id; });
     var h = '<table class="pitch-log-table"><thead><tr>' +
         '<th data-tooltip="逐球序號">#</th><th data-tooltip="投球前球數">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種">Type</th><th data-tooltip="球速">Speed</th>' +
         '<th data-tooltip="進壘區域">Zone</th><th data-tooltip="單球結果">Result</th><th data-tooltip="擊球初速">EV</th><th data-tooltip="擊球仰角">LA</th>' +
         '<th data-tooltip="誘導垂直位移">iVB</th><th data-tooltip="水平位移">HB</th><th data-tooltip="轉速">Spin</th><th data-tooltip="出手延伸距離">Ext</th>' +
-        '<th data-tooltip="打席結果">PA Event</th></tr></thead><tbody>';
+        '<th data-tooltip="打席結果">PA Event</th>' +
+        (hasVideo ? '<th data-tooltip="逐球影片">Video</th>' : '') +
+        '</tr></thead><tbody>';
     var prevBalls = 0, prevStrikes = 0, paEnded = true;
     for (var i = 0; i < pitches.length; i++) {
         var p = pitches[i];
@@ -54,7 +57,9 @@ function _buildPitchTable(pitches) {
             '<td class="num">' + _fmt(p.hb,1) + '</td>' +
             '<td class="num">' + _fmt(p.spin) + '</td>' +
             '<td class="num">' + _fmt(p.extension,2) + '</td>' +
-            '<td>' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td></tr>';
+            '<td>' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td>' +
+            (hasVideo ? _videoCell(p) : '') +
+            '</tr>';
     }
     h += '</tbody></table>';
     return h;
@@ -196,4 +201,109 @@ function togglePitchLog(id) {
             }
         }
     }
+}
+
+/* ── 逐球影片 ──
+ * Data-layer gating: only MLB game JSON includes play_id/video.
+ * p.video: direct mp4 from StatsAPI highlights.
+ * p.play_id without video: resolve Baseball Savant mp4 client-side on click.
+ */
+var SAVANT_VIDEO_URL = 'https://baseballsavant.mlb.com/sporty-videos?playId=';
+var SAVANT_MP4_RE = /https:\/\/sporty-clips\.mlb\.com\/[^"'<>\\]+?\.mp4/;
+var savantVideoCache = Object.create(null);
+
+function _videoCell(p) {
+    if (p.video) {
+        return '<td class="num"><button type="button" class="pitch-video-btn"' +
+            ' data-video="' + p.video + '"' +
+            ' onclick="openPitchVideo(event, this)" title="播放逐球影片">▶</button></td>';
+    }
+    if (p.play_id) {
+        return '<td class="num"><button type="button" class="pitch-video-btn pitch-video-btn--savant"' +
+            ' data-play-id="' + p.play_id + '"' +
+            ' onclick="openPitchVideo(event, this)" title="播放逐球影片">▶</button></td>';
+    }
+    return '<td class="num">-</td>';
+}
+
+function closePitchVideo() {
+    var overlay = document.getElementById('pitch-video-overlay');
+    if (overlay) overlay.remove();
+}
+
+function _decodeHtml(text) {
+    var textarea = document.createElement('textarea');
+    textarea.innerHTML = text || '';
+    return textarea.value.replace(/\\\//g, '/');
+}
+
+function _extractSavantMp4(html) {
+    var match = SAVANT_MP4_RE.exec(_decodeHtml(html));
+    return match ? match[0] : '';
+}
+
+function _resolveSavantVideo(playId) {
+    if (!playId) return Promise.resolve('');
+    if (savantVideoCache[playId]) return savantVideoCache[playId];
+
+    savantVideoCache[playId] = fetch(SAVANT_VIDEO_URL + encodeURIComponent(playId))
+        .then(function(resp) {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.text();
+        })
+        .then(function(html) {
+            var mp4 = _extractSavantMp4(html);
+            if (!mp4) throw new Error('No video found');
+            return mp4;
+        })
+        .catch(function(err) {
+            delete savantVideoCache[playId];
+            throw err;
+        });
+
+    return savantVideoCache[playId];
+}
+
+function _renderPitchVideoBody(box, mp4) {
+    box.innerHTML =
+        '<button type="button" class="pitch-video-close" onclick="closePitchVideo()" aria-label="關閉">×</button>' +
+        '<video controls autoplay playsinline src="' + mp4 + '"></video>';
+}
+
+function _renderPitchVideoMessage(box, text) {
+    box.innerHTML =
+        '<button type="button" class="pitch-video-close" onclick="closePitchVideo()" aria-label="關閉">×</button>' +
+        '<div class="pitch-video-message">' + text + '</div>';
+}
+
+function openPitchVideo(evt, btn) {
+    evt.stopPropagation();
+    closePitchVideo();
+
+    var mp4 = btn.dataset.video;
+    var playId = btn.dataset.playId;
+    var overlay = document.createElement('div');
+    overlay.id = 'pitch-video-overlay';
+    overlay.className = 'pitch-video-overlay';
+
+    overlay.innerHTML = '<div class="pitch-video-box"></div>';
+    overlay.addEventListener('click', function (e) {
+        if (e.target === overlay) closePitchVideo();
+    });
+    document.body.appendChild(overlay);
+
+    var box = overlay.querySelector('.pitch-video-box');
+    if (mp4) {
+        _renderPitchVideoBody(box, mp4);
+        return;
+    }
+
+    _renderPitchVideoMessage(box, '載入影片中...');
+    _resolveSavantVideo(playId)
+        .then(function(resolvedMp4) {
+            _renderPitchVideoBody(box, resolvedMp4);
+        })
+        .catch(function() {
+            _renderPitchVideoMessage(box, '此球目前沒有可播放影片');
+        });
 }

@@ -61,10 +61,10 @@
     border: 1px solid var(--border);        /* 細邊框 */
 }
 
-/* 控制【球員詳細頁 Hero / 小聯盟層級標籤（灰色文字）】 */
+/* 控制【球員詳細頁 Hero / 小聯盟層級標籤（與 MLB 同級高亮）】 */
 .badge-level {
     background: var(--secondary);           /* 深灰背景 */
-    color: var(--text-2);                   /* 中灰文字（表示低於 MLB 層級） */
+    color: var(--text-1);                   /* 白色文字，與 MLB badge 保持同等強調 */
     border: 1px solid var(--border);        /* 細邊框 */
 }
 

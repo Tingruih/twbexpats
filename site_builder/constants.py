@@ -47,6 +47,10 @@ API_RATE_LIMIT = 25
 PLAYER_FETCH_WORKERS = 20
 GAME_FETCH_WORKERS = 50
 
+# The /content highlight index can lag behind the live feed; retry games with
+# zero videos for this many days after game date.
+CONTENT_RETRY_DAYS = 14
+
 # ══════════════════════════════════════════════════════════════════════════
 # 2. ANNUAL CONSTANTS — refresh each spring
 # ══════════════════════════════════════════════════════════════════════════
