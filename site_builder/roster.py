@@ -38,16 +38,19 @@ def build_roster_map(roster_file) -> dict:
 # `rosterEntries[0].status.code` values meaning the player is on an injured
 # list (or a rehab assignment from one) while that roster entry is still
 # active (isActive=true).
-ROSTER_INJURED_CODES = {"D7", "D10", "D15", "D60", "ILF", "RA"}
+# Source: /api/v1/playerStatusCodes -- D0=IL (generic/undated), D7=7-day IL,
+# D10=10-day IL, D15=15-day IL, D45=45-day IL, D60=60-day IL, ILF=Full Season
+# IL, RA=Rehab Assignment.
+ROSTER_INJURED_CODES = {"D0", "D7", "D10", "D15", "D45", "D60", "ILF", "RA"}
 
 # `rosterEntries[0].status.code` values meaning the player is on personal /
 # disciplinary leave while that roster entry is still active (isActive=true).
 # SU=Suspension, RES=Reserve List (Minors), BRV=Bereavement,
 # FME=Family Medical Emergency, RST=Restricted List, IN=Ineligible List,
 # PL=Paternity List, MIL=Military Leave, ADM=Administrative Leave,
-# TI=Temporary Inactive List.
+# TI=Temporary Inactive List, BN=Banned.
 ROSTER_RESTRICTED_CODES = {
-    "SU", "RES", "BRV", "FME", "RST", "IN", "PL", "MIL", "ADM", "TI",
+    "SU", "RES", "BRV", "FME", "RST", "IN", "PL", "MIL", "ADM", "TI", "BN",
 }
 
 # `rosterEntries[0].status.code` values meaning the roster entry is a
@@ -57,7 +60,17 @@ ROSTER_OTHER_CODES = {"DES"}
 
 # `rosterEntries[0].status.code` values meaning the player has left the
 # organization entirely, even though that roster entry's isActive is false.
-ROSTER_INACTIVE_CODES = {"RL", "RET", "VL"}
+# VL (Voluntary Retired List) is a historical/transaction-feed code no longer
+# listed in the live /api/v1/playerStatusCodes reference, but old roster
+# history can still carry it, so it stays here.
+ROSTER_INACTIVE_CODES = {"RL", "RET", "VL", "DEC"}
+
+# Every other code from /api/v1/playerStatusCodes (A=Active, RM=Reassigned,
+# DEV=Development List, ASG=Assigned, 40M=Forty Man, MIN=Minor League
+# Contract, NRI=Non-Roster Invitee, WA=Waived, TR=Traded, FA=Free Agent,
+# CL=Claimed, TAX=Taxi Squad, NYR=Not Yet Reported) is intentionally left
+# unclassified: these describe a roster *move* rather than an unavailability
+# reason, so they fall through to the "active"/"other" defaults below.
 
 
 def categorize_roster_status(code, is_active_entry, player_is_active):
@@ -73,6 +86,8 @@ def categorize_roster_status(code, is_active_entry, player_is_active):
     """
     if not code:
         return "active" if player_is_active else "inactive"
+    if code == "DEC":
+        return "inactive"  # Deceased overrides isActive -- never shown as active.
     if is_active_entry:
         if code in ROSTER_INJURED_CODES:
             return "injured"

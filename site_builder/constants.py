@@ -123,16 +123,38 @@ def get_league_ra9(level: str, year: Optional[int] = None) -> tuple[Optional[flo
 # ══════════════════════════════════════════════════════════════════════════
 
 # ── Pitch result-code classifications ──
-# Source: MLB Stats API ``details.code`` values.
-SWING_CODES = {"S", "W", "F", "T", "M", "X", "D", "E", "Z", "L", "Q"}
-# S=swinging strike, W=swinging strike blocked, F=foul, T=foul tip,
-# M=missed bunt, L=foul bunt, X=in play out, D=in play no-out, E=in play run(s),
-# Z=swinging pitchout, Q=swinging pitchout missed
+# Source: MLB Stats API ``details.code`` values, cross-checked against the
+# ``/api/v1/pitchCodes`` reference endpoint (swingStatus / swingMissStatus
+# fields) so every code with swingStatus=true is represented here.
+SWING_CODES = {
+    "S",  # Strike - Swinging
+    "W",  # Strike - Swinging Blocked
+    "F",  # Strike - Foul
+    "T",  # Strike - Foul Tip
+    "M",  # Strike - Missed Bunt
+    "L",  # Strike - Foul Bunt
+    "O",  # Strike - Bunt Foul Tip
+    "R",  # Strike - Foul on Pitchout
+    "Q",  # Strike - Swinging on Pitchout
+    "X",  # Hit Into Play - Out(s)
+    "D",  # Hit Into Play - No Out(s)
+    "E",  # Hit Into Play - Run(s)
+    "Y",  # Pitchout Hit Into Play - Out(s)
+    "J",  # Pitchout Hit Into Play - No Out(s)
+    "Z",  # Pitchout Hit Into Play - Run(s)
+}
 
-WHIFF_CODES = {"S", "W", "T", "M", "Q"}
-# T=foul tip (counts as swinging strike per Statcast), Q=swinging pitchout missed
+WHIFF_CODES = {
+    "S",  # Strike - Swinging
+    "W",  # Strike - Swinging Blocked
+    "T",  # Strike - Foul Tip (counts as swinging strike per Statcast)
+    "M",  # Strike - Missed Bunt
+    "O",  # Strike - Bunt Foul Tip
+    "Q",  # Strike - Swinging on Pitchout
+}
+# The above are exactly the codes with swingMissStatus=true per pitchCodes.
 
-CALLED_STRIKE_CODES = {"C"}
+CALLED_STRIKE_CODES = {"C"}  # Strike - Called (excludes automatic strikes: A/AB/AC/K)
 
 # ── wOBA linear weights (TJStats fixed set, shared across all levels and seasons) ──
 # Source: https://tjstats.ca/glossary/
