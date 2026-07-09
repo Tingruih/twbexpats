@@ -1,6 +1,6 @@
 # site_builder 函式清單
 
-> 最後更新：2026-07-04
+> 最後更新：2026-07-09
 >
 > 本文件盤點 `site_builder/` 套件目前的完整結構與每個模組的職責，做為日後修改
 > 程式的導覽地圖。**舊版文件（2026-07-01）是為了替當時 9 個檔案的
@@ -14,16 +14,21 @@
 
 0. [模組相依圖](#0-模組相依圖)
 1. [api/ — 外部資料來源客戶端](#1-api--外部資料來源客戶端)
+1a. [api/content.py — 逐球影片快取](#1aapicontent—逐球影片快取)
 2. [db/ — SQLite 持久層](#2-db--sqlite-持久層)
+2a. [db/play_videos.py — 影片表查詢](#2adbplay_videospy--影片表查詢)
 3. [stats/ — 數據計算（一個檔案一個統計量）](#3-stats--數據計算一個檔案一個統計量)
+3a. [stats/recent/ — 近期出賽周報告](#3astatsrecent--近期出賽周報告)
 4. [sync/ — 資料同步管線](#4-sync--資料同步管線)
 5. [render/ — 靜態網站渲染](#5-render--靜態網站渲染)
-6. [graph/ — 圖表資料](#6-graph--圖表資料)
-7. [util/ — 通用工具](#7-util--通用工具)
-8. [頂層模組：constants.py / levels.py / roster.py](#8-頂層模組constantspy--levelspy--rosterpy)
-9. [build.py — CLI 進入點](#9-buildpy--cli-進入點)
-10. [跨檔案重複與一致性檢查（對照舊文件）](#10-跨檔案重複與一致性檢查對照舊文件)
-11. [觀察與建議](#11-觀察與建議)
+5a. [render/recents.py — /recents 頁面組裝](#5arenderrecentspy--recents-頁面組裝)
+6. [charts/ — matplotlib 圖表引擎](#6-charts--matplotlib-圖表引擎)
+7. [graph/ — 圖表資料](#7-graph--圖表資料)
+8. [util/ — 通用工具](#8-util--通用工具)
+9. [頂層模組：constants.py / levels.py / roster.py](#9-頂層模組constantspy--levelspy--rosterpy)
+10. [build.py — CLI 進入點](#10-buildpy--cli-進入點)
+11. [跨檔案重複與一致性檢查（對照舊文件）](#11-跨檔案重複與一致性檢查對照舊文件)
+12. [觀察與建議](#12-觀察與建議)
 
 ---
 
@@ -43,7 +48,7 @@
     ┌─────────┼─────────┬───────────┐        ┌─────────┼──────────┐
     ▼         ▼         ▼           ▼        ▼         ▼          ▼
   api/      db/       stats/     util/     db.bundles stats.combine  graph.*
-              │          │                  levels    stats.core
+              │          │                  levels    stats.core     charts.*
               │          │                  roster     util
               ▼          │
         api/ (fetch)     │
@@ -55,11 +60,12 @@
                     core/ 是共用基礎，
                     batting/ pitching/ discipline/
                     batted_ball/ advanced/ tables/
-                    都只依賴 core/ 與 constants/util，
+                    recent/ (weeks) 都只依賴 core/ 與 constants/util，
                     彼此之間幾乎不互相依賴
                           │
                           ▼
-                    graph/ （pitch_movement, pitch_plinko）
+                    graph/ / charts/ （pitch_movement, pitch_plinko
+                    / 靜態 matplotlib PNG）
                     只依賴 stats.core + constants + util
 ```
 
@@ -96,6 +102,15 @@
 
 ---
 
+## 1a. api/content.py — 逐球影片快取
+
+| 檔案 | 內容 |
+|---|---|
+| `content.py` | `get_game_content(game_pk: int) -> dict`：抓單場 statsapi `/content` 端點（best-effort）。`extract_play_videos(content: dict) -> list[dict]`：從 content 解析出 `[{"play_id": str, "title": str, "mp4_url": str}]`，只收 guid 非空且有 mp4 playback 的 item。 |
+| `__init__.py` re-export | `get_game_content`、`extract_play_videos`（呼叫端直接 `from site_builder.api import get_game_content`）。 |
+
+---
+
 ## 2. db/ — SQLite 持久層
 
 | 檔案 | 內容 |
@@ -108,6 +123,14 @@
 | `fip_constants_cache.py` | FIP 聯盟常數的 SQLite 快取。**快取策略**：進行中賽季（`year >= SEASON_YEAR`）永遠即時重抓並覆寫；已結束賽季永久快取。`_fetch_and_compute`：等級→sportId（經 `levels.resolve_tier`）→抓各隊投手數據＋隊伍所屬聯盟 map→依聯盟與整體等級各加總一份→呼叫 `compute_league_fip_constant`。`get_fip_constants(conn, sport_level, year, force_refresh=False)` 為對外唯一入口。 |
 | `tjstats_cache.py` | Park factor 與聯盟常數的 SQLite 快取，兩組資料各自一套 `_load_*`/`_save_*`/`get_*` 函式。**快取策略與 `fip_constants_cache.py` 不同**：任何年份的抓取結果只要非空就永久快取；若抓回空結果則**不快取**，下次 build 會自動重試（區別在於：TJStats 資料一旦公布就不會再變，只需要處理「還沒公布」的情況；FIP 常數則是進行中賽季本身數值就會一直變動）。 |
 | `__init__.py` | 純文件註解，列出各子模組職責，不 re-export（呼叫端直接 `from .schema import init_db` 等）。 |
+
+---
+
+## 2a. db/play_videos.py — 影片表查詢
+
+| 檔案 | 內容 |
+|---|---|
+| `play_videos.py` | `save_play_videos(cur, game_pk, videos, now_iso)`：寫入 `play_videos` 表。`mark_content_processed(cur, game_pk, videos_found: int, now_iso)`：標記該場比賽已處理，記錄找到的影片數。`content_fetch_candidates(cur, roster_ids, retry_cutoff_date: str) -> list[int]`：回傳該重新抓取的比賽列表（未標記過、或 14 天內標記但 videos_found=0 的 MLB 比賽）。`load_video_map(cur) -> dict[int, dict[str, str]]`：載入所有 play_videos 為 `{game_pk: {play_id: mp4_url}}`。 |
 
 ---
 
@@ -230,6 +253,21 @@
 
 ---
 
+## 3a. stats/recent/ — 近期出賽周報告
+
+近 7 天週報告（recents page）的資料層，包含窗口加載、衍生指標計算、熱區統計、以及投打二分報告組裝。
+
+| 檔案 | 內容 |
+|---|---|
+| `window.py` | `game_tier(pitches: list[dict]) -> int`：判定比賽的追蹤層級（1=MLB、2=AAA、3=AA/A）。`load_recent_window(cur, roster_ids: set[int], *, today: date|None = None, days: int = 7) -> list[dict]`：載入過去 N 天的球員出賽窗口，回傳 `[{mlb_id, name_en, name_tw, team, level, position, is_pitcher, games: [{date, game_id, opponent, is_home, sport_level, stats, pitches, events, tier}, ...]}, ...]`。 |
+| `derived.py` | `compute_vaa(p)`/`compute_haa(p)`/`effective_velocity(p)`/`velocity_decay(p)`：球速衍生指標。`spin_clock(spin_dir) -> str\|None`：轉速方向轉轉鐘表示法（12:00~11:59）。`circular_mean_deg(values) -> float\|None`：圓形資料平均（轉速方向）。`normalized_location(p)`：正規化進壘點至 0–3 尺度。`attack_zone(p) -> str`：進壘區域分類（heart/shadow/chase/waste）。`attack_zone_distribution(pitches)`/`edge_pct(pitches)`/`f_strike_pct(pitches)`：進壘區域分佈與統計。`derived_by_pitch_type(pitches) -> dict[str, dict]`：依球種聚合衍生指標。 |
+| `zone_stats.py` | `compute_zone_stats(pitches: list[dict]) -> dict[int, dict]`：計算好球帶 9 宮格 + 外側區（11–14）的統計（n/swings/whiffs/swing_pct/whiff_pct/ab/hits/avg）。`HIT_EVENTS`/`AB_EVENTS` 常數。 |
+| `pitcher_report.py` | `build_pitcher_report(games: list[dict], season: dict) -> dict`：投手週報告組裝，包含 tier、pitch_count、games（加 summary 字串）、week（週指標）、season_available、deltas（週 vs 季差值）、arsenal 詳情、discipline 指標、scoring_events。 |
+| `batter_report.py` | `build_batter_report(games: list[dict], season: dict) -> dict`：打者週報告組裝，包含 tier、pitch_count、games、week（打擊率、K%/BB% 等）、season_available、deltas、group_splits（速球/變化/慢速）、two_strike、pa_timeline。 |
+| `highlights.py` | `build_chips(report: dict, role: str) -> list[dict]`：從報告提取最重要的「數據卡片」（標籤、當週值、delta、好壞方向、重要度）。`build_notes(report: dict, role: str) -> list[str]`：產生 1–4 條中文敘述文案重點。 |
+
+---
+
 ## 4. sync/ — 資料同步管線
 
 `__init__.py` re-export `sync_database`/`update_database`（來自 `.players`）、
@@ -285,7 +323,30 @@ statcast 條目）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojeky
 
 ---
 
-## 6. graph/ — 圖表資料
+## 5a. render/recents.py — /recents 頁面組裝
+
+| 檔案 | 內容 |
+|---|---|
+| `recents.py` | `build_recents_page(env, conn, out_dir: Path, year: int, roster_ids: set[int], *, today: date\|None = None) -> dict`：載入近期窗口 → 依 sport_level 分組 → 各組呼叫投手/打者報告 → 組裝各式圖表（pitch map / hot zone / velocity / movement / EV-LA / spray / quality fallback）→ 產生 chips 與 notes → 渲染 recents.j2 與逐球員 HTML → 寫入 PNG 圖表到 `static/charts/recents/{mlb_id}/*.png` → 回傳 sitemap entry。 |
+
+---
+
+## 6. charts/ — matplotlib 圖表引擎
+
+matplotlib 靜態圖表 PNG 生成引擎，用於 `/recents/` 頁面的視覺化。深色主題，所有圖表函式回傳 bool（成功時為 True、若資料不足回傳 False 且不寫檔）。
+
+| 檔案 | 內容 |
+|---|---|
+| `style.py` | 色票常數（`SURFACE`/`INK_1`/`INK_2`/`INK_3`/`GRID`/`ACCENT`/`NEUTRAL`）與色圖（`SEQ_CMAP`/`DIV_CMAP`）；`pitch_color(ptype) -> str`：球種↔色彩對應。`result_class(p: dict) -> str`：結果分類（inplay/whiff/called/foul/ball）。`TRAJECTORY_COLORS`：軌跡↔色彩。`RESULT_MARKERS`：結果↔標記形狀。`PA_EVENT_ABBREV`：打席結果↔縮寫。`new_fig(width, height)` / `style_axes(ax)` / `styled_legend(ax, handles, loc, fontsize)` / `save_chart(fig, out_path)` 共用繪圖函式。 |
+| `plate.py` | `render_game_pitch_map(pitches: list[dict], out_path: Path, *, title: str = "") -> bool`：本壘板視角逐球位置圖（色=球種、形=結果、PA 終結球標 event 縮寫）。 |
+| `zones.py` | `render_hot_zone(zone_stats: dict[int,dict], out_path: Path, *, metric: str = "avg", min_n: int = 5, vmin: float = 0.15, vmax: float = 0.40, overlay_points: list[tuple[float,float]]\|None = None, title: str = "") -> bool`：好球帶 9 宮格 + L 形外側熱區 heatmap（color = 指標值、遮罩 n < min_n 的格子）。`overlay_points_from_pitches(pitches: list[dict]) -> list[tuple[float,float]]`：pitch 清單轉格座標疊點。 |
+| `velocity.py` | `render_velocity_sequence(pitches: list[dict], out_path: Path, *, season_arsenal: list[dict]\|None = None, title: str = "") -> bool`：單場球速序列折線圖（x=球序號、y=球速、按局區分、季平均速虛線當基準）。 |
+| `movement_game.py` | `render_game_movement(game_pitches: list[dict], season_pitches: list[dict], out_path: Path, *, title: str = "") -> bool`：單場位移散佈 + 季分佈 ghost（季灰點 + 每球種 2σ 橢圓、本場實色點、0 軸十字）。 |
+| `batted.py` | `render_ev_la(game_pitches, season_pitches, out_path, *, title="") -> bool`：EV vs LA 散佈圖（sweet-spot 帶背景、hard-hit 線、季灰點、本場實色、barrel 加圈）。`render_spray(game_pitches, season_pitches, out_path, *, title="") -> bool`：噴射圖（Gameday 座標轉換、45°邊線、距離弧線、軌跡色彩、季灰點、本場實色）。`render_quality_fallback(week_pitches, season_pitches, out_path, *, title="") -> bool`：Tier 3 替代圖（1×2 面板：左 hardness %、右軌跡 %，各為週 vs 季對比長條圖）。 |
+
+---
+
+## 7. graph/ — 圖表資料
 
 `__init__.py` 是純文件註解：「每個圖表模組各自擁有一組 `compute_*`（sync 時
 依單一等級算）與 `combine_*`（build 時跨等級合併）配對函式」。
@@ -297,7 +358,7 @@ statcast 條目）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojeky
 
 ---
 
-## 7. util/ — 通用工具
+## 8. util/ — 通用工具
 
 零領域知識的泛用工具，被所有其他套件依賴，自己不依賴任何人。
 
@@ -311,7 +372,7 @@ statcast 條目）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojeky
 
 ---
 
-## 8. 頂層模組：constants.py / levels.py / roster.py
+## 9. 頂層模組：constants.py / levels.py / roster.py
 
 ### 8.1 `constants.py`（344 行）
 
@@ -342,7 +403,7 @@ active/injured/restricted/inactive/other 五者之一；
 
 ---
 
-## 9. build.py — CLI 進入點
+## 10. build.py — CLI 進入點
 
 252 行，`argparse` 子命令：`sync` / `statcast` / `refresh` / `build` /
 `all`。每個 `cmd_*` 函式都在函式本體內才 import `site_builder.sync`/
@@ -355,7 +416,7 @@ argparse` 保持輕量快速。`cmd_refresh` 依序執行 `update_database` →
 
 ---
 
-## 10. 跨檔案重複與一致性檢查（對照舊文件）
+## 11. 跨檔案重複與一致性檢查（對照舊文件）
 
 舊文件（2026-07-01）列出的問題，逐項核對現況：
 
@@ -387,7 +448,7 @@ argparse` 保持輕量快速。`cmd_refresh` 依序執行 `update_database` →
 
 ---
 
-## 11. 觀察與建議
+## 12. 觀察與建議
 
 **headline 發現**：舊文件提出的所有拆分建議中，唯一沒有被執行的是
 `render/pages.py::build_static_site` 這個約 385 行的單一函式。它一次處理

@@ -1,7 +1,7 @@
 # /recents 近期出賽分析頁 — 設計規劃文檔
 
 日期：2026-07-05
-狀態：草案（待審閱）
+狀態：已實作（實作規格見 docs/superpowers/plans/2026-07-09-recents-charts-video.md，§7.3 的 canvas 方案被 matplotlib 靜態圖取代）
 
 ---
 

@@ -2,7 +2,13 @@
 
 本文件記錄「在球員詳細頁 / 逐球紀錄表格裡，讓使用者直接播放對應那顆球的影片」這個功能的
 可行性調查：有哪些資料來源、各自的分層覆蓋率與連結穩定性、可能的風險、以及建議的
-fallback 設計。**本文件只記錄調查結果與建議方案，尚未實作。**
+fallback 設計。
+
+> **狀態更新（2026-07）**：第一階段（方案 a，精華球站內播放）與一般球的
+> Savant iframe fallback（方案 d 的簡化版：不做查無影片偵測，以固定文案＋
+> 外部連結取代）皆已實作 — 見 `site_builder/api/content.py`、
+> `site_builder/db/play_videos.py`、`sync/statcast.py::fetch_highlight_videos`、
+> `src/static/js/pitch-log.js`。法律面確認（風險 1）仍待人工處理。
 
 > 調查方法：用專案 `src/data/roster.json` 內真實球員（鄧愷威 678906、莊陳仲敖 800018）
 > 的真實比賽，對 `statsapi.mlb.com`、`baseballsavant.mlb.com`、`sporty-clips.mlb.com`、
