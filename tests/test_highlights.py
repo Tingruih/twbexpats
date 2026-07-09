@@ -18,7 +18,7 @@ def _pitcher_report():
                  "whiff_delta": 0.02, "chase_delta": None, "zone_delta": None,
                  "is_new": False, "is_dropped": False},
                 {"type": "ST", "name": "Sweeper", "count": 12,
-                 "week_pct": 0.15, "season_pct": None, "velo_delta": None,
+                 "week_pct": 0.15, "season_pct": None, "usage_delta": 0.15,
                  "week_velo": 84.0, "season_velo": None, "velo_delta": None,
                  "whiff_delta": None, "chase_delta": None, "zone_delta": None,
                  "is_new": True, "is_dropped": False},
