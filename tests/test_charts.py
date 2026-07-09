@@ -2,6 +2,7 @@
 from pathlib import Path
 
 from site_builder.charts import style
+from site_builder.charts.movement_game import render_game_movement
 from site_builder.charts.plate import render_game_pitch_map
 from site_builder.charts.velocity import render_velocity_sequence
 from site_builder.charts.zones import overlay_points_from_pitches, render_hot_zone
@@ -99,3 +100,16 @@ def test_render_velocity_sequence(tmp_path):
 def test_render_velocity_sequence_untracked(tmp_path):
     assert render_velocity_sequence(
         [make_untracked_pitch() for _ in range(10)], tmp_path / "v.png") is False
+
+
+def test_render_game_movement(tmp_path):
+    game = [make_pitch(hb=8 + i * 0.3, ivb=15 - i * 0.2) for i in range(5)]
+    season = [make_pitch(hb=7 + (i % 7) * 0.5, ivb=14 + (i % 5) * 0.4)
+              for i in range(40)]
+    out = tmp_path / "move.png"
+    assert render_game_movement(game, season, out) is True
+    assert out.stat().st_size > 5000
+
+
+def test_render_game_movement_no_data(tmp_path):
+    assert render_game_movement([make_untracked_pitch()], [], tmp_path / "m.png") is False
