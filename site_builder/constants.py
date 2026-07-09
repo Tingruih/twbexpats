@@ -47,6 +47,10 @@ API_RATE_LIMIT = 25
 PLAYER_FETCH_WORKERS = 20
 GAME_FETCH_WORKERS = 50
 
+# 逐球精華影片：/content 精華索引有 1 天以上延遲，videos_found=0 的比賽在
+# 賽後 N 天內每次 sync 重試。
+CONTENT_RETRY_DAYS = 14
+
 # ══════════════════════════════════════════════════════════════════════════
 # 2. ANNUAL CONSTANTS — refresh each spring
 # ══════════════════════════════════════════════════════════════════════════
