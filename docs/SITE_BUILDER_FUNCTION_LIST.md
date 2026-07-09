@@ -5,9 +5,9 @@
 > 本文件盤點 `site_builder/` 套件目前的完整結構與每個模組的職責，做為日後修改
 > 程式的導覽地圖。**舊版文件（2026-07-01）是為了替當時 9 個檔案的
 > `site_builder/` 規劃拆分方案而寫的。那次拆分已經完成，而且拆得比舊文件建議
-> 的更細、更徹底**——目前套件已有 114 個 Python 檔案、共 6919 行，依職責切成
-> 8 個子套件（`api/` `db/` `graph/` `render/` `stats/` `sync/` `util/` 加上
-> 3 個頂層模組）。本文件的目的因此從「該怎麼拆」轉為「現況長什麼樣子、還有
+> 的更細、更徹底**——目前套件已有 131 個 Python 檔案、共 9072 行，依職責切成
+> 8 個子套件（`api/` `charts/` `db/` `graph/` `render/` `stats/` `sync/`
+> `util/` 加上 3 個頂層模組）。本文件的目的因此從「該怎麼拆」轉為「現況長什麼樣子、還有
 > 哪些地方沒拆完」。
 
 ## 目錄
@@ -308,7 +308,7 @@
 | `filters.py` | `floatformat` / `default_if_none` / `num_dash`；`_json_html_safe`（把 `</` 轉義，避免 JSON 內容意外提前關閉 `<script>` 標籤）→ `tojson_safe` → `jsonld`；`pct_fmt`（用 `Decimal` + `ROUND_HALF_UP` 做百分比捨入，避免浮點誤差造成的捨入不一致）。 |
 | `urls.py` | `HEADSHOT_CDN_TEMPLATE_MLB` / `_MILB`（Cloudinary 上 MLB Photos CDN 的兩種資產家族："67" vs "milb"）；`headshot_cdn_urls(mlb_id, latest_level_is_mlb)` 依球員最近一次「有出賽紀錄」的等級決定主/備選頭像順序；`make_url_helpers(base_url)` / `make_absolute_url(site_origin, base_url)`。 |
 | `seo.py` | 站台層級常數（`SITE_TITLE`/`SITE_DESCRIPTION`/`SITE_SAME_AS`）與退役球員專屬文案；`player_display_name` / `player_canonical_path` / `player_description`；`index_structured_data`（WebSite + ItemList JSON-LD）/ `player_structured_data`（Person + BreadcrumbList JSON-LD）；`write_robots` / `write_sitemap`。 |
-| `pitch_log.py` | `summarize_pitch_for_display(p)`：pitch dict 的精簡投影；`write_pitch_log_files(logs_by_year, out_dir, normalized_base_url, mlb_id)`：把逐場比賽的 pitch log 寫成延遲載入的獨立 JSON 檔（`data/pitchlogs/{mlb_id}/{game_id}.json`），並在每筆 log 上附加 `pitch_data_url`/`pitch_count`。 |
+| `pitch_log.py` | `summarize_pitch_for_display(p, video_map=None, include_video=False)`：pitch dict 的精簡投影；`include_video`（僅 MLB 場為 True）時附 `play_id`，`video_map` 命中時再附精華影片 `video` URL，非 MLB 場兩鍵一律不輸出；`write_pitch_log_files(logs_by_year, out_dir, normalized_base_url, mlb_id, videos_by_game=None)`：把逐場比賽的 pitch log 寫成延遲載入的獨立 JSON 檔（`data/pitchlogs/{mlb_id}/{game_id}.json`），依 `sport_level == "MLB"` 決定是否從 `videos_by_game` 取出該場的 video_map 傳給 `summarize_pitch_for_display`，並在每筆 log 上附加 `pitch_data_url`/`pitch_count`。 |
 | `pages.py` | `_pick_display_stat(stats_current, player)`：三層優先序（完全同隊 > 目前等級相符 > 最高等級 fallback）。**`build_static_site(db_path, year, output_dir, base_url, roster_file, update_constants)`**——見下方說明，是本套件中唯一**尚未依照舊文件建議拆分**的大函式。 |
 
 `build_static_site` 目前仍是單一函式（約 385 行），依序處理：載入 roster →
@@ -318,8 +318,9 @@
 渲染退役名單頁 → 逐球員渲染詳細頁（圖表資料、`compute_career` 生涯加總、
 下一場比賽有效性檢查、透過 `combine_statcast_dicts` 為跨等級球季合成
 `"_combined"` 條目、為只有 wRC+ 沒有實際 Statcast 資料的年份注入近乎空白的
-statcast 條目）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojekyll`
-標記檔。詳見 §11。
+statcast 條目）→ 呼叫 `build_recents_page` 建 `/recents` 近期出賽分析頁
+（見 §5a）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojekyll`
+標記檔。詳見 §12。
 
 ---
 
@@ -434,7 +435,7 @@ argparse` 保持輕量快速。`cmd_refresh` 依序執行 `update_database` →
 | `compute_fip` 內部自己做 I/O 查常數 | ✅ 已解決：改成外部解出 `c_fip` 後傳入，`compute_fip` 本身零 I/O |
 | （舊文件未提及，本次審閱新發現的 bug）投手 BABIP 分母 | ✅ 已修正：從 BF 基準改為 AB 基準，與打者版公式對稱，修正系統性低估（見 `stats/core/annotate.py` 內的中文註解） |
 | （舊文件未提及）FIP 常數表、TJStats 常數表 | ✅ 已改進：從手抄靜態表格，改為即時反推計算／即時爬取，並依資料新鮮度差異分別套用兩種不同的 SQLite 快取策略（`db/fip_constants_cache.py` vs `db/tjstats_cache.py`，見 §2） |
-| `builder.py::build_static_site` 應拆成 per-page-type 子函式 | ❌ **尚未解決**：`render/pages.py::build_static_site` 目前仍是單一約 385 行的函式，是舊文件所有建議中唯一沒有被落實的一項。詳見 §11。 |
+| `builder.py::build_static_site` 應拆成 per-page-type 子函式 | ❌ **尚未解決**：`render/pages.py::build_static_site` 目前仍是單一約 385 行的函式，是舊文件所有建議中唯一沒有被落實的一項。詳見 §12。 |
 
 以下兩點是本次審閱過程中發現、但認定為**刻意設計、非需要修正的問題**：
 
