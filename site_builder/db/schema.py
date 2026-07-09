@@ -131,4 +131,23 @@ def init_db(conn: sqlite3.Connection):
         )
     except sqlite3.OperationalError:
         pass  # column already exists
+    # 逐球精華影片（statsapi /content 的 per-play mp4，MLB 限定）與
+    # content 抓取進度（videos_found=0 且比賽仍在重試窗內者會再抓）。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS play_videos (
+            game_pk INTEGER NOT NULL,
+            play_id TEXT NOT NULL,
+            title TEXT NOT NULL DEFAULT '',
+            mp4_url TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            UNIQUE(game_pk, play_id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS game_content_processed (
+            game_pk INTEGER PRIMARY KEY,
+            processed_at TEXT NOT NULL,
+            videos_found INTEGER NOT NULL DEFAULT 0
+        )
+    """)
     conn.commit()
