@@ -1,0 +1,112 @@
+{% import "macros/recents.j2" as rc %}
+<details class="recent-card glass-panel">
+    <summary>{{ rc.card_header(r, season_year) }}</summary>
+    <div class="recent-body">
+
+        <div class="recent-week-line">
+            <span class="week-stat">{{ r.week.ip if r.week.ip is not none else '-' }} IP</span>
+            <span class="week-stat">{{ r.week.er }} ER</span>
+            <span class="week-stat">{{ r.week.k }} K</span>
+            <span class="week-stat">{{ r.week.bb }} BB</span>
+            {% if r.week.csw_pct is not none %}<span class="week-stat">CSW% {{ rc.pct(r.week.csw_pct) }}</span>{% endif %}
+            {% if r.week.whiff_pct is not none %}<span class="week-stat">Whiff% {{ rc.pct(r.week.whiff_pct) }}</span>{% endif %}
+            {% if r.week.f_strike_pct is not none %}<span class="week-stat">F-Strike% {{ rc.pct(r.week.f_strike_pct) }}</span>{% endif %}
+            {% if r.week.edge_pct is not none %}<span class="week-stat">Edge% {{ rc.pct(r.week.edge_pct) }}</span>{% endif %}
+            {% if r.week.pickoffs %}<span class="week-stat">牽制 {{ r.week.pickoffs }}</span>{% endif %}
+        </div>
+        {{ rc.chips(r.chips) }}
+        {{ rc.notes(r.notes) }}
+        {% if not r.season_available %}{{ rc.fallback('本層級樣本尚不足以建立季基準') }}{% endif %}
+
+        {% for g in r.games %}
+        <div class="recent-game">
+            <h4>{{ g.date.strftime('%m/%d') if g.date else '' }}
+                {{ '主' if g.is_home else '客' }} {{ g.opponent }} — {{ g.summary }}</h4>
+            {{ rc.chart_grid(r.game_charts.get(g.game_id, {}), {
+                'pitch_map': '本壘板視角逐球位置（捕手方向）',
+                'velocity': '球速序列（虛線＝球季均速）',
+                'movement': '位移分佈（灰點＝球季）'}) }}
+            {% if g.tier == 3 %}
+            {{ rc.fallback('此層級（AA/A+）無進壘點追蹤資料，以下改以結果序列呈現') }}
+            {{ rc.result_strip(g.pitches) }}
+            {% elif g.tier == 2 %}
+            {{ rc.fallback('此場僅部分球有追蹤資料，圖表以有追蹤的球計算') }}
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if r.deltas.arsenal %}
+        <div class="table-scroll">
+        <table class="data-table recent-arsenal-table">
+            <thead><tr>
+                <th>球種</th><th>週球數</th><th>Usage</th><th>Δ</th>
+                <th>均速</th><th>Δ</th><th>Whiff Δ</th><th>Chase Δ</th><th>Zone Δ</th>
+                <th>VAA</th><th>EffVelo</th><th>轉軸</th>
+            </tr></thead>
+            <tbody>
+            {% for row in r.deltas.arsenal %}
+            {% set d = r.week.derived_by_type.get(row.type, {}) %}
+            <tr>
+                <td>{{ row.name }}
+                    {% if row.is_new %}<span class="badge-new">NEW</span>{% endif %}
+                    {% if row.is_dropped %}<span class="badge-drop">棄用</span>{% endif %}</td>
+                <td class="num">{{ row.count }}</td>
+                <td class="num">{{ rc.pct(row.week_pct) }}</td>
+                <td class="num">{{ rc.pp(row.usage_delta) }}</td>
+                <td class="num">{{ row.week_velo if row.week_velo is not none else '-' }}</td>
+                <td class="num">{{ rc.mph(row.velo_delta) }}</td>
+                <td class="num">{{ rc.pp(row.whiff_delta) }}</td>
+                <td class="num">{{ rc.pp(row.chase_delta) }}</td>
+                <td class="num">{{ rc.pp(row.zone_delta) }}</td>
+                <td class="num">{{ d.vaa if d.vaa is not none else '-' }}</td>
+                <td class="num">{{ d.eff_velo if d.eff_velo is not none else '-' }}</td>
+                <td class="num">{{ d.spin_clock or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% elif r.week.arsenal %}
+        {# 無季基準：只列週值原始數字（§0.3 fallback） #}
+        <div class="table-scroll">
+        <table class="data-table recent-arsenal-table">
+            <thead><tr>
+                <th>球種</th><th>週球數</th><th>Usage</th><th>均速</th>
+                <th>Whiff%</th><th>VAA</th><th>EffVelo</th><th>轉軸</th>
+            </tr></thead>
+            <tbody>
+            {% for row in r.week.arsenal %}
+            {% set d = r.week.derived_by_type.get(row.type, {}) %}
+            <tr>
+                <td>{{ row.name }}</td>
+                <td class="num">{{ row.count }}</td>
+                <td class="num">{{ rc.pct(row.pct) }}</td>
+                <td class="num">{{ row.velo if row.velo is not none else '-' }}</td>
+                <td class="num">{{ rc.pct(row.whiff_pct) }}</td>
+                <td class="num">{{ d.vaa if d.vaa is not none else '-' }}</td>
+                <td class="num">{{ d.eff_velo if d.eff_velo is not none else '-' }}</td>
+                <td class="num">{{ d.spin_clock or '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% elif r.tier == 3 %}
+        {{ rc.fallback('此層級無球種標記資料') }}
+        {% endif %}
+
+        {% if r.scoring_events %}
+        <div class="recent-scoring">
+            <h4>失分事件</h4>
+            <ul>
+                {% for e in r.scoring_events %}
+                <li>{{ e.date.strftime('%m/%d') if e.date else '' }} 第 {{ e.inning }} 局 —
+                    {{ e.event }}{% if e.earned is sameas false %}（非自責）{% endif %}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <a class="recent-player-link" href="{{ player_url(r.player.mlb_id) }}">前往球員完整頁面 →</a>
+    </div>
+</details>

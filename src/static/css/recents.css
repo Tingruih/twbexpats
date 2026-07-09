@@ -1,0 +1,81 @@
+/* ═══ /recents 近期出賽分析頁 ═══ */
+
+.recents-header { padding: 16px 20px; margin-bottom: 16px; }
+.recents-header h2 { margin: 0 0 4px; font-size: 1.15rem; }
+.recents-subtitle { margin: 0; color: var(--text-2); font-size: 0.85rem; }
+.recents-section-title { margin: 20px 4px 10px; font-size: 1rem; color: var(--text-1); }
+
+/* ── 卡片 ── */
+.recent-card { margin-bottom: 12px; padding: 0; overflow: hidden; }
+.recent-card > summary { list-style: none; cursor: pointer; padding: 14px 16px; }
+.recent-card > summary::-webkit-details-marker { display: none; }
+.recent-card[open] > summary { border-bottom: 1px solid var(--border); }
+.recent-card-summary { display: flex; gap: 14px; align-items: flex-start; }
+.recent-card-info { flex: 1; min-width: 0; }
+.recent-card-info h3 { margin: 0 0 2px; font-size: 1rem; }
+.recent-name-en { color: var(--text-3); font-size: 0.8rem; font-weight: 400; }
+.recent-card-team { color: var(--text-2); font-size: 0.82rem; margin-bottom: 6px; }
+.recent-card-games { list-style: none; margin: 0; padding: 0; color: var(--text-2); font-size: 0.82rem; }
+.recent-card-games li { padding: 1px 0; }
+.recent-card-chips { flex-shrink: 0; }
+.recent-body { padding: 14px 16px 18px; }
+
+/* ── 週彙總與 chips ── */
+.recent-week-line { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 10px; }
+.week-stat { background: var(--card-surface); border: 1px solid var(--border);
+             border-radius: 6px; padding: 3px 8px; font-size: 0.82rem; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.delta-chip { border-radius: 999px; padding: 2px 10px; font-size: 0.78rem; border: 1px solid; }
+.chip-good { color: var(--teal); border-color: rgb(var(--teal-rgb) / 0.45);
+             background: rgb(var(--teal-rgb) / 0.12); }
+.chip-bad { color: var(--red); border-color: rgb(var(--red-rgb) / 0.45);
+            background: rgb(var(--red-rgb) / 0.12); }
+.recent-notes { margin: 8px 0; padding-left: 18px; color: var(--text-1); font-size: 0.86rem; }
+.recent-notes li { margin: 2px 0; }
+.fallback-note { color: var(--text-3); font-style: italic; font-size: 0.8rem; margin: 6px 0; }
+
+/* ── 逐場與圖表 ── */
+.recent-game { margin-top: 14px; }
+.recent-game h4 { margin: 0 0 8px; font-size: 0.9rem; color: var(--text-1); }
+.recent-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+                     gap: 12px; overflow-x: auto; }
+.recent-chart { margin: 0; }
+.recent-chart img { width: 100%; height: auto; border-radius: var(--radius);
+                    border: 1px solid var(--border); }
+.recent-chart figcaption { color: var(--text-3); font-size: 0.75rem; margin-top: 4px; }
+.recent-chart-solo { max-width: 480px; margin: 12px 0; }
+
+/* ── Tier 3 逐球結果條 ── */
+.result-strip { display: flex; flex-wrap: wrap; gap: 3px; margin: 6px 0; }
+.strip { width: 11px; height: 11px; border-radius: 2px; display: inline-block; }
+.strip-inplay { background: #3987e5; }
+.strip-whiff { background: #e66767; }
+.strip-called { background: #c98500; }
+.strip-foul { background: #71717a; }
+.strip-ball { background: #3f3f46; }
+.strip-final { outline: 1.5px solid var(--teal); outline-offset: 1px; }
+.strip-legend { display: flex; flex-wrap: wrap; gap: 10px; color: var(--text-3);
+                font-size: 0.72rem; margin-bottom: 8px; align-items: center; }
+.strip-legend .strip { margin-right: 3px; vertical-align: -1px; }
+
+/* ── 表格徽章與其他 ── */
+.badge-new, .badge-drop { border-radius: 4px; font-size: 0.68rem; padding: 1px 5px; margin-left: 4px; }
+.badge-new { background: rgb(var(--teal-rgb) / 0.18); color: var(--teal); }
+.badge-drop { background: rgb(var(--red-rgb) / 0.18); color: var(--red); }
+.recent-scoring ul, .recent-pa-timeline ul { list-style: none; margin: 4px 0; padding: 0;
+                                             font-size: 0.84rem; color: var(--text-2); }
+.recent-scoring li, .recent-pa-timeline li { padding: 3px 0; }
+.recent-pa-timeline .pa-meta { color: var(--text-3); margin-right: 8px; }
+.recent-pa-timeline .pa-seq { margin-right: 8px; }
+.recent-pa-timeline .pa-result { color: var(--text-1); }
+.recent-pa-timeline .pa-hit { color: var(--text-3); margin-left: 8px; }
+.recent-two-strike { font-size: 0.86rem; color: var(--text-2); }
+.recent-player-link { display: inline-block; margin-top: 14px; color: var(--teal);
+                      text-decoration: none; font-size: 0.86rem; }
+.recent-player-link:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+    .recent-card-summary { flex-wrap: wrap; }
+    .recent-card-chips { width: 100%; }
+    .recent-chart-grid { grid-template-columns: 1fr; }
+}

@@ -1,0 +1,28 @@
+{% extends 'base.j2' %}
+
+{% block content %}
+<div class="recents-header glass-panel">
+    <h2>近 7 天出賽動態（{{ date_range.start.strftime('%m/%d') }} – {{ date_range.end.strftime('%m/%d') }}）</h2>
+    <p class="recents-subtitle">
+        進階指標以「本週 vs 球季基準」的差異呈現；圖表與指標依各層級追蹤資料等級自動降階。
+    </p>
+</div>
+
+{% if not pitcher_reports and not batter_reports %}
+<div class="glass-panel empty-season-msg">近 7 天無出賽紀錄</div>
+{% endif %}
+
+{% if pitcher_reports %}
+<h3 class="recents-section-title">投手</h3>
+{% for r in pitcher_reports %}
+{% include 'partials/recent_pitcher_report.j2' %}
+{% endfor %}
+{% endif %}
+
+{% if batter_reports %}
+<h3 class="recents-section-title">打者</h3>
+{% for r in batter_reports %}
+{% include 'partials/recent_batter_report.j2' %}
+{% endfor %}
+{% endif %}
+{% endblock %}

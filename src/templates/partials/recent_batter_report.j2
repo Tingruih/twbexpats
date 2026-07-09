@@ -1,0 +1,124 @@
+{% import "macros/recents.j2" as rc %}
+<details class="recent-card glass-panel">
+    <summary>{{ rc.card_header(r, season_year) }}</summary>
+    <div class="recent-body">
+
+        {% set line = r.week.batting_line %}
+        <div class="recent-week-line">
+            <span class="week-stat">{{ line.hits }}-{{ line.ab }}</span>
+            {% if line.avg is not none %}<span class="week-stat">AVG {{ '%.3f'|format(line.avg) }}</span>{% endif %}
+            <span class="week-stat">{{ line.hr }} HR</span>
+            <span class="week-stat">{{ line.rbi }} RBI</span>
+            <span class="week-stat">{{ line.bb }} BB / {{ line.k }} K</span>
+            {% if r.week.k_pct is not none %}<span class="week-stat">K% {{ rc.pct(r.week.k_pct) }}</span>{% endif %}
+            {% if r.week.bb_pct is not none %}<span class="week-stat">BB% {{ rc.pct(r.week.bb_pct) }}</span>{% endif %}
+            {% if r.week.ev and r.week.ev.avg_ev is not none %}<span class="week-stat">EV {{ r.week.ev.avg_ev }}</span>{% endif %}
+            {% if r.week.ev and r.week.ev.bat_speed is not none %}<span class="week-stat">Bat Speed {{ r.week.ev.bat_speed }} mph</span>{% endif %}
+        </div>
+        {{ rc.chips(r.chips) }}
+        {{ rc.notes(r.notes) }}
+        {% if not r.season_available %}{{ rc.fallback('本層級樣本尚不足以建立季基準') }}{% endif %}
+
+        {% if r.zone_chart %}
+        <figure class="recent-chart recent-chart-solo">
+            <img src="{{ r.zone_chart }}" alt="打者熱區" loading="lazy">
+            <figcaption>底色＝本季各區打擊率（樣本不足處灰色顯示 n），圓點＝本週打席終結球位置</figcaption>
+        </figure>
+        {% elif r.zone_chart_missing_reason %}
+        {{ rc.fallback(r.zone_chart_missing_reason) }}
+        {% endif %}
+
+        {% for g in r.games %}
+        <div class="recent-game">
+            <h4>{{ g.date.strftime('%m/%d') if g.date else '' }}
+                {{ '主' if g.is_home else '客' }} {{ g.opponent }} — {{ g.summary }}</h4>
+            {{ rc.chart_grid(r.game_charts.get(g.game_id, {}), {
+                'pitch_map': '本場所見球位置（捕手方向）',
+                'ev_la': 'EV / LA（灰點＝球季、teal 外框＝Barrel）',
+                'spray': '落點圖（灰點＝球季）'}) }}
+            {% if g.tier == 3 %}
+            {{ rc.fallback('此層級（AA/A+）無進壘點追蹤資料，以下改以結果序列呈現') }}
+            {{ rc.result_strip(g.pitches) }}
+            {% elif g.tier == 2 %}
+            {{ rc.fallback('此場僅部分球有追蹤資料，圖表以有追蹤的球計算') }}
+            {% endif %}
+        </div>
+        {% endfor %}
+
+        {% if r.quality_chart %}
+        <figure class="recent-chart recent-chart-solo">
+            <img src="{{ r.quality_chart }}" alt="擊球品質（週 vs 季）" loading="lazy">
+            <figcaption>無 EV 追蹤層級的替代指標：記錄員擊球品質與擊球型態分佈（週 vs 季）</figcaption>
+        </figure>
+        {% endif %}
+
+        {% if r.deltas.discipline %}
+        <div class="table-scroll">
+        <table class="data-table recent-discipline-table">
+            <thead><tr><th>指標</th><th>本週</th><th>球季</th><th>Δ</th></tr></thead>
+            <tbody>
+            {% for key, label in [('o_swing_pct', 'Chase%'), ('whiff_pct', 'Whiff%'),
+                                  ('z_contact_pct', 'Z-Contact%'), ('swstr_pct', 'SwStr%'),
+                                  ('zone_pct', 'Zone%')] %}
+            {% set e = r.deltas.discipline.get(key) %}
+            {% if e %}
+            <tr>
+                <td>{{ label }}</td>
+                <td class="num">{{ rc.pct(e.week) }}</td>
+                <td class="num">{{ rc.pct(e.season) }}</td>
+                <td class="num">{{ rc.pp(e.delta) }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% endif %}
+
+        {% if r.group_splits %}
+        <div class="table-scroll">
+        <table class="data-table recent-groups-table">
+            <thead><tr><th>球種群</th><th>球數</th><th>Whiff%</th><th>H/AB</th><th>AVG</th><th>平均 EV</th></tr></thead>
+            <tbody>
+            {% for gsp in r.group_splits %}
+            <tr>
+                <td>{{ {'fastball': '速球', 'breaking': '變化球', 'offspeed': '慢速球'}[gsp.group] }}</td>
+                <td class="num">{{ gsp.n }}</td>
+                <td class="num">{{ rc.pct(gsp.whiff_pct) }}</td>
+                <td class="num">{{ gsp.hits }}/{{ gsp.ab }}</td>
+                <td class="num">{{ '%.3f'|format(gsp.avg) if gsp.avg is not none else '-' }}</td>
+                <td class="num">{{ gsp.avg_ev if gsp.avg_ev is not none else '-' }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% endif %}
+
+        {% if r.two_strike.pa %}
+        <p class="recent-two-strike">兩好球後：{{ r.two_strike.pa }} PA、{{ r.two_strike.k }} K、
+            {{ r.two_strike.hits }} H{% if r.two_strike.avg is not none %}（AVG {{ '%.3f'|format(r.two_strike.avg) }}）{% endif %}</p>
+        {% endif %}
+
+        {% if r.pa_timeline %}
+        <div class="recent-pa-timeline">
+            <h4>逐打席</h4>
+            <ul>
+                {% for pa in r.pa_timeline %}
+                <li>
+                    <span class="pa-meta">{{ pa.date.strftime('%m/%d') if pa.date else '' }}
+                        第 {{ pa.inning }} 局 vs {{ 'LHP' if pa.pitch_hand == 'L' else 'RHP' }}</span>
+                    <span class="pa-seq">{% for t, code in pa.sequence %}<span class="pitch-tag pitch-{{ t|lower }}">{{ t }}</span>{% endfor %}</span>
+                    <span class="pa-result">{{ pa.result }}</span>
+                    {% if pa.hit and pa.hit.ev is not none %}
+                    <span class="pa-hit">EV {{ pa.hit.ev }}{% if pa.hit.distance %} / {{ pa.hit.distance }} ft{% endif %}</span>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
+        <a class="recent-player-link" href="{{ player_url(r.player.mlb_id) }}">前往球員完整頁面 →</a>
+    </div>
+</details>

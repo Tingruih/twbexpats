@@ -1,0 +1,86 @@
+{% import "macros/tags.j2" as tags %}
+
+{% macro pp(v) %}{% if v is none %}-{% else %}{{ '%+.0f'|format(v * 100) }}pp{% endif %}{% endmacro %}
+{% macro mph(v) %}{% if v is none %}-{% else %}{{ '%+.1f'|format(v) }}{% endif %}{% endmacro %}
+{% macro pct(v) %}{% if v is none %}-{% else %}{{ (v * 100)|round(0)|int }}%{% endif %}{% endmacro %}
+
+{% macro chips(chip_list, limit=None) %}
+{% if chip_list %}
+<div class="chip-row">
+    {% for c in (chip_list[:limit] if limit else chip_list) %}
+    <span class="delta-chip {{ 'chip-good' if c.good else 'chip-bad' }}">
+        {{ c.label }} {{ '▲' if c.cls == 'up' else '▼' }} {{ c.delta_str }}
+    </span>
+    {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro notes(note_list) %}
+{% if note_list %}
+<ul class="recent-notes">
+    {% for n in note_list %}<li>{{ n }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% endmacro %}
+
+{% macro card_header(r, season_year) %}
+<div class="recent-card-summary">
+    <div class="avatar">
+        {% set cdn_primary, cdn_secondary = headshot_cdn_urls(r.player.mlb_id, r.level == 'MLB') %}
+        <img data-src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}"
+             alt="{{ r.player.name_tw or r.player.name_en }}" class="avatar-img">
+        <div class="avatar-initials avatar-fallback" aria-hidden="true">{{ r.player.name_en[:1] }}</div>
+    </div>
+    <div class="recent-card-info">
+        <h3>{{ r.player.name_tw or r.player.name_en }}
+            <span class="recent-name-en">{{ r.player.name_en }}</span>
+            {{ tags.level_tag(r.level, season_year) }}</h3>
+        <div class="recent-card-team">{{ r.player.team }}</div>
+        <ul class="recent-card-games">
+            {% for g in r.games %}
+            <li>{{ g.date.strftime('%m/%d') if g.date else '' }}
+                {{ '主' if g.is_home else '客' }} {{ g.opponent }} — {{ g.summary }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="recent-card-chips">{{ chips(r.chips, limit=2) }}</div>
+</div>
+{% endmacro %}
+
+{% macro chart_grid(charts_map, captions) %}
+{% if charts_map %}
+<div class="recent-chart-grid">
+    {% for key, url in charts_map.items() %}
+    <figure class="recent-chart">
+        <img src="{{ url }}" alt="{{ captions.get(key, key) }}" loading="lazy">
+        <figcaption>{{ captions.get(key, key) }}</figcaption>
+    </figure>
+    {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{% macro result_strip(pitches) %}
+<div class="result-strip" role="img" aria-label="逐球結果序列">
+    {% for p in pitches %}
+    {% set code = p.result_code or '' %}
+    {% set cls = 'inplay' if p.is_in_play
+        else ('whiff' if code in ('S', 'W', 'T', 'M', 'O', 'Q')
+        else ('called' if code == 'C'
+        else ('foul' if code in ('F', 'L', 'R') else 'ball'))) %}
+    <span class="strip strip-{{ cls }}{% if p.pa_event %} strip-final{% endif %}"
+          title="{{ p.result_desc or code }}"></span>
+    {% endfor %}
+</div>
+<div class="strip-legend">
+    <span><span class="strip strip-inplay"></span> 擊入場內</span>
+    <span><span class="strip strip-whiff"></span> 揮空</span>
+    <span><span class="strip strip-called"></span> 好球(看)</span>
+    <span><span class="strip strip-foul"></span> 界外</span>
+    <span><span class="strip strip-ball"></span> 壞球</span>
+    <span><span class="strip strip-ball strip-final"></span> 打席終結球(外框)</span>
+</div>
+{% endmacro %}
+
+{% macro fallback(text) %}<p class="fallback-note">{{ text }}</p>{% endmacro %}
