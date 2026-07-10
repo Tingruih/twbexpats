@@ -145,15 +145,28 @@ def extract_pitch_logs(
     nonpitch_out: list[dict] = []
     for play in plays:
         matchup = play.get("matchup", {})
-        pitcher_id = matchup.get("pitcher", {}).get("id")
+        pa_pitcher_id = matchup.get("pitcher", {}).get("id")
         batter_id = matchup.get("batter", {}).get("id")
 
-        if role == "pitcher" and pitcher_id != player_id:
-            continue
+        events = play.get("playEvents", [])
+
         if role == "batter" and batter_id != player_id:
             continue
-
-        events = play.get("playEvents", [])
+        if role == "pitcher":
+            # matchup.pitcher is a play (at-bat)-level field — it reflects
+            # whoever was pitching when the PA *ended*, which is wrong for
+            # any pitch thrown before a mid-PA pitching change (e.g. a rain
+            # delay substitution). Each pitch event's own defense.pitcher
+            # reflects who actually threw that specific pitch, so only skip
+            # the whole play if player_id never appears as pitcher anywhere
+            # in it — the per-pitch check below does the real filtering.
+            involves_player = pa_pitcher_id == player_id or any(
+                (e.get("defense") or {}).get("pitcher", {}).get("id") == player_id
+                for e in events
+                if e.get("isPitch")
+            )
+            if not involves_player:
+                continue
         # Find the index of the LAST pitch in the PA (for wOBA attribution).
         # A play can have zero pitches (e.g. a pickoff that ends the inning
         # before any pitch is thrown) — don't skip the whole play in that
@@ -176,6 +189,21 @@ def extract_pitch_logs(
 
         for i, ev in enumerate(events):
             if ev.get("isPitch"):
+                # Per-pitch pitcher: falls back to the play-level pitcher
+                # when defense data is missing (older games), which
+                # reproduces the old behavior for the common case where no
+                # mid-PA substitution happened.
+                event_pitcher_id = (
+                    (ev.get("defense") or {}).get("pitcher", {}).get("id")
+                    or pa_pitcher_id
+                )
+
+                if role == "pitcher" and event_pitcher_id != player_id:
+                    count = ev.get("count", {}) or {}
+                    pa_pre_balls = count.get("balls", 0)
+                    pa_pre_strikes = count.get("strikes", 0)
+                    continue
+
                 details = ev.get("details", {}) or {}
                 pdata = ev.get("pitchData", {}) or {}
                 hdata = ev.get("hitData", {}) or {}
@@ -256,7 +284,7 @@ def extract_pitch_logs(
                     "pre_outs": p_pre_outs,
                     "outs": count.get("outs"),
                     "batter_id": batter_id,
-                    "pitcher_id": pitcher_id,
+                    "pitcher_id": event_pitcher_id,
                     "bat_side": matchup.get("batSide", {}).get("code", ""),
                     "pitch_hand": matchup.get("pitchHand", {}).get("code", ""),
                     "is_pa_final": is_final,

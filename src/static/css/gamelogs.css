@@ -175,6 +175,11 @@
     font-weight: 600;                           /* 半粗體 */
 }
 
+/* PA Event 與右側影片欄同樣靠右，對齊前方的數值欄。 */
+.pitch-log-table .pa-event-cell {
+    text-align: right;
+}
+
 /* 控制【逐場紀錄 Tab / 逐場紀錄列展開箭頭】 */
 .pitch-arrow {
     display: inline-block;                          /* 讓 transition 生效 */

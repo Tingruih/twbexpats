@@ -27,7 +27,7 @@ function _buildPitchTable(pitches) {
         '<th data-tooltip="逐球序號">#</th><th data-tooltip="投球前球數">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種">Type</th><th data-tooltip="球速">Speed</th>' +
         '<th data-tooltip="進壘區域">Zone</th><th data-tooltip="單球結果">Result</th><th data-tooltip="擊球初速">EV</th><th data-tooltip="擊球仰角">LA</th>' +
         '<th data-tooltip="誘導垂直位移">iVB</th><th data-tooltip="水平位移">HB</th><th data-tooltip="轉速">Spin</th><th data-tooltip="出手延伸距離">Ext</th>' +
-        '<th data-tooltip="打席結果">PA Event</th>' +
+        '<th class="num pa-event-cell" data-tooltip="打席結果">PA Event</th>' +
         (hasVideo ? '<th data-tooltip="逐球影片">Video</th>' : '') +
         '</tr></thead><tbody>';
     var prevBalls = 0, prevStrikes = 0, paEnded = true;
@@ -57,7 +57,7 @@ function _buildPitchTable(pitches) {
             '<td class="num">' + _fmt(p.hb,1) + '</td>' +
             '<td class="num">' + _fmt(p.spin) + '</td>' +
             '<td class="num">' + _fmt(p.extension,2) + '</td>' +
-            '<td>' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td>' +
+            '<td class="num pa-event-cell">' + (p.pa_event ? '<span class="pa-event-tag">' + p.pa_event + '</span>' : '') + '</td>' +
             (hasVideo ? _videoCell(p) : '') +
             '</tr>';
     }
@@ -205,8 +205,8 @@ function togglePitchLog(id) {
 
 /* ── 逐球影片 ──
  * Data-layer gating: only MLB game JSON includes play_id/video.
- * p.video: direct mp4 from StatsAPI highlights.
- * p.play_id without video: resolve Baseball Savant mp4 client-side on click.
+ * Video availability can come from StatsAPI or Baseball Savant, but both
+ * render with the Baseball Savant button treatment.
  */
 var SAVANT_VIDEO_URL = 'https://baseballsavant.mlb.com/sporty-videos?playId=';
 var SAVANT_MP4_RE = /https:\/\/sporty-clips\.mlb\.com\/[^"'<>\\]+?\.mp4/;
@@ -214,7 +214,7 @@ var savantVideoCache = Object.create(null);
 
 function _videoCell(p) {
     if (p.video) {
-        return '<td class="num"><button type="button" class="pitch-video-btn"' +
+        return '<td class="num"><button type="button" class="pitch-video-btn pitch-video-btn--savant"' +
             ' data-video="' + p.video + '"' +
             ' onclick="openPitchVideo(event, this)" title="播放逐球影片">▶</button></td>';
     }
