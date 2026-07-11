@@ -20,6 +20,13 @@
     margin-bottom: 1rem;    /* 與下方 Grid 的距離 */
 }
 
+/* 球種分析的篩選列位於已有內距的資料卡內，僅保留垂直留白，
+   讓左緣與標題及下方內容對齊。 */
+.arsenal-filter-bar {
+    margin-bottom: 0.75rem;
+    padding-inline: 0;
+}
+
 /* 控制【進階數據 Tab / 指標說明 Grid（自動多欄排列）】 */
 .def-grid {
     display: grid;                                          /* Grid 排版 */

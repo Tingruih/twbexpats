@@ -1,9 +1,27 @@
 {# ── TAB 6: PLOT ── #}
 <div class="tab-panel" id="panel-plot">
-    {% if chart_data %}
-    <div class="chart-wrap glass-panel">
-        <h3>{{ selected_year }} 賽季走勢 — {% if is_pitcher %}ERA{% else %}AVG{% endif %}</h3>
-        <canvas id="performanceChart" height="80" data-chart-label="{% if is_pitcher %}ERA{% else %}AVG{% endif %}" data-reverse-y="{% if is_pitcher %}true{% else %}false{% endif %}"></canvas>
+    {% if player_trend_by_year %}
+    <div class="chart-wrap glass-panel pitcher-trend-wrap">
+        <h3>賽季走勢圖</h3>
+        <div class="log-filter-bar pitcher-trend-filter-bar">
+            <label class="filter-label" for="trend-stat-select">數據</label>
+            <select id="trend-stat-select" class="filter-select">
+                {% for key, label in trend_stat_options %}
+                <option value="{{ key }}"{% if loop.first %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label class="filter-label" for="trend-year-select">年度</label>
+            <select id="trend-year-select" class="filter-select">
+                {% for yr in player_trend_by_year %}
+                <option value="{{ yr }}"{% if loop.first %} selected{% endif %}>{{ yr }}</option>
+                {% endfor %}
+            </select>
+            <label class="filter-label" for="trend-level-select">層級</label>
+            <select id="trend-level-select" class="filter-select"></select>
+        </div>
+        <div id="trend-chart-legend" class="trend-chart-legend"></div>
+        <div id="trend-chart-empty" class="trend-chart-empty" role="status" hidden></div>
+        <canvas id="performanceChart" height="80"></canvas>
     </div>
     {% endif %}
 
@@ -52,7 +70,7 @@
         </div>
         {% endfor %}
     </div>
-    {% elif not chart_data %}
+    {% elif not player_trend_by_year %}
     <div class="glass-panel" style="padding:2rem;text-align:center;color:var(--text-2);">
         尚無本賽季數據圖表
     </div>

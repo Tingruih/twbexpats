@@ -15,14 +15,24 @@ from .zone_pct import compute_zone_pct
 
 
 def discipline_metrics(agg: dict) -> dict:
-    """Build the plate-discipline metrics dict from aggregate_pitches output."""
+    """Build the plate-discipline metrics dict from aggregate_pitches output.
+
+    Includes each rate's own denominator count (``*_den``) alongside the
+    percentage — ``combine.py`` needs the true denominator to weight a
+    cross-level average correctly; ``total_pitches`` is only the right
+    weight for the rates whose denominator actually is total pitches.
+    """
     return {
         "swing_pct": compute_swing_pct(agg),
         "whiff_pct": compute_whiff_pct(agg),
+        "whiff_pct_den": len(agg["swings"]),
         "swstr_pct": compute_swstr_pct(agg),
         "csw_pct": compute_csw_pct(agg),
         "z_swing_pct": compute_z_swing_pct(agg),
+        "z_swing_pct_den": len(agg["in_zone"]),
         "o_swing_pct": compute_o_swing_pct(agg),
+        "o_swing_pct_den": len(agg["out_zone"]),
         "z_contact_pct": compute_z_contact_pct(agg),
+        "z_contact_pct_den": len(agg["in_zone_swings"]),
         "zone_pct": compute_zone_pct(agg),
     }

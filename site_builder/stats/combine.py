@@ -43,16 +43,40 @@ def combine_statcast_dicts(entries: list[dict]) -> dict:
             return None
         return round(wv / w, digits)
 
+    def _wpct_own_den(field, den_field, digits=3):
+        """Like _wpct, but weight each level by its own true denominator
+        count (``den_field``) instead of a proxy. Falls back to total_pitches
+        for cached entries computed before ``den_field`` existed."""
+        total_w = 0.0
+        total_wv = 0.0
+        for sc in scs:
+            v = sc.get(field)
+            w = sc.get(den_field)
+            if w is None:
+                w = sc.get("total_pitches") or 0
+            if v is not None and w:
+                total_w += w
+                total_wv += v * w
+        if not total_w:
+            return None
+        return round(total_wv / total_w, digits)
+
     total_p = sum((sc.get("total_pitches") or 0) for sc in scs)
     total_bbe = sum((sc.get("bbe") or 0) for sc in scs)
     total_pa = sum((sc.get("pa_count") or 0) for sc in scs)
 
-    # Pitch-discipline fields — weight by total_pitches
+    # Pitch-discipline fields whose denominator really is total_pitches
     pitch_pct_fields = [
         "swing_pct", "swstr_pct", "csw_pct", "zone_pct", "strike_pct",
-        "z_swing_pct", "o_swing_pct", "z_contact_pct", "whiff_pct",
         "avg_extension",
     ]
+    # Pitch-discipline fields with their own (non-total_pitches) denominator
+    own_den_fields = {
+        "whiff_pct": "whiff_pct_den",
+        "z_swing_pct": "z_swing_pct_den",
+        "o_swing_pct": "o_swing_pct_den",
+        "z_contact_pct": "z_contact_pct_den",
+    }
     # BBE-based fields — weight by bbe
     bbe_fields = [
         "barrel_pct", "hard_hit_pct", "avg_ev", "avg_la", "swsp_pct",
@@ -69,6 +93,8 @@ def combine_statcast_dicts(entries: list[dict]) -> dict:
     }
     for f in pitch_pct_fields:
         combined[f] = _wpct(f, "total_pitches")
+    for f, den_field in own_den_fields.items():
+        combined[f] = _wpct_own_den(f, den_field)
     for f in bbe_fields:
         combined[f] = _wpct(f, "bbe")
     for f in pa_fields:

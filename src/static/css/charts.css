@@ -22,10 +22,65 @@
     margin-bottom: 1rem;    /* 標題與圖表之間的距離 */
 }
 
+/* 控制【投手賽季走勢圖 / 自訂 HTML 圖例（取代 Chart.js 內建 canvas 圖例）】
+   用 HTML 畫是因為 Chart.js 4 的自訂 generateLabels + pointStyle:'line' 組合
+   下文字顏色會退回畫布預設黑色，且不易控制字體大小與項目間距 */
+.trend-chart-legend {
+    display: flex;              /* 項目橫排 */
+    flex-wrap: wrap;            /* 超出寬度換行 */
+    justify-content: center;    /* 置中 */
+    align-items: center;        /* 垂直置中 */
+    gap: 0.6rem 2rem;           /* 行間距 / 項目間距（加大，避免擠在一起） */
+    margin-bottom: 1rem;        /* 與下方圖表的距離 */
+    font-size: 0.95rem;         /* 圖例文字大小（加大） */
+    font-weight: 700;           /* 粗體 */
+    color: var(--text-1);       /* 淺色文字（不再是黑色） */
+}
+
+/* 控制【投手賽季走勢圖 / 圖例單一項目（線段樣式色條 + 文字）】 */
+.trend-chart-legend-item {
+    display: inline-flex;   /* 色條與文字橫排 */
+    align-items: center;    /* 垂直置中 */
+    gap: 0.5rem;             /* 色條與文字的距離 */
+}
+
+/* 控制【投手賽季走勢圖 / 圖例色條（實線樣式，對應主數據線）】 */
+.trend-chart-legend-swatch {
+    display: inline-block;         /* 讓 width/height 生效 */
+    width: 22px;                   /* 色條寬度 */
+    height: 0;                     /* 純靠上邊框畫出線段 */
+    border-top: 1.5px solid;       /* 線段粗細（顏色由 JS 內聯設定），對應賽季趨勢圖黃線的 borderWidth */
+}
+
+/* 控制【投手賽季走勢圖 / 圖例色條（虛線樣式，對應賽季平均線）】 */
+.trend-chart-legend-item--dashed .trend-chart-legend-swatch {
+    border-top-style: dashed; /* 虛線，呼應圖表上的賽季平均虛線 */
+}
+
+.trend-chart-empty {
+    min-height: 12rem;
+    display: grid;
+    place-items: center;
+    padding: 2rem 1rem;
+    color: var(--text-2);
+    text-align: center;
+    font-weight: 600;
+}
+
+.trend-chart-empty[hidden] {
+    display: none;
+}
+
 /* 控制【圖表 Tab / Plinko 圖（球路結果漏斗圖）的篩選欄】 */
 .pitch-plinko-filter-bar {
     padding: 0;             /* 不需要內邊距 */
     margin-bottom: 1rem;    /* 與下方圖表的距離 */
+}
+
+/* 控制【投手賽季走勢圖 / 篩選欄】拿掉多餘內邊距，與 Plinko 篩選欄對齊，貼齊卡片左上角 */
+.pitcher-trend-filter-bar {
+    padding: 0;             /* 不需要內邊距 */
+    margin-bottom: 1rem;    /* 與下方圖例/圖表的距離 */
 }
 
 /* 控制【圖表 Tab / 球種用球率橫條圖 + 球種位移散點圖的二欄並排容器】 */

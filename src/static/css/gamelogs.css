@@ -21,6 +21,15 @@
     background: var(--card-bg); /* 背景色 */
 }
 
+/* 控制【篩選列最前面的標題文字（如「賽季走勢圖」），跟後面的篩選下拉同排、
+   左上角對齊，取代原本另起一行的 <h3> 標題】 */
+.filter-bar-title {
+    color: var(--text-1);       /* 白色文字，比 .filter-label 更醒目 */
+    font-size: 1rem;            /* 標題文字大小 */
+    font-weight: 700;           /* 粗體 */
+    white-space: nowrap;        /* 不換行 */
+}
+
 /* 控制【逐場紀錄 Tab / 篩選列的文字標籤（如「年份：」「聯盟：」）】 */
 .filter-label {
     font-weight: 500;           /* 中粗體 */

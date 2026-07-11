@@ -90,10 +90,9 @@
 <script defer src="{{ static_url('js/mobile/m-advanced.js') }}"></script>
 <script defer src="{{ static_url('js/pitcher-charts.js') }}"></script>
 <script defer src="{{ static_url('js/pitch-plinko.js') }}"></script>
-{% if chart_data %}
+{% if player_trend_by_year %}
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
-<script type="application/json" id="chart-labels">{{ chart_labels|tojson_safe }}</script>
-<script type="application/json" id="chart-data">{{ chart_data|tojson_safe }}</script>
+<script type="application/json" id="player-trend-data">{{ player_trend_by_year|tojson_safe }}</script>
 <script defer src="{{ static_url('js/charts.js') }}"></script>
 {% endif %}
 <script defer src="{{ static_url('js/mobile/m-charts.js') }}"></script>

@@ -24,11 +24,11 @@ function _fmt(v, d) {
 function _buildPitchTable(pitches) {
     var hasVideo = pitches.some(function (p) { return p.video || p.play_id; });
     var h = '<table class="pitch-log-table"><thead><tr>' +
-        '<th data-tooltip="逐球序號">#</th><th data-tooltip="投球前球數">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種">Type</th><th data-tooltip="球速">Speed</th>' +
-        '<th data-tooltip="進壘區域">Zone</th><th data-tooltip="單球結果">Result</th><th data-tooltip="擊球初速">EV</th><th data-tooltip="擊球仰角">LA</th>' +
-        '<th data-tooltip="誘導垂直位移">iVB</th><th data-tooltip="水平位移">HB</th><th data-tooltip="轉速">Spin</th><th data-tooltip="出手延伸距離">Ext</th>' +
-        '<th class="num pa-event-cell" data-tooltip="打席結果">PA Event</th>' +
-        (hasVideo ? '<th data-tooltip="逐球影片">Video</th>' : '') +
+        '<th data-tooltip="投球序號" data-formula="\\#">#</th><th data-tooltip="投球前球數" data-formula="B-S">Count</th><th data-tooltip="局數" data-formula="\\mathrm{Inning}">INN</th><th data-tooltip="球種" data-formula="\\mathrm{pitch\\ type}">Type</th><th data-tooltip="球速" data-formula="\\mathrm{start\\ speed}">Speed</th>' +
+        '<th data-tooltip="進壘區域" data-formula="\\mathrm{zone}">Zone</th><th data-tooltip="單球結果" data-formula="\\mathrm{result}">Result</th><th data-tooltip="擊球初速" data-formula="EV">EV</th><th data-tooltip="擊球仰角" data-formula="LA">LA</th>' +
+        '<th data-tooltip="誘導垂直位移" data-formula="iVB">iVB</th><th data-tooltip="水平位移" data-formula="HB">HB</th><th data-tooltip="轉速" data-formula="\\mathrm{spin\\ rate}">Spin</th><th data-tooltip="出手延伸" data-formula="\\mathrm{extension}">Ext</th>' +
+        '<th class="num pa-event-cell" data-tooltip="打席結果" data-formula="\\mathrm{PA\\ event}">PA Event</th>' +
+        (hasVideo ? '<th data-tooltip="逐球影片" data-formula="\\mathrm{video\\ url}">Video</th>' : '') +
         '</tr></thead><tbody>';
     var prevBalls = 0, prevStrikes = 0, paEnded = true;
     for (var i = 0; i < pitches.length; i++) {

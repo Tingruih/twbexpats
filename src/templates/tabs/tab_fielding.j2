@@ -10,11 +10,11 @@
             <table class="data-table">
                 <thead>
                     <tr>
-                        <th>年度</th><th>層級</th><th>球隊</th>{{ macros.th('POS', '守備位置') }}
-                        {{ macros.th('GP', '出賽數') }}{{ macros.th('GS', '先發場次') }}{{ macros.th('INN', '守備局數') }}
-                        {{ macros.th('TC', '守備機會：PO+A+E') }}{{ macros.th('PO', '刺殺數') }}{{ macros.th('A', '助殺數') }}{{ macros.th('E', '失誤數') }}
-                        {{ macros.th('FLD%', '守備率：(PO+A) ÷ TC') }}{{ macros.th('DP', '雙殺數') }}{{ macros.th('TP', '三殺數') }}
-                        {{ macros.th('RF/G', '每場守備範圍因子') }}{{ macros.th('RF/9', '每9局守備範圍因子') }}{{ macros.th('TE', '傳球失誤數') }}
+                        <th>年度</th><th>層級</th><th>球隊</th>{{ macros.th('POS', '守備位置', '\\mathrm{POS}') }}
+                        {{ macros.th('GP', '守備出賽', '\\sum GP') }}{{ macros.th('GS', '守備先發', '\\sum GS') }}{{ macros.th('INN', '守備局數', '\\frac{\\mathrm{Outs}}{3}') }}
+                        {{ macros.th('TC', '守備機會', 'PO+A+E') }}{{ macros.th('PO', '刺殺', '\\sum PO') }}{{ macros.th('A', '助殺', '\\sum A') }}{{ macros.th('E', '失誤', '\\sum E') }}
+                        {{ macros.th('FLD%', '守備率', '\\frac{PO+A}{TC}') }}{{ macros.th('DP', '雙殺參與', '\\sum DP') }}{{ macros.th('TP', '三殺參與', '\\sum TP') }}
+                        {{ macros.th('RF/G', '每場守備範圍因子', '\\frac{PO+A}{GP}') }}{{ macros.th('RF/9', '每9局守備範圍因子', '\\frac{(PO+A)\\times 9}{INN}') }}{{ macros.th('TE', '傳球失誤', '\\sum TE') }}
                     </tr>
                 </thead>
                 <tbody>

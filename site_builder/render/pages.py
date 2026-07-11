@@ -11,6 +11,12 @@ from ..db.bundles import load_player_bundle
 from ..db.play_videos import load_video_map
 from ..db.players import warn_orphaned_players
 from ..db.schema import init_db
+from ..graph.season_trend import (
+    BATTER_TREND_STAT_OPTIONS,
+    PITCHER_TREND_STAT_OPTIONS,
+    build_batter_trend_by_year,
+    build_pitcher_trend_by_year,
+)
 from ..levels import level_rank
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
@@ -23,7 +29,6 @@ from ..stats.core.career import (
 )
 from ..stats.core.selectors import has_appearance, highest_level_row
 from ..util.dates import TW_TZ
-from ..util.numbers import safe_float
 from ..util.units import height_to_cm, lbs_to_kg
 from .env import create_jinja_env
 from .pitch_log import write_pitch_log_files
@@ -314,17 +319,12 @@ def build_static_site(
         game_logs = logs_by_year.get(selected_year, [])
 
         # Chart data
-        chart_labels = []
-        chart_data = []
-        for log in sorted(game_logs, key=lambda x: x.date):
-            chart_labels.append(log.date.strftime("%m/%d"))
-            s = log.stats_json
-            val = (
-                safe_float(s.get("era", 0))
-                if player.is_pitcher
-                else safe_float(s.get("avg", 0))
-            )
-            chart_data.append(val)
+        if player.is_pitcher:
+            player_trend_by_year = build_pitcher_trend_by_year(logs_by_year)
+            trend_stat_options = PITCHER_TREND_STAT_OPTIONS
+        else:
+            player_trend_by_year = build_batter_trend_by_year(logs_by_year)
+            trend_stat_options = BATTER_TREND_STAT_OPTIONS
 
         all_stats = annotate_computed_stats(all_stats)
         stats_year_groups = compute_year_groups(all_stats)
@@ -443,8 +443,8 @@ def build_static_site(
             "game_logs": game_logs,
             "logs_by_year": logs_by_year,
             "available_log_years": available_log_years,
-            "chart_labels": chart_labels,
-            "chart_data": chart_data,
+            "player_trend_by_year": player_trend_by_year,
+            "trend_stat_options": trend_stat_options,
             "is_pitcher": player.is_pitcher,
             "milb_career": milb_career,
             "mlb_career": mlb_career,

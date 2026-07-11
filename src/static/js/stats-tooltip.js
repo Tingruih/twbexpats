@@ -13,10 +13,13 @@
         boxShadow:    '0 4px 14px rgba(0,0,0,0.45)',
         pointerEvents:'none',
         zIndex:       '9999',
-        whiteSpace:   'nowrap',
+        maxWidth:     'min(360px, calc(100vw - 16px))',
+        whiteSpace:   'normal',
+        overflowWrap: 'break-word',
         visibility:   'hidden',
         opacity:      '0',
         transition:   'opacity 0.12s',
+        textAlign:    'center',
     });
     document.body.appendChild(tip);
 
@@ -40,7 +43,34 @@
 
     function showTip(header) {
         activeHeader = header;
-        tip.textContent = header.dataset.tooltip;
+        tip.textContent = '';
+        var label = header.dataset.tooltip;
+        var formula = header.dataset.formula;
+        if (label) {
+            var title = document.createElement('div');
+            title.textContent = label;
+            Object.assign(title.style, {
+                fontWeight: '700',
+                marginBottom: formula ? '4px' : '0',
+            });
+            tip.appendChild(title);
+        }
+        if (formula) {
+            var formulaEl = document.createElement('div');
+            Object.assign(formulaEl.style, {
+                color: '#fff',
+                fontSize: '0.82rem',
+            });
+            if (window.katex && typeof window.katex.render === 'function') {
+                window.katex.render(formula, formulaEl, {
+                    throwOnError: false,
+                    displayMode: false,
+                });
+            } else {
+                formulaEl.textContent = formula;
+            }
+            tip.appendChild(formulaEl);
+        }
         tip.style.visibility = 'visible';
         tip.style.opacity = '1';
         positionTip(header);
@@ -53,7 +83,7 @@
     }
 
     document.addEventListener('mouseover', function (event) {
-        var header = event.target.closest && event.target.closest('th[data-tooltip]');
+        var header = event.target.closest && event.target.closest('th[data-tooltip], th[data-formula]');
         if (!header || header === activeHeader || header.contains(event.relatedTarget)) return;
         showTip(header);
     });

@@ -151,15 +151,34 @@ def extract_pitch_logs(
         events = play.get("playEvents", [])
 
         if role == "batter" and batter_id != player_id:
-            continue
+            # matchup.batter 只記錄「這個打席最後是誰打完的」，如果 player_id
+            # 是中途被換下場的那個人（例如打到一半受傷、被代打換掉），
+            # matchup.batter 記的會是後來上場的代打者，不是 player_id——
+            # 這種情況下如果直接用 matchup.batter 判斷「這個 play 跟
+            # player_id 有沒有關係」就會整個 play 被跳過，連他被換下場
+            # 之前自己打到的那幾球都會漏抓。
+            # 所以這裡除了比對最終打者，也要檢查 player_id 是否出現在這個
+            # play 任何一個「Offensive Substitution」事件的 replacedPlayer
+            # （被換下場的人）欄位裡；只有兩者都對不上，才代表 player_id
+            # 真的完全沒打這個打席，可以整個 play 跳過。
+            was_replaced_mid_pa = any(
+                (e.get("replacedPlayer") or {}).get("id") == player_id
+                and (e.get("details") or {}).get("eventType")
+                == "offensive_substitution"
+                for e in events
+            )
+            if not was_replaced_mid_pa:
+                continue
         if role == "pitcher":
-            # matchup.pitcher is a play (at-bat)-level field — it reflects
-            # whoever was pitching when the PA *ended*, which is wrong for
-            # any pitch thrown before a mid-PA pitching change (e.g. a rain
-            # delay substitution). Each pitch event's own defense.pitcher
-            # reflects who actually threw that specific pitch, so only skip
-            # the whole play if player_id never appears as pitcher anywhere
-            # in it — the per-pitch check below does the real filtering.
+            # matchup.pitcher 是整個 play（打席）層級的欄位，記的是「這個
+            # 打席結束時是誰在投」，如果打席中途換投手（例如雨延、傷退），
+            # 換投手之前投的那幾球其實是另一個投手投的，用 matchup.pitcher
+            # 判斷會整批算錯到後來接手的投手頭上。
+            # 好在投手這邊 MLB 每一球都會附上 defense.pitcher.id（這球實際
+            # 是誰投的），所以真正的過濾在下面逐球迴圈裡用 event_pitcher_id
+            # 做，這裡的整個 play 篩選只是先確認 player_id 有沒有在這個
+            # play 裡投過至少一球（不管是打席結束時的投手，還是中途換上/
+            # 換下的投手），完全沒有的話才整個 play 跳過。
             involves_player = pa_pitcher_id == player_id or any(
                 (e.get("defense") or {}).get("pitcher", {}).get("id") == player_id
                 for e in events
@@ -176,6 +195,41 @@ def extract_pitch_logs(
         pitch_indices = [i for i, e in enumerate(events) if e.get("isPitch")]
         last_pitch_idx = pitch_indices[-1] if pitch_indices else None
 
+        # 打者這邊跟投手不一樣：MLB 的每一球（pitch event）本身完全不會
+        # 附上「這球當時是誰在打」的欄位（投手那邊有 defense.pitcher.id
+        # 可以逐球核對，打者這邊沒有對應的東西），所以沒辦法像投手那樣
+        # 逐球判斷球員身分，只能靠這個 play 裡「Offensive Substitution」
+        # 這個換人事件出現的位置（index），去切割「這球是換人前打的、
+        # 還是換人後打的」。
+        #
+        # 換人中途發生時，球數（好壞球數）是直接延續下去的（不會重新從
+        # 0-0 開始算），這代表換上場跟換下場的兩個打者，其實共用同一個
+        # 打席、同一組逐球紀錄，只是中間有一刀切開誰是「這球的打者」。
+        #
+        # 情況一（batter_takeover_idx）：player_id 是中途「換上場」代打
+        # 的那個人（例如代打傷退球員）。換人事件之前的那幾球，是投給原本
+        # 那個打者的，不算 player_id 的球，要排除掉。
+        #
+        # 情況二（batter_handoff_idx）：跟情況一相反，player_id 是中途
+        # 「被換下場」的那個原始打者（例如打到一半受傷被代打換掉）。換人
+        # 事件之後的那幾球，是投給後來代打者的，一樣不算 player_id 的球，
+        # 也要排除掉——而且這個打席最後的結果（三振/安打/出局等）也正確地
+        # 不會算在 player_id 頭上，因為那些球根本沒被收進他的逐球清單裡。
+        #
+        # 正常情況（打席全程都是同一個打者，沒有中途換人）下，這兩個變數
+        # 都維持 None，下面逐球迴圈完全不受影響，行為跟修正前一樣。
+        batter_takeover_idx = None
+        batter_handoff_idx = None
+        if role == "batter":
+            for j, e in enumerate(events):
+                d = e.get("details") or {}
+                if d.get("eventType") != "offensive_substitution":
+                    continue
+                if (e.get("player") or {}).get("id") == player_id:
+                    batter_takeover_idx = j
+                elif (e.get("replacedPlayer") or {}).get("id") == player_id:
+                    batter_handoff_idx = j
+
         result = play.get("result", {}) or {}
         event_type = result.get("eventType", "")
         event_desc = result.get("event", "")
@@ -189,16 +243,44 @@ def extract_pitch_logs(
 
         for i, ev in enumerate(events):
             if ev.get("isPitch"):
-                # Per-pitch pitcher: falls back to the play-level pitcher
-                # when defense data is missing (older games), which
-                # reproduces the old behavior for the common case where no
-                # mid-PA substitution happened.
+                # 這球實際上是誰投的：優先用這球自己的 defense.pitcher.id
+                # （中途換投手時，每球都各自標記真正的投手），只有舊資料
+                # 缺這個欄位時才退回用整個打席層級的 pa_pitcher_id 頂替，
+                # 這樣沒有中途換投手的一般情況行為完全不變。
                 event_pitcher_id = (
                     (ev.get("defense") or {}).get("pitcher", {}).get("id")
                     or pa_pitcher_id
                 )
 
                 if role == "pitcher" and event_pitcher_id != player_id:
+                    # 這球不是 player_id 投的（中途換投手，這球是另一個
+                    # 投手投的）——不收進 player_id 的逐球清單，但球數
+                    # 追蹤（pa_pre_balls/pa_pre_strikes）還是要照實際比賽
+                    # 進度往前推進，這樣下一顆真正屬於 player_id 的球，
+                    # pre_balls/pre_strikes 才會是正確的「這球投出前」球數。
+                    count = ev.get("count", {}) or {}
+                    pa_pre_balls = count.get("balls", 0)
+                    pa_pre_strikes = count.get("strikes", 0)
+                    continue
+
+                if batter_takeover_idx is not None and i < batter_takeover_idx:
+                    # player_id 是中途「換上場」代打的人：換人事件之前的
+                    # 這幾球是投給原本那個打者的，不是 player_id 看到的球，
+                    # 排除掉；球數追蹤一樣要照實際比賽進度往前推進，讓
+                    # player_id 真正接手後的第一球能正確帶著「換人當下」
+                    # 延續下來的好壞球數（不是從 0-0 重新算）。
+                    count = ev.get("count", {}) or {}
+                    pa_pre_balls = count.get("balls", 0)
+                    pa_pre_strikes = count.get("strikes", 0)
+                    continue
+
+                if batter_handoff_idx is not None and i > batter_handoff_idx:
+                    # 跟上面相反：player_id 是中途「被換下場」的原始打者，
+                    # 換人事件之後的這幾球是投給後來代打者的，不算
+                    # player_id 看到的球，排除掉。因為這些球本來就發生在
+                    # player_id 離場之後，這裡的球數追蹤更新其實不會再被
+                    # 用到（player_id 在這個打席不會再有球了），單純是
+                    # 跟上面兩個分支保持一致的寫法。
                     count = ev.get("count", {}) or {}
                     pa_pre_balls = count.get("balls", 0)
                     pa_pre_strikes = count.get("strikes", 0)

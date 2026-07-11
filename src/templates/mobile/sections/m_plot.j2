@@ -1,9 +1,27 @@
 <section class="m-section-stack" aria-label="數據圖表">
-    {% if chart_data %}
-    <div class="chart-wrap glass-panel m-chart-wrap">
-        <h3>{{ selected_year }} 賽季走勢 — {% if is_pitcher %}ERA{% else %}AVG{% endif %}</h3>
+    {% if player_trend_by_year %}
+    <div class="chart-wrap glass-panel m-chart-wrap pitcher-trend-wrap">
+        <div class="m-filter-bar">
+            <span class="filter-bar-title">賽季走勢圖</span>
+            <label class="filter-label" for="m-trend-stat-select">數據</label>
+            <select id="m-trend-stat-select" class="filter-select">
+                {% for key, label in trend_stat_options %}
+                <option value="{{ key }}"{% if loop.first %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+            <label class="filter-label" for="m-trend-year-select">年度</label>
+            <select id="m-trend-year-select" class="filter-select">
+                {% for yr in player_trend_by_year %}
+                <option value="{{ yr }}"{% if loop.first %} selected{% endif %}>{{ yr }}</option>
+                {% endfor %}
+            </select>
+            <label class="filter-label" for="m-trend-level-select">層級</label>
+            <select id="m-trend-level-select" class="filter-select"></select>
+        </div>
+        <div id="m-trend-chart-legend" class="trend-chart-legend"></div>
+        <div id="m-trend-chart-empty" class="trend-chart-empty" role="status" hidden></div>
         <div class="m-performance-chart-container">
-            <canvas id="mPerformanceChart" data-chart-label="{% if is_pitcher %}ERA{% else %}AVG{% endif %}" data-reverse-y="{% if is_pitcher %}true{% else %}false{% endif %}"></canvas>
+            <canvas id="mPerformanceChart"></canvas>
         </div>
     </div>
     {% endif %}
@@ -46,7 +64,7 @@
         </div>
         {% endfor %}
     </div>
-    {% elif not chart_data %}
+    {% elif not player_trend_by_year %}
     <div class="glass-panel empty-season-msg">尚無本賽季數據圖表</div>
     {% endif %}
 </section>

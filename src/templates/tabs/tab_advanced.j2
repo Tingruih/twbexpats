@@ -13,15 +13,15 @@
                         <th class="col-toggle"></th>
                         <th>年度</th><th>層級</th><th>球隊</th>
                         {% if is_pitcher %}
-                            {{ macros.th('WHIP', '每局被上壘率：(H+BB) ÷ IP') }}{{ macros.th('K/9', '每9局三振數') }}{{ macros.th('BB/9', '每9局保送數') }}{{ macros.th('H/9', '每9局被安打數') }}{{ macros.th('HR/9', '每9局被全壘打數') }}{{ macros.th('K/BB', '三振保送比') }}
-                            {{ macros.th('K%', '三振率：SO ÷ 面對打者數') }}{{ macros.th('BB%', '保送率：BB ÷ 面對打者數') }}{{ macros.th('Strike%', '好球率') }}
-                            {{ macros.th('AVG', '被打擊率') }}{{ macros.th('OBP', '被上壘率') }}{{ macros.th('SLG', '被長打率') }}{{ macros.th('OPS', '被攻擊指數（OBP+SLG）') }}
-                            {{ macros.th('BABIP', '場內打擊率（運氣指標，聯盟均約 .300）') }}{{ macros.th('GO/AO', '滾飛比，>1 為滾地球型') }}{{ macros.th('P/PA', '每打席用球數') }}
+                            {{ macros.th('WHIP', '每局被上壘率', '\\mathrm{WHIP}=\\frac{H+BB}{IP}') }}{{ macros.th('K/9', '每9局三振', '\\frac{SO\\times 9}{IP}') }}{{ macros.th('BB/9', '每9局保送', '\\frac{BB\\times 9}{IP}') }}{{ macros.th('H/9', '每9局被安打', '\\frac{H\\times 9}{IP}') }}{{ macros.th('HR/9', '每9局被全壘打', '\\frac{HR\\times 9}{IP}') }}{{ macros.th('K/BB', '三振保送比', '\\frac{SO}{BB}') }}
+                            {{ macros.th('K%', '三振率', '\\frac{SO}{BF}') }}{{ macros.th('BB%', '保送率', '\\frac{BB}{BF}') }}{{ macros.th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}}{\\mathrm{Pitches}}') }}
+                            {{ macros.th('AVG', '被打擊率', '\\frac{H}{AB}') }}{{ macros.th('OBP', '被上壘率', '\\frac{H+BB+HBP}{AB+BB+HBP+SF}') }}{{ macros.th('SLG', '被長打率', '\\frac{TB}{AB}') }}{{ macros.th('OPS', '被攻擊指數', 'OBP+SLG') }}
+                            {{ macros.th('BABIP', '被場內打擊率', '\\frac{H-HR}{AB-SO-HR+SF}') }}{{ macros.th('GO/AO', '滾飛出局比', '\\frac{GO}{AO}') }}{{ macros.th('P/PA', '每打席用球', '\\frac{\\mathrm{Pitches}}{BF}') }}
                         {% else %}
-                            {{ macros.th('K%', '三振率：SO ÷ PA') }}{{ macros.th('BB%', '保送率：BB ÷ PA') }}
-                            {{ macros.th('ISO', '純長打率：SLG − AVG') }}{{ macros.th('BABIP', '場內打擊率（運氣指標，聯盟均約 .300）') }}{{ macros.th('XBH', '長打數：2B+3B+HR') }}{{ macros.th('AB/HR', '每幾打數一支全壘打') }}{{ macros.th('GO/AO', '滾飛比') }}{{ macros.th('SB%', '盜壘成功率') }}
-                            {{ macros.th('P/PA', '每打席面對球數') }}{{ macros.th('IBB', '故意四壞球數') }}{{ macros.th('HBP', '觸身球數') }}{{ macros.th('GIDP', '打成雙殺數') }}{{ macros.th('GIDPO', '雙殺機會數') }}
-                            {{ macros.th('SF', '高飛犧牲打數') }}{{ macros.th('SH', '犧牲觸擊數') }}{{ macros.th('LOB', '殘壘數') }}{{ macros.th('ROE', '因失誤上壘數') }}{{ macros.th('WO', '再見安打數') }}
+                            {{ macros.th('K%', '三振率', '\\frac{SO}{PA}') }}{{ macros.th('BB%', '保送率', '\\frac{BB}{PA}') }}
+                            {{ macros.th('ISO', '純長打率', 'SLG-AVG') }}{{ macros.th('BABIP', '場內打擊率', '\\frac{H-HR}{AB-SO-HR+SF}') }}{{ macros.th('XBH', '長打數', '\\mathrm{2B}+\\mathrm{3B}+HR') }}{{ macros.th('AB/HR', '全壘打頻率', '\\frac{AB}{HR}') }}{{ macros.th('GO/AO', '滾飛出局比', '\\frac{GO}{AO}') }}{{ macros.th('SB%', '盜壘成功率', '\\frac{SB}{SB+CS}') }}
+                            {{ macros.th('P/PA', '每打席看球', '\\frac{\\mathrm{PitchesSeen}}{PA}') }}{{ macros.th('IBB', '故意四壞', '\\sum IBB') }}{{ macros.th('HBP', '觸身球', '\\sum HBP') }}{{ macros.th('GIDP', '雙殺打', '\\sum GIDP') }}{{ macros.th('GIDPO', '雙殺機會', '\\sum GIDPO') }}
+                            {{ macros.th('SF', '高飛犧牲打', '\\sum SF') }}{{ macros.th('SH', '犧牲觸擊', '\\sum SH') }}{{ macros.th('LOB', '殘壘', '\\sum LOB') }}{{ macros.th('ROE', '失誤上壘', '\\sum ROE') }}{{ macros.th('WO', '再見安打', '\\sum WO') }}
                         {% endif %}
                     </tr>
                 </thead>
@@ -143,14 +143,14 @@
                     <tr>
                         <th>年度</th><th>層級</th>
                         {% if is_pitcher %}
-                            {{ macros.th('FIP', '守備無關防禦率') }}{{ macros.th('xWPCT', '預期勝率') }}{{ macros.th('wOBA', '被加權上壘率') }}{{ macros.th('xwOBA', '預期被加權上壘率') }}
-                            {{ macros.th('Barrel%', '被強勁長打比例') }}{{ macros.th('Hard-Hit%', '被強擊球比例') }}{{ macros.th('Avg EV', '平均被擊球初速') }}
-                            {{ macros.th('GB%', '滾地球比例') }}{{ macros.th('HR/FB%', '飛球中被全壘打比例') }}{{ macros.th('Whiff%', '揮空率') }}{{ macros.th('Avg Ext', '平均出手延伸距離') }}
+                            {{ macros.th('FIP', '守備無關防禦率', '\\mathrm{FIP}=\\frac{13HR+3(BB+HBP)-2SO}{IP}+C') }}{{ macros.th('xWPCT', '預期勝率', '\\frac{1}{1+(FIP/\\mathrm{lgRA9})^{1.83}}') }}{{ macros.th('wOBA', '被加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}{{ macros.th('xwOBA', '預期被加權上壘率', '\\frac{\\sum xw_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}
+                            {{ macros.th('Barrel%', '被Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('Hard-Hit%', '被強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('Avg EV', '平均被擊球初速', '\\frac{\\sum EV}{\\mathrm{BBE}_{EV}}') }}
+                            {{ macros.th('GB%', '滾地球率', '\\frac{GB}{BBE}') }}{{ macros.th('HR/FB%', '飛球被轟率', '\\frac{HR}{FB}') }}{{ macros.th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ macros.th('Avg Ext', '平均延伸距離', '\\frac{\\sum \\mathrm{Extension}}{\\mathrm{Pitches}_{Ext}}') }}
                         {% else %}
-                            {{ macros.th('BBE', '進場擊球數') }}{{ macros.th('wOBA', '加權上壘率') }}{{ macros.th('xwOBA', '預期加權上壘率') }}
-                            {{ macros.th('wRC+', '得分創造指數，100 為聯盟平均') }}{{ macros.th('WAR', '勝利貢獻值') }}
-                            {{ macros.th('Barrel%', '強勁長打比例') }}{{ macros.th('Hard-Hit%', '強擊球比例') }}{{ macros.th('Avg EV', '平均擊球初速') }}
-                            {{ macros.th('Max EV', '最高擊球初速') }}{{ macros.th('EV90', '前10%擊球初速平均') }}{{ macros.th('Avg LA', '平均擊球仰角') }}{{ macros.th('SwSp%', '揮空加看球好球比例') }}
+                            {{ macros.th('BBE', '進場擊球', '\\sum \\mathrm{BBE}') }}{{ macros.th('wOBA', '加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}{{ macros.th('xwOBA', '預期加權上壘率', '\\frac{\\sum xw_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}
+                            {{ macros.th('wRC+', '得分創造指數', '100\\times\\frac{\\mathrm{wRC/PA}/PF_m}{\\mathrm{lgR/PA}}') }}{{ macros.th('WAR', '勝利貢獻值', '\\frac{\\mathrm{RunsAboveReplacement}}{\\mathrm{RunsPerWin}}') }}
+                            {{ macros.th('Barrel%', 'Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('Hard-Hit%', '強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('Avg EV', '平均擊球初速', '\\frac{\\sum EV}{\\mathrm{BBE}_{EV}}') }}
+                            {{ macros.th('Max EV', '最高擊球初速', '\\max(EV)') }}{{ macros.th('EV90', '90百分位擊球初速', 'P_{90}(EV)') }}{{ macros.th('Avg LA', '平均擊球仰角', '\\frac{\\sum LA}{\\mathrm{BBE}_{LA}}') }}{{ macros.th('SwSp%', 'CSW率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
                         {% endif %}
                     </tr>
                 </thead>
@@ -205,15 +205,15 @@
             <table class="data-table year-group-table" id="stats-table-pd">
                 <thead>
                     <tr>
-                        <th>年度</th><th>層級</th>{{ macros.th('Pitches', '總投球數') }}
+                        <th>年度</th><th>層級</th>{{ macros.th('Pitches', '總投球數', '\\sum \\mathrm{Pitches}') }}
                         {% if is_pitcher %}
-                            {{ macros.th('Zone%', '投進好球帶比例') }}{{ macros.th('Z-Swing%', '好球帶內揮棒率') }}{{ macros.th('O-Swing%', '好球帶外揮棒率') }}
-                            {{ macros.th('Z-Contact%', '好球帶內接觸率') }}{{ macros.th('Swing%', '總揮棒率') }}{{ macros.th('Whiff%', '揮空率') }}
-                            {{ macros.th('CSW%', '看球好球加揮空比例') }}{{ macros.th('SwStr%', '揮棒落空好球比例') }}
+                            {{ macros.th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}{{ macros.th('Z-Swing%', '好球帶揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZone}}') }}{{ macros.th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}
+                            {{ macros.th('Z-Contact%', '好球帶接觸率', '\\frac{\\mathrm{InZoneContact}}{\\mathrm{InZoneSwings}}') }}{{ macros.th('Swing%', '揮棒率', '\\frac{\\mathrm{Swings}}{\\mathrm{Pitches}}') }}{{ macros.th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}
+                            {{ macros.th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
                         {% else %}
-                            {{ macros.th('Strike%', '面對投球中的好球比例') }}{{ macros.th('Zone%', '進好球帶比例') }}{{ macros.th('Z-Swing%', '好球帶內揮棒率') }}{{ macros.th('O-Swing%', '好球帶外揮棒率') }}
-                            {{ macros.th('Z-Contact%', '好球帶內接觸率') }}{{ macros.th('Swing%', '總揮棒率') }}{{ macros.th('Whiff%', '揮空率') }}
-                            {{ macros.th('CSW%', '看球好球加揮空比例') }}{{ macros.th('SwStr%', '揮棒落空好球比例') }}
+                            {{ macros.th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}+\\mathrm{BIP}}{\\mathrm{Pitches}}') }}{{ macros.th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}{{ macros.th('Z-Swing%', '好球帶揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZone}}') }}{{ macros.th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}
+                            {{ macros.th('Z-Contact%', '好球帶接觸率', '\\frac{\\mathrm{InZoneContact}}{\\mathrm{InZoneSwings}}') }}{{ macros.th('Swing%', '揮棒率', '\\frac{\\mathrm{Swings}}{\\mathrm{Pitches}}') }}{{ macros.th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}
+                            {{ macros.th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
                         {% endif %}
                     </tr>
                 </thead>
@@ -263,10 +263,10 @@
                 <thead>
                     <tr>
                         <th>年度</th><th>層級</th>
-                        {{ macros.th('BBE', '進場擊球數') }}
-                        {{ macros.th('GB%', '滾地球比例') }}{{ macros.th('LD%', '平飛球比例') }}{{ macros.th('FB%', '飛球比例') }}{{ macros.th('PU%', '內野高飛球比例') }}{{ macros.th('Air%', '空中擊球比例（平飛+飛球）') }}
-                        {{ macros.th('Pull%', '拉打比例') }}{{ macros.th('Straight%', '中間方向擊球比例') }}{{ macros.th('Oppo%', '反方向擊球比例') }}
-                        {% if not is_pitcher %}{{ macros.th('PullAir%', '拉打空中球比例') }}{% endif %}
+                        {{ macros.th('BBE', '進場擊球', 'GB+LD+FB+PU') }}
+                        {{ macros.th('GB%', '滾地球率', '\\frac{GB}{BBE}') }}{{ macros.th('LD%', '平飛球率', '\\frac{LD}{BBE}') }}{{ macros.th('FB%', '飛球率', '\\frac{FB}{BBE}') }}{{ macros.th('PU%', '高飛球率', '\\frac{PU}{BBE}') }}{{ macros.th('Air%', '空中球率', '\\frac{LD+FB}{BBE}') }}
+                        {{ macros.th('Pull%', '拉打率', '\\frac{\\mathrm{Pull}}{\\mathrm{BBE}_{dir}}') }}{{ macros.th('Straight%', '中間方向率', '\\frac{\\mathrm{Straight}}{\\mathrm{BBE}_{dir}}') }}{{ macros.th('Oppo%', '反方向率', '\\frac{\\mathrm{Oppo}}{\\mathrm{BBE}_{dir}}') }}
+                        {% if not is_pitcher %}{{ macros.th('PullAir%', '拉打空中球率', '\\frac{\\mathrm{PullAir}}{BBE}') }}{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -303,7 +303,7 @@
         <h3>{% if is_pitcher %}投球球種分析{% else %}對戰球種分析{% endif %}</h3>
 
         {# Year + Level filter for arsenal/vs tables #}
-        <div class="log-filter-bar" style="margin-bottom:0.75rem;">
+        <div class="log-filter-bar arsenal-filter-bar">
             <label class="filter-label" for="arsenal-year-select">年度</label>
             <select id="arsenal-year-select" class="filter-select">
                 {% for yr in available_statcast_years %}
@@ -359,9 +359,9 @@
                                 <table class="data-table">
                                     <thead>
                                         <tr>
-                                            {{ macros.th('球種', '投手球種') }}{{ macros.th('Pitch%', '該球種使用比例') }}{{ macros.th('Velo', '平均球速') }}{{ macros.th('iVB', '誘導垂直位移') }}{{ macros.th('HB', '水平位移') }}
-                                            {{ macros.th('Spin', '平均轉速') }}{{ macros.th('Ext.', '出手延伸距離') }}{{ macros.th('vRel', '垂直出手點') }}{{ macros.th('hRel', '水平出手點') }}
-                                            {{ macros.th('Zone%', '進好球帶比例') }}{{ macros.th('Chase%', '誘使追打比例') }}{{ macros.th('Whiff%', '揮空率') }}
+                                            {{ macros.th('球種', '球種名稱', '\\mathrm{pitch\\ type}') }}{{ macros.th('Pitch%', '使用率', '\\frac{\\mathrm{Pitches}_{type}}{\\mathrm{Pitches}_{all}}') }}{{ macros.th('Velo', '平均球速', '\\frac{\\sum Velo}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('iVB', '誘導垂直位移', '\\frac{\\sum iVB}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('HB', '水平位移', '\\frac{\\sum HB}{\\mathrm{Pitches}_{type}}') }}
+                                            {{ macros.th('Spin', '平均轉速', '\\frac{\\sum Spin}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('Ext.', '出手延伸', '\\frac{\\sum Extension}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('vRel', '垂直出手點', '\\frac{\\sum z_0}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('hRel', '水平出手點', '\\frac{\\sum x_0}{\\mathrm{Pitches}_{type}}') }}
+                                            {{ macros.th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}{{ macros.th('Chase%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -394,9 +394,9 @@
                                 <table class="data-table">
                                     <thead>
                                         <tr>
-                                            {{ macros.th('球種', '投手球種') }}{{ macros.th('Pitches', '該球種投球數') }}{{ macros.th('Pitch%', '該球種使用比例') }}{{ macros.th('Strike%', '好球比例') }}
-                                            {{ macros.th('Z-Whiff%', '好球帶內揮空率') }}{{ macros.th('O-Swing%', '好球帶外揮棒率') }}{{ macros.th('SwStr%', '揮棒落空好球比例') }}{{ macros.th('CSW%', '看球好球加揮空比例') }}
-                                            {{ macros.th('PutAway%', '兩好球後解決打者比例') }}{{ macros.th('AVG', '被打擊率') }}{{ macros.th('wOBA', '被加權上壘率') }}{{ macros.th('Barrel%', '被強勁長打比例') }}{{ macros.th('HardHit%', '被強擊球比例') }}
+                                            {{ macros.th('球種', '球種名稱', '\\mathrm{pitch\\ type}') }}{{ macros.th('Pitches', '投球數', '\\sum \\mathrm{Pitches}_{type}') }}{{ macros.th('Pitch%', '使用率', '\\frac{\\mathrm{Pitches}_{type}}{\\mathrm{Pitches}_{all}}') }}{{ macros.th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}+\\mathrm{BIP}}{\\mathrm{Pitches}}') }}
+                                            {{ macros.th('Z-Whiff%', '好球帶揮空率', '\\frac{\\mathrm{InZoneWhiffs}}{\\mathrm{InZoneSwings}}') }}{{ macros.th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
+                                            {{ macros.th('PutAway%', '解決打者率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ macros.th('AVG', '被打擊率', '\\frac{H}{AB}') }}{{ macros.th('wOBA', '被加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}{{ macros.th('Barrel%', '被Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('HardHit%', '被強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -431,10 +431,10 @@
                                 <table class="data-table pitch-usage-table">
                                     <thead>
                                         <tr>
-                                            {{ macros.th('球種', '投手球種') }}
+                                            {{ macros.th('球種', '球種名稱', '\\mathrm{pitch\\ type}') }}
                                             {% for row in usage_rows %}
                                             {% if row.key != 'all' %}
-                                            {% call macros.th_html(tooltip="該球數下此球種的使用比例") %}{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span>{% endcall %}
+                                            {% call macros.th_html(tooltip="配球率", formula="\\frac{\\mathrm{Pitches}_{type,count}}{\\mathrm{Pitches}_{count}}") %}{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span>{% endcall %}
                                             {% endif %}
                                             {% endfor %}
                                         </tr>
@@ -475,10 +475,10 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            {{ macros.th('球種', '面對球種') }}{{ macros.th('Pitches', '面對該球種投球數') }}{{ macros.th('Strike%', '好球比例') }}{{ macros.th('Zone%', '進好球帶比例') }}
-                            {{ macros.th('Z-Swing%', '好球帶內揮棒率') }}{{ macros.th('O-Swing%', '好球帶外揮棒率') }}{{ macros.th('Whiff%', '揮空率') }}{{ macros.th('SwStr%', '揮棒落空好球比例') }}
-                            {{ macros.th('CSW%', '看球好球加揮空比例') }}{{ macros.th('Put Away%', '兩好球後被解決比例') }}{{ macros.th('AVG', '對該球種打擊率') }}{{ macros.th('wOBA', '對該球種加權上壘率') }}
-                            {{ macros.th('Barrel%', '對該球種強勁長打比例') }}{{ macros.th('Hard-Hit%', '對該球種強擊球比例') }}
+                            {{ macros.th('球種', '球種名稱', '\\mathrm{pitch\\ type}') }}{{ macros.th('Pitches', '面對球數', '\\sum \\mathrm{Pitches}_{type}') }}{{ macros.th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}+\\mathrm{BIP}}{\\mathrm{Pitches}}') }}{{ macros.th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
+                            {{ macros.th('Z-Swing%', '好球帶揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZone}}') }}{{ macros.th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ macros.th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
+                            {{ macros.th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('Put Away%', '被解決率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ macros.th('AVG', '對球種打擊率', '\\frac{H}{AB}') }}{{ macros.th('wOBA', '對球種加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}
+                            {{ macros.th('Barrel%', 'Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ macros.th('Hard-Hit%', '強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}
                         </tr>
                     </thead>
                     <tbody>
