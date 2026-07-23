@@ -6,10 +6,10 @@ data, so failures must never raise; they log a warning and return {}.
 
 import logging
 
-import requests
 from bs4 import BeautifulSoup
 
-from ..constants import API_TIMEOUT, PF_LEVEL_PARAM
+from ..constants import PF_LEVEL_PARAM
+from .client import get_text
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +26,12 @@ def fetch_park_factors(level: str, year: int) -> dict[str, dict]:
 
     url = f"https://tjstats.ca/park-factors/?pf_level={param}&pf_season={year}"
     try:
-        resp = requests.get(url, timeout=API_TIMEOUT)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
+        html = get_text(url)
+    except Exception as exc:
         print(f"  WARNING: failed to fetch TJStats park factors for {level} {year}: {exc}")
         return {}
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
     tables = soup.select("table.tjs-guts")
     if not tables:
         return {}
@@ -60,13 +59,12 @@ def fetch_league_constants(year: int) -> dict[tuple[str, str], dict]:
     """
     url = f"https://tjstats.ca/park-factors/?lc_season={year}"
     try:
-        resp = requests.get(url, timeout=API_TIMEOUT)
-        resp.raise_for_status()
-    except requests.RequestException as exc:
+        html = get_text(url)
+    except Exception as exc:
         print(f"  WARNING: failed to fetch TJStats league constants for {year}: {exc}")
         return {}
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")
     tables = soup.select("table.tjs-guts")
     if len(tables) < 2:
         return {}

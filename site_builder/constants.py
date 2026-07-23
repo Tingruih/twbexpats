@@ -42,6 +42,14 @@ LIVE_FEED_TIMEOUT = 30
 # site_builder/api/client.py::get_json regardless of how many threads call it.
 API_RATE_LIMIT = 25
 
+# HTTP retry / connection-pool tuning for site_builder/api/client.py. Retries
+# (with exponential backoff + jitter, honouring Retry-After) are delegated to
+# urllib3's Retry mounted on a per-thread Session's HTTPAdapter; the rate limit
+# above stays the primary pacing mechanism and retries are the rare exception.
+API_MAX_RETRIES = 3
+API_BACKOFF_FACTOR = 0.5
+API_POOL_MAXSIZE = 10
+
 # Thread-pool sizes. The two sync pipelines parallelise different units of
 # work (players vs. games), so they are tuned independently.
 PLAYER_FETCH_WORKERS = 20
