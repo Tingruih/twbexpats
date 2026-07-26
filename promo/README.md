@@ -1,6 +1,6 @@
 # TwbExpats 宣傳影片
 
-一鍵產出網站宣傳影片：`promo/out/twbexpats_promo.mp4`（1920×1080 / 30fps / 約 76 秒）。
+一鍵產出網站宣傳影片：`promo/out/twbexpats_promo.mp4`（1920×1080 / 30fps / 約 80 秒）。
 
 素材全部在本機生成 —— 畫面來自 `dist/` 的真實網站，配樂用 numpy 合成，沒有任何外部素材或版權疑慮。
 
@@ -15,7 +15,7 @@ python -m promo.build_promo --reuse    # 沿用既有底片，只重跑合成（
 macOS 沙盒會阻擋 socket bind，若由自動化環境執行需停用沙盒，或先自行啟動：
 
 ```bash
-python -m http.server 8899 --directory dist
+python -m http.server 8000 --directory dist
 ```
 
 ## 核心設計：三層渲染
@@ -34,7 +34,9 @@ python -m http.server 8899 --directory dist
 
 **同頁面內的鏡頭移動不可能卡頓。** A 特寫移到 B 特寫只是同一張底片上取景框的一次連續位移，不涉及截圖、重排或重繪。
 
-只有三處真實互動（首頁排序重排、逐球展開）才逐幀截真實 DOM。網站這兩處本身是瞬間切換的（`appendChild` / `display=''`），因此在瀏覽器內注入 FLIP 與高度展開動畫後再逐幀擷取 —— 渲染仍然百分之百真實，只是補上了過渡。
+只有三處真實互動（首頁排序重排、逐球展開、逐球影片播放）才逐幀截真實 DOM。網站前兩處本身是瞬間切換的（`appendChild` / `display=''`），因此在瀏覽器內注入 FLIP 與高度展開動畫後再逐幀擷取 —— 渲染仍然百分之百真實，只是補上了過渡。
+
+**分頁切換不用轉場特效。** 球員頁的分頁列在每一張底片上的 y 座標都相同，所以游標按下分頁按鈕後，鏡頭停在同一個鏡位（`storyboard.tab_view`），只把底片換成另一個分頁的底片 —— 看起來就是「按下去，內容換了」。全片三次分頁切換（進階數據 / 比賽紀錄 / 數據圖表）都靠這個手法，中間沒有任何章節字卡。逐球影片的開啟與關閉、賽季走勢圖的換數據，用的也是同一個原理。
 
 ## 檔案結構
 
@@ -50,7 +52,7 @@ capture/
 compose/
   easing.py        緩動曲線
   camera.py        虛擬攝影機
-  cards.py         全屏字卡（開場／章節／結尾）
+  cards.py         全屏字卡（只有開場與結尾）
   lower_third.py   下三分之一說明條
   cursor.py        游標與點擊漣漪
   transitions.py   轉場（刻意每次不同）

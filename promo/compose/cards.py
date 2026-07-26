@@ -1,4 +1,7 @@
-"""字卡渲染 —— 開場卡、章節卡、結尾卡。
+"""字卡渲染 —— 開場卡與結尾卡。
+
+全片只有頭尾兩張字卡。中段的分頁切換一律由游標點擊分頁按鈕完成，
+不再插入章節卡把畫面切斷。
 
 所有文字一律交給瀏覽器排版後逐幀截圖。中文字距、字重與抗鋸齒交給 CSS 處理，
 遠比在 Pillow 裡拼字可靠；Python 端只負責驅動動畫進度。
@@ -118,53 +121,6 @@ def intro_html(logo_svg: str, title: str, subtitle: str) -> str:
         stage.style.opacity = String(1 - out);
         stage.style.transform = `translateY(${{-26 * out}}px)`;
     }};
-    window.__card(0);
-    """
-    return _html(body, css, script)
-
-
-# ── 章節卡 ──────────────────────────────────────────────────────
-
-def chapter_html(text: str) -> str:
-    """寬字距置中 + 上下細線。全片的視覺留白主要由這張卡承擔。"""
-    css = """
-    .rule { width: 0; }
-    /* letter-spacing 會在最後一個字後面也留下間距，使元素寬度比實際墨水寬
-       一個間距，置中後文字視覺偏左半個間距 —— 因此補償量是 0.21em 而非 0.42em。 */
-    .word { font-size: 84px; font-weight: 600; color: #F5F5F5;
-            letter-spacing: 0.42em; text-indent: 0.21em;
-            margin: 46px 0; white-space: nowrap;
-            will-change: opacity, filter, transform; }
-    """
-    body = """
-    <div class='stage' id='stage'>
-      <div class='rule' id='r1'></div>
-      <div class='word' id='word'>%s</div>
-      <div class='rule' id='r2'></div>
-    </div>
-    """ % text
-    script = """
-    const word = document.getElementById('word');
-    const r1 = document.getElementById('r1');
-    const r2 = document.getElementById('r2');
-    const stage = document.getElementById('stage');
-    const seg = (t, a, b) => Math.max(0, Math.min(1, (t - a) / (b - a)));
-    const easeOut = t => 1 - Math.pow(1 - t, 3);
-
-    window.__card = (t) => {
-        // 細線先由中心向兩側展開，文字隨後由模糊轉清晰並輕微上移
-        const rw = 240 * easeOut(seg(t, 0.0, 0.30));
-        r1.style.width = rw.toFixed(1) + 'px';
-        r2.style.width = rw.toFixed(1) + 'px';
-
-        const wp = easeOut(seg(t, 0.08, 0.42));
-        word.style.opacity = String(wp);
-        word.style.filter = `blur(${(1 - wp) * 9}px)`;
-        word.style.transform = `translateY(${(1 - wp) * 14}px)`;
-
-        const out = seg(t, 0.80, 1.0);
-        stage.style.opacity = String(1 - out);
-    };
     window.__card(0);
     """
     return _html(body, css, script)

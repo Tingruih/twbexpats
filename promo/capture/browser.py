@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import io
 import socket
 import subprocess
 import time
@@ -11,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
+from PIL import Image
 from playwright.sync_api import Page, sync_playwright
 
 from promo import config
@@ -166,10 +168,39 @@ def freeze_animations(page: Page) -> None:
 
 
 def shoot(page: Page, path: Path, full_page: bool = False) -> Path:
-    """截一張底片。`full_page=True` 會產生可供鏡頭垂直遊走的長底片。"""
+    """截一張底片。`full_page=True` 會產生可供鏡頭垂直遊走的長底片。
+
+    長頁面不用 Playwright/Chromium 內建的全頁截圖 —— 頁面高度較大時，Chromium
+    內部會分塊擷取再拼接，本站的卡片在拼接處會被重複繪製一次（曾在進階數據分頁
+    的頁面中段觀察到球員頭部卡片憑空多印一份）。改成自己分批捲動、以瀏覽器回報
+    的實際捲動位置貼回畫布，完全繞開這個拼接機制。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     freeze_animations(page)
-    page.screenshot(path=str(path), full_page=full_page)
+    if not full_page:
+        page.screenshot(path=str(path))
+        return path
+
+    vp = page.viewport_size
+    vw, vh = vp["width"], vp["height"]
+    dpr = page.evaluate("() => window.devicePixelRatio")
+    total_h = page.evaluate("() => document.documentElement.scrollHeight")
+
+    canvas = Image.new("RGB", (round(vw * dpr), round(total_h * dpr)))
+    y = 0
+    while True:
+        page.evaluate("(y) => window.scrollTo(0, y)", y)
+        page.wait_for_timeout(50)
+        freeze_animations(page)
+        actual_y = page.evaluate("() => window.scrollY")
+        tile = Image.open(io.BytesIO(page.screenshot())).convert("RGB")
+        canvas.paste(tile, (0, round(actual_y * dpr)))
+        if actual_y + vh >= total_h:
+            break
+        y += vh
+
+    page.evaluate("() => window.scrollTo(0, 0)")
+    canvas.save(path)
     return path
 
 

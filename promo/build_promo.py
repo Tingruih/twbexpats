@@ -46,6 +46,8 @@ def capture_plates(reuse: bool) -> dict:
     """擷取（或沿用）全片所需底片。"""
     flip_frames = _secs_to_frames(sb.SORT_ANIM_DUR)
     expand_frames = _secs_to_frames(sb.EXPAND_ANIM_DUR)
+    # 影片段落全程都在播放，需要與段落等長的逐格畫面
+    video_frames = _secs_to_frames(sb.D_PITCH_VIDEO)
 
     if reuse and scenes.MANIFEST.exists():
         print("→ 沿用既有底片")
@@ -53,7 +55,7 @@ def capture_plates(reuse: bool) -> dict:
 
     print("→ 擷取網站底片")
     t0 = time.time()
-    plates = scenes.capture_all(flip_frames, expand_frames)
+    plates = scenes.capture_all(flip_frames, expand_frames, video_frames)
     print(f"   完成，耗時 {time.time() - t0:.0f}s")
     return plates
 
@@ -68,15 +70,12 @@ def _load_manifest() -> dict:
         boxes = {k: tuple(v) for k, v in meta["boxes"].items()}
         w, h = meta["size"]
         if meta["type"] == "Sequence":
-            d = config.PLATE_DIR / {"home_flip": "home_flip",
-                                    "gamelog_expand": "gamelog_expand"}[name]
-            paths = sorted(d.glob("*.png"))
-            out[name] = scenes.Sequence(name, paths, w, h, boxes)
+            paths = sorted((config.PLATE_DIR / name).glob("*.png"))
+            out[name] = scenes.Sequence(
+                name, paths, w, h, boxes, origin_y=meta.get("origin_y", 0)
+            )
         else:
-            fname = {"home": "home.png", "advanced": "advanced.png",
-                     "gamelog_expanded": "gamelog_expanded.png",
-                     "plot": "plot.png"}[name]
-            out[name] = scenes.Plate(name, config.PLATE_DIR / fname, w, h, boxes)
+            out[name] = scenes.Plate(name, config.PLATE_DIR / f"{name}.png", w, h, boxes)
     return out
 
 
@@ -92,15 +91,6 @@ def render_overlays() -> tuple[dict[str, cards.CardClip], list]:
             "intro": cards.render_card(
                 page, cards.intro_html(logo, sb.INTRO_TITLE, sb.INTRO_SUBTITLE),
                 _secs_to_frames(sb.D_INTRO), card_dir, "intro"),
-            "ch2": cards.render_card(
-                page, cards.chapter_html(sb.CHAPTER_2),
-                _secs_to_frames(sb.D_CHAPTER2), card_dir, "ch2"),
-            "ch3": cards.render_card(
-                page, cards.chapter_html(sb.CHAPTER_3),
-                _secs_to_frames(sb.D_CHAPTER3), card_dir, "ch3"),
-            "ch4": cards.render_card(
-                page, cards.chapter_html(sb.CHAPTER_4),
-                _secs_to_frames(sb.D_CHAPTER4), card_dir, "ch4"),
             "outro": cards.render_card(
                 page, cards.outro_html(logo, sb.OUTRO_URL, sb.OUTRO_TAGLINE),
                 _secs_to_frames(sb.D_OUTRO), card_dir, "outro"),
@@ -111,8 +101,18 @@ def render_overlays() -> tuple[dict[str, cards.CardClip], list]:
     return clips, captions
 
 
+def _plate_box(seq, key: str) -> tuple[int, int, int, int]:
+    """把 viewport 序列上的區域換算成長底片座標 —— 游標軌跡是在長底片上跑的。"""
+    x, y, w, h = seq.boxes[key]
+    return (x, y + seq.origin_y, w, h)
+
+
 def build_segments(plates: dict, clips: dict, captions: list) -> list:
-    """依分鏡組裝所有段落。"""
+    """依分鏡組裝所有段落。
+
+    全片只有四處轉場。三次分頁切換（進階數據 / 比賽紀錄 / 數據圖表）刻意**不**轉場：
+    游標按下按鈕後，鏡頭停在同一個鏡位，只把底片換成另一個分頁的底片。
+    """
     by_text = {(c.caption.main, c.caption.at): c for c in captions}
 
     def pick(group) -> list:
@@ -120,9 +120,12 @@ def build_segments(plates: dict, clips: dict, captions: list) -> list:
 
     home_shot = sb.shot_home(plates["home"], camera)
     sort_shot = sb.shot_home_sort(plates["home_flip"], camera, home_shot.current)
+    click_shot = sb.shot_home_click(plates["home_flip"], camera, sort_shot.current)
+    profile_shot = sb.shot_profile_reveal(plates["profile"], camera)
+    profile_tab_shot = sb.shot_profile_tab(plates["profile"], camera, profile_shot.current)
     expand_shot = sb.shot_expand(plates["gamelog_expand"], camera)
     pitchlog_shot = sb.shot_pitchlog(
-        plates["gamelog_expanded"], camera, expand_shot.current
+        plates["gamelog_expanded"], camera, expand_shot.current, plates["pitch_video"]
     )
 
     return [
@@ -132,17 +135,50 @@ def build_segments(plates: dict, clips: dict, captions: list) -> list:
         # 排序切換緊接首頁瀏覽，中間不轉場 —— 這是同一個畫面的延續
         ShotSegment("home_sort", sort_shot, pick(sb.CAPTIONS_HOME_SORT),
                     cursor_track=sb.sort_cursor(plates["home_flip"].boxes["btn_recent"])),
-        CardSegment("ch2", clips["ch2"].paths, transition_in=sb.T_CHAPTER2),
+        # 推近鄧愷威的卡片並點擊，緊接首頁排序，中間不轉場 —— 仍是同一個畫面的延續
+        ShotSegment("home_click", click_shot, [],
+                    cursor_track=sb.feature_click_cursor(plates["home_flip"].boxes["card_feature"])),
+        ShotSegment("profile", profile_shot, pick(sb.CAPTIONS_PROFILE),
+                    transition_in=sb.T_PROFILE),
+        # 鏡頭退回分頁列，游標按下「進階數據」
+        ShotSegment("profile_tab", profile_tab_shot, [],
+                    cursor_track=sb.tab_cursor(
+                        plates["profile"].boxes["tab_advanced"], sb.TAB_ADVANCED_AT)),
+        # 分頁切換：鏡位不變，只換底片。段末游標按下「比賽紀錄」
         ShotSegment("advanced", sb.shot_advanced(plates["advanced"], camera),
-                    pick(sb.CAPTIONS_ADVANCED), transition_in=sb.T_ADVANCED),
-        CardSegment("ch3", clips["ch3"].paths, transition_in=sb.T_CHAPTER3),
-        ShotSegment("expand", expand_shot, [],
-                    cursor_track=sb.expand_cursor(plates["gamelog_expand"].boxes["arrow"]),
-                    transition_in=sb.T_EXPAND),
-        ShotSegment("pitchlog", pitchlog_shot, pick(sb.CAPTIONS_PITCHLOG)),
-        CardSegment("ch4", clips["ch4"].paths, transition_in=sb.T_CHAPTER4),
-        ShotSegment("plot", sb.shot_plot(plates["plot"], camera),
-                    pick(sb.CAPTIONS_PLOT), transition_in=sb.T_PLOT),
+                    pick(sb.CAPTIONS_ADVANCED),
+                    cursor_track=sb.tab_cursor(
+                        plates["advanced"].boxes["tab_gamelogs"], sb.TAB_GAMELOGS_AT,
+                        offset=(1350, 1050), bow=-0.16)),
+        ShotSegment("gamelogs_intro",
+                    sb.shot_gamelogs_intro(
+                        plates["gamelog_collapsed"], plates["gamelog_expand"], camera),
+                    []),
+        ShotSegment("expand", expand_shot, pick(sb.CAPTIONS_EXPAND),
+                    cursor_track=sb.expand_cursor(plates["gamelog_expand"].boxes["arrow"])),
+        ShotSegment("pitchlog", pitchlog_shot, pick(sb.CAPTIONS_PITCHLOG),
+                    cursor_track=sb.pitch_video_cursor(
+                        _plate_box(plates["pitch_video"], "video_btn"))),
+        # 點擊後畫面換到影片底片，但鏡位不變 —— 中間不轉場才看得出是同一次操作。
+        # 段末游標按下彈窗右上角的 ×
+        ShotSegment("pitch_video", sb.shot_pitch_video(plates["pitch_video"], camera),
+                    pick(sb.CAPTIONS_PITCH_VIDEO),
+                    cursor_track=sb.close_video_cursor(
+                        plates["pitch_video"].boxes["video_close"])),
+        # 彈窗關掉（底片換回沒有彈窗的逐球表），快速上滑回分頁列並按下「數據圖表」
+        ShotSegment("plot_tab",
+                    sb.shot_plot_tab(plates["gamelog_expanded"], camera, plates["pitch_video"]),
+                    [],
+                    cursor_track=sb.tab_cursor(
+                        plates["gamelog_expanded"].boxes["tab_plot"], sb.TAB_PLOT_AT,
+                        offset=(-1200, 1100), bow=0.20, hold_after=0.15)),
+        # 賽季走勢圖，游標按一下「數據」下拉
+        ShotSegment("plot_trend", sb.shot_plot_trend(plates["plot"], camera),
+                    pick(sb.CAPTIONS_PLOT_TREND),
+                    cursor_track=sb.trend_stat_cursor(plates["plot"].boxes["trend_stat"])),
+        # 換好數據的底片，用一次短交叉溶接接上 —— 看起來就是圖表重畫了
+        ShotSegment("plot", sb.shot_plot(plates["plot_alt"], camera),
+                    pick(sb.CAPTIONS_PLOT), transition_in=sb.T_TREND_SWAP),
         CardSegment("outro", clips["outro"].paths, transition_in=sb.T_OUTRO),
     ]
 

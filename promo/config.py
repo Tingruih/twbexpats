@@ -73,8 +73,8 @@ MUSIC_RMS_DBFS = -33.0         # 明確的「點綴」音量，不喧賓奪主
 MUSIC_PEAK_CEILING_DBFS = -15.0  # 壓縮後的峰值上限，避免 kick 竄出來刺耳
 
 # ── 全片總長 ────────────────────────────────────────────────────
-TOTAL_SECONDS = 76.0
-TOTAL_FRAMES = int(TOTAL_SECONDS * FPS)   # 2280
+TOTAL_SECONDS = 80.0
+TOTAL_FRAMES = int(TOTAL_SECONDS * FPS)   # 2400
 
 
 def set_profile(name: str) -> None:
