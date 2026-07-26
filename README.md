@@ -4,6 +4,9 @@
 ## Website
 https://tingruih.github.io/twbexpats/
 
+## Promo
+[twbexpats_promo.mp4](promo/out/twbexpats_promo.mp4)
+
 ## Project Layout and Commands
 懶得寫 之後用
 
