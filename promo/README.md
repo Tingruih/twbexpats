@@ -2,7 +2,10 @@
 
 一鍵產出網站宣傳影片：`promo/out/twbexpats_promo.mp4`（1920×1080 / 30fps / 約 80 秒）。
 
-素材全部在本機生成 —— 畫面來自 `dist/` 的真實網站，配樂用 numpy 合成，沒有任何外部素材或版權疑慮。
+畫面來自 `dist/` 的真實網站；背景音樂使用
+`audio/alex-morgan-lofi-restaurant-568157.mp3`。建置時會自動裁切至影片長度、
+調整至舒適的 -18 LUFS，並加入 2 秒淡入與 4 秒淡出。公開發佈前請確認音檔
+授權符合用途。
 
 ## 用法
 
@@ -58,7 +61,8 @@ compose/
   transitions.py   轉場（刻意每次不同）
   timeline.py      段落組裝與串流輸出
 
-audio/music.py     Lo-fi 配樂合成
+audio/background.py  外部配樂的裁切、音量標準化與淡入淡出
+audio/music.py       舊版 Lo-fi 配樂合成器（保留作為參考）
 
 work/              中繼檔（底片、幀、wav）
 out/               成品

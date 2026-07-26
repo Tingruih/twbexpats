@@ -50,6 +50,7 @@ DIST_DIR = REPO_DIR / "dist"
 WORK_DIR = PROMO_DIR / "work"
 OUT_DIR = PROMO_DIR / "out"
 OUT_AUDIO = WORK_DIR / "music.wav"
+SOURCE_MUSIC = PROMO_DIR / "audio" / "alex-morgan-lofi-restaurant-568157.mp3"
 LOGO_SVG = REPO_DIR / "src" / "static" / "logo.svg"
 
 # 底片與幀依設定檔分開存放 —— 兩種解析度的中繼檔不能互相沿用。
@@ -68,9 +69,12 @@ HOME_URL = f"{BASE_URL}/index.html"
 
 # ── 音訊 ────────────────────────────────────────────────────────
 SAMPLE_RATE = 48000
-MUSIC_BPM = 90
-MUSIC_RMS_DBFS = -33.0         # 明確的「點綴」音量，不喧賓奪主
-MUSIC_PEAK_CEILING_DBFS = -15.0  # 壓縮後的峰值上限，避免 kick 竄出來刺耳
+# -18 LUFS 適合沒有旁白的背景配樂：一般耳機與手機喇叭都保有存在感，
+# 又比常見的串流成品音量低約 4 dB，長時間播放不易造成壓迫感。
+MUSIC_LOUDNESS_LUFS = -18.0
+MUSIC_TRUE_PEAK_DBFS = -2.0
+MUSIC_FADE_IN_SECONDS = 2.0
+MUSIC_FADE_OUT_SECONDS = 4.0
 
 # ── 全片總長 ────────────────────────────────────────────────────
 TOTAL_SECONDS = 80.0

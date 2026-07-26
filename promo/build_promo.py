@@ -4,7 +4,7 @@
     python -m promo.build_promo --4k        # 4K 版本（底片升到 8K，耗時約 2.5 倍）
     python -m promo.build_promo --reuse     # 沿用既有底片，只重跑合成（調節奏時用）
 
-流程：擷取底片 → 渲染字卡與說明條 → 依分鏡組裝時間軸 → 合成配樂 → 編碼 mp4。
+流程：擷取底片 → 渲染字卡與說明條 → 依分鏡組裝時間軸 → 處理配樂 → 編碼 mp4。
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ if _ARGS and _ARGS.four_k:
     config.set_profile("4k")
 
 from promo import storyboard as sb                        # noqa: E402
-from promo.audio import music                             # noqa: E402
+from promo.audio import background                        # noqa: E402
 from promo.capture import browser, scenes                 # noqa: E402
 from promo.compose import camera, cards, lower_third, timeline   # noqa: E402
 from promo.compose.timeline import CardSegment, ShotSegment      # noqa: E402
@@ -235,8 +235,8 @@ def main() -> int:
     n = timeline.render(segments, config.FRAME_DIR, progress=progress)
     print(f"   完成，耗時 {time.time() - t0:.0f}s")
 
-    print("→ 合成配樂")
-    music.build(duration=n / config.FPS)
+    print(f"→ 處理背景音樂：{config.SOURCE_MUSIC.name}")
+    background.build(duration=n / config.FPS)
 
     encode(config.FRAME_DIR, config.OUT_AUDIO, config.OUT_VIDEO, n)
 
