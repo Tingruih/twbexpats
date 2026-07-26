@@ -6,8 +6,8 @@ https://tingruih.github.io/twbexpats/
 
 ## Demo Video
 <video controls playsinline width="100%">
-	<source src="promo/out/twbexpats_promo.mp4" type="video/mp4">
-	你的瀏覽器不支援影片播放，請改用 [twbexpats_promo.mp4](promo/out/twbexpats_promo.mp4)
+	<source src="https://raw.githubusercontent.com/Tingruih/twbexpats/main/promo/out/twbexpats_promo.mp4" type="video/mp4">
+	你的瀏覽器不支援影片播放，請改用 [twbexpats_promo.mp4](https://raw.githubusercontent.com/Tingruih/twbexpats/main/promo/out/twbexpats_promo.mp4)
 </video>
 
 ## Project Layout and Commands
