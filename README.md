@@ -4,8 +4,11 @@
 ## Website
 https://tingruih.github.io/twbexpats/
 
-## Promo
-[twbexpats_promo.mp4](promo/out/twbexpats_promo.mp4)
+## Demo Video
+<video controls playsinline width="100%">
+	<source src="promo/out/twbexpats_promo.mp4" type="video/mp4">
+	你的瀏覽器不支援影片播放，請改用 [twbexpats_promo.mp4](promo/out/twbexpats_promo.mp4)
+</video>
 
 ## Project Layout and Commands
 懶得寫 之後用
