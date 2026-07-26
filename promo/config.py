@@ -8,7 +8,7 @@ from pathlib import Path
 
 # ── 輸出設定檔 ──────────────────────────────────────────────────
 # 底片寬度必須是輸出寬度的兩倍，這是整套架構「縮放無損」的前提：
-# zoom 2.0 時 crop 尺寸恰好等於輸出尺寸，是 1:1 像素。
+# zoom 2.0 時 crop 尺寸恰好等於輸出尺寸，呈 1:1 像素對應。
 # 兩個設定檔都維持 1600×900 的 viewport，只調整 DPR —— 網站的版面因此完全一致，
 # 4K 版得到的是更高的渲染解析度，而不是被放大的 1080p。
 PROFILES = {
@@ -28,7 +28,12 @@ PLATE_VIEWPORT_H = 900
 MAX_ZOOM = 2.0
 
 # 以下由 set_profile() 設定，預設為 1080p。
-WIDTH = HEIGHT = PLATE_DPR = PLATE_W = PLATE_H = UI_SCALE = None  # type: ignore[assignment]
+WIDTH: int
+HEIGHT: int
+PLATE_DPR: float
+PLATE_W: int
+PLATE_H: int
+UI_SCALE: float
 
 # ── 色彩（取自網站 src/static/css/base.css）────────────────────
 BLACK = (0, 0, 0)
@@ -54,7 +59,9 @@ SOURCE_MUSIC = PROMO_DIR / "audio" / "alex-morgan-lofi-restaurant-568157.mp3"
 LOGO_SVG = REPO_DIR / "src" / "static" / "logo.svg"
 
 # 底片與幀依設定檔分開存放 —— 兩種解析度的中繼檔不能互相沿用。
-PLATE_DIR = FRAME_DIR = OUT_VIDEO = None  # type: ignore[assignment]
+PLATE_DIR: Path
+FRAME_DIR: Path
+OUT_VIDEO: Path
 
 # ── 擷取環境 ────────────────────────────────────────────────────
 # Playwright 官方瀏覽器未安裝，改用系統 Chromium。

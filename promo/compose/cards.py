@@ -79,7 +79,7 @@ def _html(body: str, css: str, script: str) -> str:
 
 _SPEED_EXP = 0.55    # 配時對筆的成本取此次方；1.0 = 等速，越小則短筆越慎重
 _LIFT_BUDGET = 0.14  # 提筆停頓合計佔描繪總時長的比例
-_STRUCTURE_AT = 0.25  # 達到最長筆這個比例以上者視為「撐形體的長筆」
+_STRUCTURE_AT = 0.25  # 達到最長筆的這個比例以上者視為「撐形體的長筆」
 _SAMPLE = 14.0       # 沿筆取樣的間距（SVG 使用者座標）
 _NEAR = 30.0         # 與既有線條的距離小於此值即視為重描；略小於 stroke-width 34
 _RETRACE_COST = 0.22  # 重描既有線條時的時間成本倍率 —— 手會直接掃過去
@@ -355,7 +355,7 @@ def outro_html(logo_svg: str, url: str, tagline: str) -> str:
     const easeOut = t => 1 - Math.pow(1 - t, 3);
 
     window.__card = (t) => {
-        // 各元素依序收斂到中心：logo → 網址 → 標語 → 細線
+        // 各元素依序收斂到中心：logo → 網址 → 標語
         const lp = easeOut(seg(t, 0.0, 0.30));
         logo.style.opacity = String(lp);
         logo.style.transform = `scale(${0.90 + 0.10 * lp})`;
