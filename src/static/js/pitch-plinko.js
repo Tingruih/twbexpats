@@ -41,30 +41,32 @@
     ];
     var PITCH_COLORS = {
         FF: "#ff0a78", FA: "#ff0a78",
-        SI: "#94165d",
+        SI: "#94165d", FT: "#94165d",
         FC: "#c45aa0",
         ST: "#2fc5a7",
         SL: "#68d986",
         CH: "#ff9568",
         CU: "#3326d6", KC: "#3326d6", CS: "#3326d6",
         FS: "#ff6b00", FO: "#ff6b00",
-        SV: "#7c3aed",
-        KN: "#a3a3a3",
+        SV: "#7c3aed", SC: "#d946ef", GY: "#0ea5e9",
+        KN: "#a3a3a3", EP: "#eab308",
         UN: "#9ca3af",
+        IN: "#6b7280", PO: "#6b7280", AB: "#6b7280", AS: "#6b7280", NP: "#6b7280",
     };
     var FALLBACK_COLORS = ["#ff0a78", "#94165d", "#c45aa0", "#2fc5a7", "#ff9568", "#68d986", "#3326d6", "#ff6b00"];
     var PITCH_NAMES = {
         FF: "4-SEAM", FA: "4-SEAM",
-        SI: "SINKER",
+        SI: "SINKER", FT: "2-SEAM",
         FC: "CUTTER",
         ST: "SWEEPER",
         SL: "SLIDER",
         CH: "CHANGEUP",
         CU: "CURVEBALL", KC: "CURVEBALL", CS: "CURVEBALL",
         FS: "SPLITTER", FO: "SPLITTER",
-        SV: "SLURVE",
-        KN: "KNUCKLEBALL",
+        SV: "SLURVE", SC: "SCREWBALL", GY: "GYROBALL",
+        KN: "KNUCKLEBALL", EP: "EEPHUS",
         UN: "UNKNOWN",
+        IN: "INTENTIONAL BALL", PO: "PITCHOUT", AB: "AUTOMATIC BALL", AS: "AUTOMATIC STRIKE", NP: "NO PITCH",
     };
 
     var NODE_LAYOUT = NODE_IDS.map(function(id) {

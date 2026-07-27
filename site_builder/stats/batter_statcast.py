@@ -11,7 +11,12 @@ from .core.pa_outcomes import compute_pa_outcome_totals
 from .core.pitches import aggregate_pitches, ensure_pre_strikes
 from .discipline import discipline_metrics
 from .discipline.pitch_strike_pct import compute_pitch_strike_pct
-from .tables.vs_pitch_types import compute_vs_pitch_types
+from .tables.usage_by_count import compute_pitch_group_usage_by_count
+from .tables.vs_pitch_types import (
+    compute_batter_pitch_hand_splits,
+    compute_vs_pitch_groups,
+    compute_vs_pitch_types,
+)
 
 
 def compute_batter_statcast(pitches: list[dict]) -> dict:
@@ -39,6 +44,9 @@ def compute_batter_statcast(pitches: list[dict]) -> dict:
         "avg_la": compute_avg_la(la_values),
         "swsp_pct": compute_sweet_spot_pct(la_values),
         "vs_pitch_types": compute_vs_pitch_types(pitches),
+        "vs_pitch_groups": compute_vs_pitch_groups(pitches),
+        "pitch_group_usage_by_count": compute_pitch_group_usage_by_count(pitches),
+        "batter_pitch_hand_splits": compute_batter_pitch_hand_splits(pitches),
         "pitch_plinko": compute_pitch_plinko(
             pitches,
             split_field="pitch_hand",

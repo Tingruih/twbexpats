@@ -5,8 +5,15 @@ from ..graph.plinko import combine_pitch_plinko
 from .tables.arsenal import combine_pitch_arsenal
 from .tables.bat_side_splits import combine_pitcher_bat_side_splits
 from .tables.outcomes import combine_pitch_outcomes
-from .tables.usage_by_count import combine_pitch_usage_by_count
-from .tables.vs_pitch_types import combine_vs_pitch_types
+from .tables.usage_by_count import (
+    combine_pitch_group_usage_by_count,
+    combine_pitch_usage_by_count,
+)
+from .tables.vs_pitch_types import (
+    combine_batter_pitch_hand_splits,
+    combine_vs_pitch_groups,
+    combine_vs_pitch_types,
+)
 
 
 def combine_statcast_dicts(entries: list[dict]) -> dict:
@@ -107,6 +114,9 @@ def combine_statcast_dicts(entries: list[dict]) -> dict:
     # pitch_arsenal / vs_pitch_types: combine using count-weighted averages
     combined["pitch_arsenal"] = combine_pitch_arsenal(entries)
     combined["vs_pitch_types"] = combine_vs_pitch_types(entries)
+    combined["vs_pitch_groups"] = combine_vs_pitch_groups(entries)
+    combined["pitch_group_usage_by_count"] = combine_pitch_group_usage_by_count(entries)
+    combined["batter_pitch_hand_splits"] = combine_batter_pitch_hand_splits(entries)
     combined["pitch_outcomes"] = combine_pitch_outcomes(entries)
     combined["pitch_usage_by_count"] = combine_pitch_usage_by_count(entries)
     combined["pitcher_bat_side_splits"] = combine_pitcher_bat_side_splits(entries)

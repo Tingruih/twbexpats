@@ -10,5 +10,3 @@ https://tingruih.github.io/twbexpats/
 
 ## Project Layout and Commands
 懶得寫 之後用
-
-**歡迎開PR優化網站**

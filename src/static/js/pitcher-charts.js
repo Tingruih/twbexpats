@@ -17,30 +17,32 @@
     // 球種顏色對應表（按球種代碼）
     var PITCH_COLORS = {
         FF: "#ff0a78", FA: "#ff0a78",
-        SI: "#94165d",
+        SI: "#94165d", FT: "#94165d",
         FC: "#c45aa0",
         ST: "#2fc5a7",
         SL: "#68d986",
         CH: "#ff9568",
         CU: "#3326d6", KC: "#3326d6", CS: "#3326d6",
         FS: "#ff6b00", FO: "#ff6b00",
-        SV: "#7c3aed",
-        KN: "#a3a3a3",
+        SV: "#7c3aed", SC: "#d946ef", GY: "#0ea5e9",
+        KN: "#a3a3a3", EP: "#eab308",
         UN: "#9ca3af",
+        IN: "#6b7280", PO: "#6b7280", AB: "#6b7280", AS: "#6b7280", NP: "#6b7280",
     };
     var FALLBACK_COLORS = ["#ff0a78", "#94165d", "#c45aa0", "#2fc5a7", "#ff9568", "#68d986", "#3326d6", "#ff6b00"];
     var PITCH_NAMES = {
         FF: "4-Seam", FA: "4-Seam",
-        SI: "Sinker",
+        SI: "Sinker", FT: "2-Seam",
         FC: "Cutter",
         ST: "Sweeper",
         SL: "Slider",
         CH: "Changeup",
         CU: "Curveball", KC: "Curveball", CS: "Curveball",
         FS: "Splitter", FO: "Splitter",
-        SV: "Slurve",
-        KN: "Knuckleball",
+        SV: "Slurve", SC: "Screwball", GY: "Gyroball",
+        KN: "Knuckleball", EP: "Eephus",
         UN: "Unknown",
+        IN: "Intentional Ball", PO: "Pitchout", AB: "Automatic Ball", AS: "Automatic Strike", NP: "No Pitch",
     };
 
     // XSS 防護：將字串中的 HTML 特殊字元做 escape

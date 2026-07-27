@@ -238,6 +238,27 @@ BAT_SIDE_SPLITS = (
     ("R", "右打"),
 )
 
+PITCH_HAND_SPLITS = (
+    ("all", "全部"),
+    ("L", "左投"),
+    ("R", "右投"),
+)
+
+# Pitch-type → super-category classification: the standard three-way
+# Statcast / sabermetric split into fastballs (velocity + backspin carry),
+# breaking balls (spin-driven lateral/vertical break), and offspeed pitches
+# (defining trait is reduced velocity relative to the pitcher's fastball).
+# Sources: FanGraphs "Pitch Type Abbreviations & Classifications" library
+# page and Baseball Savant's pitch-type groupings.
+PITCH_TYPE_GROUPS = (
+    ("FASTBALL", "Fastball", ("FF", "SI", "FC", "FA", "FT")),
+    ("BREAKING", "Breaking", ("SL", "ST", "SV", "CU", "CB", "KC", "CS", "SC")),
+    ("OFFSPEED", "Offspeed", ("CH", "FS", "FO", "KN", "EP")),
+)
+PITCH_TYPE_TO_GROUP: dict[str, str] = {
+    code: key for key, _label, codes in PITCH_TYPE_GROUPS for code in codes
+}
+
 # Ball-strike count buckets used when computing per-level usage tables at sync
 # time (labels are stored inside the statcast JSON payload).
 COUNT_USAGE_BUCKETS = (

@@ -103,6 +103,16 @@ def _condense_nonpitch_event(ev: dict, play: dict) -> dict:
 
 
 def _pa_context(play: dict) -> dict:
+    # 這裡故意不抓 contextMetrics.catchProbability、matchup.batterHotColdZones、
+    # matchup.pitcherHotColdZones。實測 245 場比賽（2002-2026，共 1.88 萬個
+    # 打席）驗證過：
+    #   - catchProbability / pitcherHotColdZones：一次都沒出現過，這個
+    #     endpoint 根本不會回傳，是死欄位。
+    #   - batterHotColdZones：不是逐打席的統計欄位，而是轉播端用的一次性
+    #     熱區圖素材（好球帶切 9 宮格 + 4 個角落），MLB 只會附掛在整場
+    #     比賽「最後一個打席」上，而且也只有約 87% 的機率有值。一場比賽
+    #     最多只有 1 筆（常常還是 0 筆），而且每格的 value 看起來是球員的
+    #     生涯/近況數字，不是這場比賽算出來的，當統計資料源沒有意義。
     count = play.get("count", {}) or {}
     context_metrics = play.get("contextMetrics", {}) or {}
     return {
@@ -114,7 +124,6 @@ def _pa_context(play: dict) -> dict:
         "leverage_index": play.get("leverageIndex"),
         "drama_index": play.get("dramaIndex"),
         "pa_xwoba": context_metrics.get("xWoba"),
-        "catch_probability": context_metrics.get("catchProbability"),
     }
 
 
@@ -380,18 +389,29 @@ def extract_pitch_logs(
                     "sz_plate_z": sz_info.get("plateZ"),
                     "sz_top": sz_info.get("strikeZoneTop"),
                     "sz_bottom": sz_info.get("strikeZoneBottom"),
+                    # sz_flat/sz_rounded/sz_corner_radius 這幾個「圓角好球帶
+                    # 模型」欄位，MLB 從 2020 年才開始回傳，2020 年以前的比賽
+                    # 一律是 null，不是抓取壞掉。
                     "sz_flat": sz_info.get("strikeZoneFlat"),
                     "sz_rounded": sz_info.get("strikeZoneRounded"),
                     "sz_corner_radius": sz_info.get("strikeZoneCornerRadiusInches"),
                     "sz_width_in": sz_info.get("widthInches"),
                     "sz_depth_in": sz_info.get("depthInches"),
+                    # sz_edge_distance 從 2024 年才開始回傳，2024 年以前一律
+                    # 是 null。
                     "sz_edge_distance": sz_info.get("edgeDistance"),
                     "sz_is_strike": sz_info.get("isStrike"),
-                    "avg_pitch_speed_player": ctx.get("averagePitchSpeedPlayer"),
-                    "max_pitch_speed_player": ctx.get("maxPitchSpeedPlayer"),
-                    "pitch_speed_pct": ctx.get("pitchSpeedPlayerRank"),
+                    # ctx（contextMetrics）故意只抓 homeRunBallparks。
+                    # averagePitchSpeedPlayer/maxPitchSpeedPlayer/
+                    # pitchSpeedPlayerRank 原本以為是「這球球速在該投手所有
+                    # 球種中的百分位」，但實測 245 場比賽（2002-2026，共 7.3
+                    # 萬顆投球）一次都沒出現過，確認是死欄位，已移除。
                     "hr_ballparks": ctx.get("homeRunBallparks"),
                     "hit_probability": hdata.get("hitProbability"),
+                    # bat_speed/is_sword_swing 是 MLB 的 bat-tracking 資料，
+                    # 2024 年才開始有（2024 年只有部分場館/部分賽程涵蓋，
+                    # 2025 年起才是全面覆蓋）。沒揮棒的球（taken pitch）本來
+                    # 就不會有棒速，是正常現象不是缺資料。
                     "bat_speed": hdata.get("batSpeed"),
                     "is_sword_swing": hdata.get("isSwordSwing"),
                     "defense": _condense_defense(ev.get("defense")),

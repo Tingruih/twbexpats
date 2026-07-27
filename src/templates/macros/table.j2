@@ -7,3 +7,79 @@
 {% macro th_html(tooltip=None, formula=None) -%}
 <th{% if tooltip %} data-tooltip="{{ tooltip|e }}"{% endif %}{% if formula %} data-formula="{{ formula|e }}"{% endif %}>{{ caller() }}</th>
 {%- endmacro %}
+
+{# 打者「對戰球種」表格（逐球種 / 三大類皆共用同一組欄位） #}
+{% macro vs_pitch_table(rows, tags, type_header='球種') %}
+<table class="data-table">
+    <thead>
+        <tr>
+            {{ th(type_header, '球種名稱', '\\mathrm{pitch\\ type}') }}{{ th('Pitches', '面對球數', '\\sum \\mathrm{Pitches}_{type}') }}{{ th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}+\\mathrm{BIP}}{\\mathrm{Pitches}}') }}{{ th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
+            {{ th('Z-Swing%', '好球帶揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZone}}') }}{{ th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
+            {{ th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ th('Put Away%', '被解決率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ th('AVG', '對球種打擊率', '\\frac{H}{AB}') }}{{ th('wOBA', '對球種加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}
+            {{ th('Barrel%', 'Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ th('Hard-Hit%', '強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}
+        </tr>
+    </thead>
+    <tbody>
+        {% for pt in rows %}
+        <tr>
+            <td>{{ tags.pitch_tag(pt.type, pt.name) }}</td>
+            <td class="num">{{ pt.count|num_dash }}</td>
+            <td class="num">{{ pt.strike_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.zone_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.z_swing_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.o_swing_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.whiff_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.swstr_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.csw_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.put_away_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.avg|floatformat(3) }}</td>
+            <td class="num">{{ pt.woba|floatformat(3) }}</td>
+            <td class="num">{{ pt.barrel_pct|pct_fmt }}</td>
+            <td class="num">{{ pt.hard_hit_pct|pct_fmt }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="14" class="td-empty">尚無數據</td></tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endmacro %}
+
+{# 「各球數配球比例」表格（逐球種 / 三大類皆共用同一組欄位） #}
+{% macro usage_by_count_table(usage_types, usage_rows, tags, type_header='球種') %}
+{% if usage_types and usage_rows %}
+<div class="table-scroll">
+    <table class="data-table pitch-usage-table">
+        <thead>
+            <tr>
+                {{ th(type_header, '球種名稱', '\\mathrm{pitch\\ type}') }}
+                {% for row in usage_rows %}
+                {% if row.key != 'all' %}
+                {% call th_html(tooltip="配球率", formula="\\frac{\\mathrm{Pitches}_{type,count}}{\\mathrm{Pitches}_{count}}") %}{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span>{% endcall %}
+                {% endif %}
+                {% endfor %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for pitch in usage_types %}
+            <tr>
+                <td>{{ tags.pitch_tag(pitch.type, pitch.name) }}</td>
+                {% for row in usage_rows %}
+                {% if row.key != 'all' %}
+                {% set pitch_cell = namespace(pct=none) %}
+                {% for pt in row.pitch_types %}
+                {% if pt.type == pitch.type %}
+                {% set pitch_cell.pct = pt.pct %}
+                {% endif %}
+                {% endfor %}
+                <td class="num">{{ pitch_cell.pct|pct_fmt }}</td>
+                {% endif %}
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<div class="pitch-analysis-empty">無球種資料</div>
+{% endif %}
+{% endmacro %}

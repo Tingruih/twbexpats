@@ -4,6 +4,85 @@
 <div class="mc-cell"><b>{{ label }}</b><span>{{ value }}</span></div>
 {%- endmacro %}
 
+{# 打者「對戰球種」卡片列表（逐球種 / 三大類皆共用同一組欄位） #}
+{% macro vs_pitch_cards(rows) %}
+{% if rows %}
+<div class="mc-list">
+    {% for pt in rows %}
+    <article class="mc-card">
+        <header class="mc-hd">
+            <div class="mc-hd-meta">
+                {{ tags.pitch_tag(pt.type, pt.name) }}
+            </div>
+            <div class="mc-hd-aside">
+                <span class="mc-meta">{{ pt.count|num_dash }} 球</span>
+            </div>
+        </header>
+        <div class="mc-hero">
+            <div class="mc-hero-cell"><span>{{ pt.avg|floatformat(3) }}</span><b>AVG</b></div>
+            <div class="mc-hero-cell"><span>{{ pt.woba|floatformat(3) }}</span><b>wOBA</b></div>
+            <div class="mc-hero-cell"><span>{{ pt.whiff_pct|pct_fmt }}</span><b>Whiff%</b></div>
+            <div class="mc-hero-cell"><span>{{ pt.hard_hit_pct|pct_fmt }}</span><b>Hard-Hit%</b></div>
+        </div>
+        <div class="mc-grid">
+            {{ mcell('Strike%', pt.strike_pct|pct_fmt) }}
+            {{ mcell('Zone%', pt.zone_pct|pct_fmt) }}
+            {{ mcell('Z-Swing%', pt.z_swing_pct|pct_fmt) }}
+            {{ mcell('O-Swing%', pt.o_swing_pct|pct_fmt) }}
+            {{ mcell('SwStr%', pt.swstr_pct|pct_fmt) }}
+            {{ mcell('CSW%', pt.csw_pct|pct_fmt) }}
+            {{ mcell('PutAway%', pt.put_away_pct|pct_fmt) }}
+            {{ mcell('Barrel%', pt.barrel_pct|pct_fmt) }}
+        </div>
+    </article>
+    {% endfor %}
+</div>
+{% else %}
+<div class="pitch-analysis-empty">尚無數據</div>
+{% endif %}
+{% endmacro %}
+
+{# 「各球數配球比例」堆疊色條卡片（逐球種 / 三大類皆共用同一組欄位） #}
+{% macro usage_by_count_cards(usage_types, usage_rows, label_field='type') %}
+{% if usage_types and usage_rows %}
+<article class="mc-card">
+    <header class="mc-hd">
+        <div class="mc-hd-meta"><span class="mc-yr m-usage-title">各球數配球比例</span></div>
+    </header>
+    <div class="m-usage-legend">
+        {% for pitch in usage_types %}
+        {{ tags.pitch_tag(pitch.type, pitch.name) }}
+        {% endfor %}
+    </div>
+    <div class="m-usage">
+        {% for row in usage_rows %}
+        {% if row.key != 'all' %}
+        <div class="m-usage-row">
+            <div class="m-usage-row-hd">
+                <span class="m-usage-label">{{ row.label }}</span>
+                <span class="m-usage-counts">{{ row.counts_label }}</span>
+            </div>
+            <div class="m-usage-bar">
+                {% for pitch in usage_types %}
+                {% set pitch_cell = namespace(pct=none) %}
+                {% for pt in row.pitch_types %}
+                {% if pt.type == pitch.type %}{% set pitch_cell.pct = pt.pct %}{% endif %}
+                {% endfor %}
+                {% if pitch_cell.pct %}
+                <span class="m-useg pitch-{{ pitch.type|lower }}" style="width: {{ '%.2f'|format(pitch_cell.pct * 100) }}%;">
+                    {%- if pitch_cell.pct >= 0.16 %}{{ pitch[label_field] }} {{ pitch_cell.pct|pct_fmt(0) }}{% endif -%}
+                </span>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</article>
+{% endif %}
+{% endmacro %}
+
 {# 歷年進階數據：單筆成績卡片內容（summary 或單一球隊明細共用） #}
 {% macro adv_body(s) %}
     {% if is_pitcher %}
@@ -259,6 +338,13 @@
                 <option value="L">左打</option>
                 <option value="R">右打</option>
             </select>
+            {% else %}
+            <label class="filter-label" for="m-arsenal-bat-side-select">對戰投手</label>
+            <select id="m-arsenal-bat-side-select" class="filter-select">
+                <option value="all" selected>全部</option>
+                <option value="L">左投</option>
+                <option value="R">右投</option>
+            </select>
             {% endif %}
         </div>
 
@@ -346,43 +432,7 @@
                         {% endfor %}
 
                         {# ── 各球數配球比例：堆疊色條 ── #}
-                        {% if usage_types and usage_rows %}
-                        <article class="mc-card">
-                            <header class="mc-hd">
-                                <div class="mc-hd-meta"><span class="mc-yr m-usage-title">各球數配球比例</span></div>
-                            </header>
-                            <div class="m-usage-legend">
-                                {% for pitch in usage_types %}
-                                {{ tags.pitch_tag(pitch.type, pitch.name) }}
-                                {% endfor %}
-                            </div>
-                            <div class="m-usage">
-                                {% for row in usage_rows %}
-                                {% if row.key != 'all' %}
-                                <div class="m-usage-row">
-                                    <div class="m-usage-row-hd">
-                                        <span class="m-usage-label">{{ row.label }}</span>
-                                        <span class="m-usage-counts">{{ row.counts_label }}</span>
-                                    </div>
-                                    <div class="m-usage-bar">
-                                        {% for pitch in usage_types %}
-                                        {% set pitch_cell = namespace(pct=none) %}
-                                        {% for pt in row.pitch_types %}
-                                        {% if pt.type == pitch.type %}{% set pitch_cell.pct = pt.pct %}{% endif %}
-                                        {% endfor %}
-                                        {% if pitch_cell.pct %}
-                                        <span class="m-useg pitch-{{ pitch.type|lower }}" style="width: {{ '%.2f'|format(pitch_cell.pct * 100) }}%;">
-                                            {%- if pitch_cell.pct >= 0.16 %}{{ pitch.type }} {{ pitch_cell.pct|pct_fmt(0) }}{% endif -%}
-                                        </span>
-                                        {% endif %}
-                                        {% endfor %}
-                                    </div>
-                                </div>
-                                {% endif %}
-                                {% endfor %}
-                            </div>
-                        </article>
-                        {% endif %}
+                        {{ usage_by_count_cards(usage_types, usage_rows) }}
 
                     </div>
                     {% else %}
@@ -393,41 +443,30 @@
 
                 {% else %}
                 {# ── 打者：對戰球種卡片 ── #}
-                {% set vs = sc.vs_pitch_types if sc.vs_pitch_types else [] %}
-                {% if vs %}
-                <div class="mc-list">
-                    {% for pt in vs %}
-                    <article class="mc-card">
-                        <header class="mc-hd">
-                            <div class="mc-hd-meta">
-                                {{ tags.pitch_tag(pt.type, pt.name) }}
-                            </div>
-                            <div class="mc-hd-aside">
-                                <span class="mc-meta">{{ pt.count|num_dash }} 球</span>
-                            </div>
-                        </header>
-                        <div class="mc-hero">
-                            <div class="mc-hero-cell"><span>{{ pt.avg|floatformat(3) }}</span><b>AVG</b></div>
-                            <div class="mc-hero-cell"><span>{{ pt.woba|floatformat(3) }}</span><b>wOBA</b></div>
-                            <div class="mc-hero-cell"><span>{{ pt.whiff_pct|pct_fmt }}</span><b>Whiff%</b></div>
-                            <div class="mc-hero-cell"><span>{{ pt.hard_hit_pct|pct_fmt }}</span><b>Hard-Hit%</b></div>
-                        </div>
-                        <div class="mc-grid">
-                            {{ mcell('Strike%', pt.strike_pct|pct_fmt) }}
-                            {{ mcell('Zone%', pt.zone_pct|pct_fmt) }}
-                            {{ mcell('Z-Swing%', pt.z_swing_pct|pct_fmt) }}
-                            {{ mcell('O-Swing%', pt.o_swing_pct|pct_fmt) }}
-                            {{ mcell('SwStr%', pt.swstr_pct|pct_fmt) }}
-                            {{ mcell('CSW%', pt.csw_pct|pct_fmt) }}
-                            {{ mcell('PutAway%', pt.put_away_pct|pct_fmt) }}
-                            {{ mcell('Barrel%', pt.barrel_pct|pct_fmt) }}
-                        </div>
-                    </article>
-                    {% endfor %}
-                </div>
+                {% set hand_splits = sc.batter_pitch_hand_splits if sc.batter_pitch_hand_splits else {} %}
+                {% for _side in ["all", "L", "R"] %}
+                {% set hand_split = hand_splits.get(_side) if hand_splits else none %}
+                {% if not hand_split and _side == "all" %}
+                    {% set vs = sc.vs_pitch_types if sc.vs_pitch_types else [] %}
+                    {% set vs_groups = sc.vs_pitch_groups if sc.vs_pitch_groups else [] %}
+                    {% set usage = sc.pitch_group_usage_by_count if sc.pitch_group_usage_by_count else {} %}
                 {% else %}
-                <div class="pitch-analysis-empty">尚無數據</div>
+                    {% set vs = hand_split.vs_pitch_types if hand_split and hand_split.vs_pitch_types else [] %}
+                    {% set vs_groups = hand_split.vs_pitch_groups if hand_split and hand_split.vs_pitch_groups else [] %}
+                    {% set usage = hand_split.pitch_group_usage_by_count if hand_split and hand_split.pitch_group_usage_by_count else {} %}
                 {% endif %}
+                {% set usage_types = usage.pitch_types if usage and usage.pitch_types else [] %}
+                {% set usage_rows = usage.rows if usage and usage.rows else [] %}
+                <div class="arsenal-split-container" data-bat-side="{{ _side }}" {% if not loop.first %}style="display: none;"{% endif %}>
+                {{ vs_pitch_cards(vs) }}
+                <div style="margin-top: 0.8rem;">{{ vs_pitch_cards(vs_groups) }}</div>
+                {% if usage_types and usage_rows %}
+                <div class="mc-list" style="margin-top: 0.8rem;">
+                    {{ usage_by_count_cards(usage_types, usage_rows, 'name') }}
+                </div>
+                {% endif %}
+                </div>
+                {% endfor %}
                 {% endif %}
             </div>
             {% endfor %}

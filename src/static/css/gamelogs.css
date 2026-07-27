@@ -223,6 +223,12 @@
 .pitch-ch, .pitch-fs { background: rgba(34,197,94,0.2);   color: #86efac; } /* 綠色：變速 */
 .pitch-kn            { background: rgba(236,72,153,0.2);  color: #f9a8d4; } /* 粉紅：蝴蝶球 */
 
+/* 控制【進階數據 Tab / 球種分類（快速球／變化球／變速球）標籤顏色】
+   沿用逐球種標籤的配色邏輯：快速球=紅、變化球=藍、變速球=綠 */
+.pitch-fastball { background: rgb(var(--red-rgb) / 0.2);  color: #fca5a5; } /* 紅色：快速球 */
+.pitch-breaking { background: rgb(var(--blue-rgb) / 0.2); color: #93c5fd; } /* 藍色：變化球 */
+.pitch-offspeed { background: rgba(34,197,94,0.2);        color: #86efac; } /* 綠色：變速球 */
+
 /* 控制【逐場紀錄 Tab / 可展開逐球資料的逐場列（hover 效果）】 */
 .game-row-expandable:hover {
     background: rgb(var(--teal-rgb) / 0.04); /* 極淡的 teal 背景（提示可點擊） */
