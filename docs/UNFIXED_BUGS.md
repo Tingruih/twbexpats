@@ -5,6 +5,8 @@
 
 > 說明：`site_builder` 已重構成子套件，以下位置皆以目前程式碼重新定位，不沿用舊文件行號。此文件只列「目前仍可在程式碼中確認未修」或「仍需修正/驗證的 bug」。純架構重構、一般 DRY 建議、已修復項目放在附錄。
 
+> 跨層級「合計」相關的 #8 與 #14 已於 2026-07-28 用全庫資料實測驗證，範圍比原記錄大得多（球種表的加權錯誤先前完全未被記錄）。完整驗證數字與受影響表格清單見 **`docs/cross-level-aggregation-bugs.md`**。
+
 ## P0 / P1 — 優先修
 
 ### 1. Pitch log 仍以 `innerHTML` 注入未跳脫資料，存在 XSS 風險
@@ -64,6 +66,7 @@
 - 證據：`bbe_fields` 包含 `avg_la`、`hr_fb_pct`、`ev90`，並一律 `_wpct(f, "bbe")`。
 - 影響：`ev90` 是百分位，不能由各層級百分位加權平均還原；`hr_fb_pct` 正確分母應是 FB；`avg_la` 正確權重應是有 LA 的 BBE。
 - 建議修法：`ev90` 合計列設 `None`；`hr_fb_pct` 保存/合併 FB 分母；`avg_la` 保存/合併 LA 樣本數。
+- **2026-07-28 更新**：實測後範圍比此條目大。除了列出的三個欄位，`barrel_pct` / `hard_hit_pct` / `avg_ev`（分母應是 `bbe_ev` 而非 `bbe`）、`swsp_pct`、`avg_extension`、`zone_pct` 也錯；`weighted.py` 的整組球種表（`pitch_arsenal` / `pitch_outcomes` / `vs_pitch_types` / `vs_pitch_groups`）另有一組**更嚴重且先前完全未記錄**的加權錯誤，最大誤差 AVG 差 .106、Whiff% 差 30.6pp、轉速差 96 rpm。詳見 `docs/cross-level-aggregation-bugs.md` §2。
 
 ### 9. 合計配球桶仍保留不存在的 `all` bucket
 
@@ -106,6 +109,7 @@
 - 證據：`statcast_by_year` 直接 append 每個 `season_stats` row 的 `statcast`，沒有 `(year, sport_level)` seen set。
 - 影響：若同年同層級換隊，而 sync 寫入同一層級聚合到多個 team row，進階表會重複列，合計列也會雙倍計權。
 - 建議修法：建立 `_build_statcast_entries()`，以 `(year, sport_level)` 去重。
+- **2026-07-28 更新**：已確認實際發生，全庫 19 個 (球員, 年度, 層級) 組合、分布在 18 個 (球員, 年度)。已建置站台可直接驗證：張育成 2022 的合計球數是實際的 3.6 倍，`id="arsenal-2022-MLB"` 在 HTML 中出現 4 次，Statcast 概覽／Plate Discipline／擊球型態 三張表各印出 4 列一模一樣的 MLB。當該年度還有其他層級時，被重複的層級拿到 N 倍權重，所有比率也跟著偏移。完整清單見 `docs/cross-level-aggregation-bugs.md` §3。
 
 ### 15. `compute_season_combined()` 仍未補算 advanced derived fields
 
