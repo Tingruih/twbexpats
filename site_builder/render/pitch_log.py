@@ -25,8 +25,8 @@ def summarize_pitch_for_display(
         "spin": p.get("spin_rate"),
         "extension": p.get("extension"),
         "pa_event": p.get("pa_event_desc") if p.get("is_pa_final") else "",
-        "balls": p.get("balls"),
-        "strikes": p.get("strikes"),
+        "pre_balls": p.get("pre_balls"),
+        "pre_strikes": p.get("pre_strikes"),
     }
     if include_video:
         play_id = p.get("play_id")

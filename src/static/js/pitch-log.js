@@ -30,16 +30,11 @@ function _buildPitchTable(pitches) {
         '<th class="num pa-event-cell" data-tooltip="打席結果" data-formula="\\mathrm{PA\\ event}">PA Event</th>' +
         (hasVideo ? '<th data-tooltip="逐球影片" data-formula="\\mathrm{video\\ url}">Video</th>' : '') +
         '</tr></thead><tbody>';
-    var prevBalls = 0, prevStrikes = 0, paEnded = true;
     for (var i = 0; i < pitches.length; i++) {
         var p = pitches[i];
-        // Pre-pitch count: if PA just ended (or first pitch), reset to 0-0
-        var preBalls = paEnded ? 0 : prevBalls;
-        var preStrikes = paEnded ? 0 : prevStrikes;
-        var countStr = (p.balls != null) ? (preBalls + '-' + preStrikes) : '-';
-        // Track for next pitch: if this pitch ends the PA, next starts fresh
-        paEnded = !!p.pa_event;
-        if (p.balls != null) { prevBalls = p.balls; prevStrikes = p.strikes != null ? p.strikes : 0; }
+        var countStr = (p.pre_balls != null && p.pre_strikes != null)
+            ? (p.pre_balls + '-' + p.pre_strikes)
+            : '-';
         var cls = p.pa_event ? ' class="pitch-pa-final"' : '';
         var pt = (p.pitch_type || '').toLowerCase();
         var pn = p.pitch_name || p.pitch_type || '\u2014';
@@ -72,7 +67,7 @@ function _getPitchLogEntry(src) {
     return pitchLogCache[src];
 }
 
-// fetch JSON 數據存入快取；已有快取或進行中的請求則從對應項目回傳
+// fetch JSON、產生表格 HTML 並存入快取；已有快取或進行中的請求則直接回傳
 function _loadPitchLogData(src) {
     var entry = _getPitchLogEntry(src);
     if (!entry) return Promise.resolve(null);
@@ -85,8 +80,8 @@ function _loadPitchLogData(src) {
             return resp.json();
         })
         .then(function(pitches) {
-            entry.pitches = Array.isArray(pitches) ? pitches : [];
-            entry.html = _buildPitchTable(entry.pitches);
+            var pitchList = Array.isArray(pitches) ? pitches : [];
+            entry.html = _buildPitchTable(pitchList);
             return entry;
         })
         .catch(function(err) {
@@ -109,7 +104,7 @@ function _renderPitchLog(container, entry) {
     }
 }
 
-// 預載單一比賽列的 pitch log（不渲染，僅將數據存入快取）
+// 預載單一比賽列的 pitch log（不插入 DOM，僅產生並快取表格 HTML）
 function prefetchPitchLogRow(row) {
     if (!row || !row.dataset || !row.dataset.src) return Promise.resolve(null);
     return _loadPitchLogData(row.dataset.src).catch(function() {

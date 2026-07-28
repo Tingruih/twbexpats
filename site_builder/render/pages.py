@@ -17,17 +17,21 @@ from ..graph.season_trend import (
     build_batter_trend_by_year,
     build_pitcher_trend_by_year,
 )
-from ..levels import level_rank
+from ..levels import level_rank, resolve_tier
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
-from ..stats.combine import combine_statcast_dicts
-from ..stats.core.annotate import annotate_computed_stats
+from ..stats.advanced.xwpct import compute_xwpct
+from ..stats.batter_statcast import compute_batter_statcast
+from ..stats.core.aggregate import aggregate_stats
+from ..stats.core.annotate import annotate_computed_stats, annotate_row
 from ..stats.core.career import (
     compute_career,
     compute_season_combined,
     compute_year_groups,
 )
+from ..stats.core.innings import ip_to_outs
 from ..stats.core.selectors import has_appearance, highest_level_row
+from ..stats.pitcher_statcast import compute_pitcher_statcast
 from ..util.dates import TW_TZ
 from ..util.units import height_to_cm, lbs_to_kg
 from .env import create_jinja_env
@@ -72,6 +76,194 @@ def _pick_display_stat(stats_current, player):
             return s
     # 3. Fallback: highest level played with appearances
     return stats_current[0]
+
+
+# Per-pitch-type / chart payloads that the previous weighted-average combiner
+# wrote unconditionally, whether or not they meant anything for the player's
+# role.  ``compute_*_statcast()`` only emits the keys its role actually has, so
+# the pooled "_combined" dict is padded back out to the same key set: templates
+# that reach for the other role's key keep getting an empty container instead of
+# a Jinja ``Undefined`` (which raises the moment anything iterates it).
+_COMBINED_EMPTY_DEFAULTS = {
+    "pitch_arsenal": list,
+    "pitch_outcomes": list,
+    "vs_pitch_types": list,
+    "vs_pitch_groups": list,
+    "pitch_usage_by_count": dict,
+    "pitch_group_usage_by_count": dict,
+    "pitcher_bat_side_splits": dict,
+    "batter_pitch_hand_splits": dict,
+    "pitch_plinko": dict,
+    "pitch_movement": dict,
+}
+
+
+def _statcast_row_qualifies(player, s) -> bool:
+    """Whether a season_stats row belongs in the Statcast section at all.
+
+    Real Statcast data always qualifies.  A batter row without it still does
+    when it carries a computed wRC+ (see ``annotate_wrc_plus``), so the
+    Statcast Overview can surface that value instead of dropping the year.
+    """
+    if s.get("statcast"):
+        return True
+    if player.is_pitcher or s.year < MIN_WRC_YEAR or s.sport_level not in WRC_LEVELS:
+        return False
+    field = "wrc_plus_calc" if s.sport_level == "MLB" else "wrc_plus"
+    return s.get(field) is not None
+
+
+def _first_not_none(rows, field):
+    """First non-None value of *field* across *rows* (None when there is none)."""
+    for row in rows:
+        value = row.get(field)
+        if value is not None:
+            return value
+    return None
+
+
+def _merge_level_rows(rows):
+    """Collapse one (year, level) group's season_stats rows into a single row.
+
+    A player traded inside the same level gets one season_stats row per club,
+    and every one of them stores the *same* whole-season Statcast aggregate —
+    so the Statcast half needs no merging at all.  The season_stats-derived
+    columns do:
+
+    - counting stats are re-summed and their rates recomputed (``aggregate_stats``
+      + ``annotate_row``);
+    - FIP is IP-weighted.  FIP = numerator/IP + C, so an IP-weighted mean is
+      exactly "sum the numerator, IP-weight C" — identical to recomputing from
+      pooled pitches when the clubs share a league, and off only by the spread
+      in C when they don't;
+    - xWPCT is re-derived from the merged FIP rather than averaged;
+    - whole-season values that only ever live on one row of the group (WAR,
+      xwOBA, API wRC+) are picked up wherever they happen to sit.
+    """
+    if len(rows) == 1:
+        return rows[0]
+
+    merged = aggregate_stats(rows)
+    merged["year"] = rows[0].year
+    merged["sport_level"] = rows[0].sport_level
+    merged["level_order"] = rows[0].level_order
+    merged["team_name"] = " / ".join(r.team_name for r in rows if r.team_name)
+    merged["np"] = merged.get("pitches")
+    annotate_row(merged)
+
+    fip_weighted = 0.0
+    total_outs = 0
+    for row in rows:
+        fip = row.get("fip")
+        outs = ip_to_outs(row.get("ip"))
+        if fip is not None and outs:
+            fip_weighted += fip * outs
+            total_outs += outs
+    if total_outs:
+        fip = fip_weighted / total_outs
+        merged["fip"] = round(fip, 2)
+        merged["xwpct"] = compute_xwpct(fip, rows[0].sport_level, rows[0].year)
+
+    for field in ("war", "xfip", "expected", "saber"):
+        merged[field] = _first_not_none(rows, field)
+
+    # wRC+：API 的整季合計值（只有 MLB 有，且只寫在該組其中一列）直接取用；
+    # 自算值取 annotate_wrc_plus() 以合併後打擊數據重算的 group 值——把各隊的
+    # wRC+ 平均是錯的，wOBA 是比率，必須先加總計數再重算。
+    if rows[0].sport_level == "MLB":
+        merged["wrc_plus"] = _first_not_none(rows, "wrc_plus")
+        merged["wrc_plus_calc"] = _first_not_none(rows, "wrc_plus_calc_group")
+    else:
+        merged["wrc_plus"] = _first_not_none(rows, "wrc_plus_group")
+
+    return merged
+
+
+def _pooled_year_pitches(logs) -> dict[int, list[dict]]:
+    """``{year: [pitch, ...]}`` pooled across every level played that year.
+
+    Reuses the pitch dicts ``load_player_bundle`` already parsed into memory for
+    the pitch-log pages, so pooling costs no extra DB read and no extra JSON
+    parse — only the aggregation pass itself.
+    """
+    by_year: dict[int, list[dict]] = {}
+    for log in logs:
+        if not log.date or not log.pitches_json:
+            continue
+        by_year.setdefault(log.date.year, []).extend(log.pitches_json)
+    return by_year
+
+
+def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
+    """Season Statcast entries keyed by year.
+
+    Each entry is ``{sport_level, team_name, sc, stat}``.  Level rows are
+    deduplicated by (year, tier) — mid-season trades inside one level would
+    otherwise print the same season aggregate once per club (and emit duplicate
+    DOM ids) — and merged by :func:`_merge_level_rows`.
+
+    A year spanning 2+ levels also gets a ``_combined`` entry whose ``sc`` is
+    that year's raw pitches pooled across every level, run through the *same*
+    ``compute_*_statcast()`` the per-level rows use.  Never a weighted average
+    of already-aggregated values: each column has its own denominator, so one
+    shared weight cannot be right for all of them, and a percentile like EV90
+    cannot be recovered by any weighting at all.  A single-level year gets no
+    combined entry.
+
+    The ``_combined`` sentinel and its position at the head of the year's list
+    are the contract the arsenal / plinko / movement blocks read; the three
+    summary tables move it to the end of the year themselves.
+    """
+    rows_by_year_tier: dict[int, dict[str, list]] = {}
+    for s in stats:
+        tier = resolve_tier(s.sport_level)
+        tier_key = tier.key if tier else s.sport_level
+        rows_by_year_tier.setdefault(s.year, {}).setdefault(tier_key, []).append(s)
+
+    pooled: dict[int, list[dict]] | None = None
+    statcast_by_year: dict[int, list] = {}
+
+    for year, by_tier in rows_by_year_tier.items():
+        entries = []
+        for rows in by_tier.values():
+            if not any(_statcast_row_qualifies(player, r) for r in rows):
+                continue
+            sc = dict(_first_not_none(rows, "statcast") or {})
+            if player.is_pitcher:
+                # pitch_movement is already computed per level by the statcast
+                # pipeline and stored on this row's statcast dict; just ensure
+                # the key exists for older rows predating that field.
+                sc.setdefault("pitch_movement", {})
+            merged = _merge_level_rows(rows)
+            entries.append({
+                "sport_level": merged.sport_level,
+                "team_name": merged.team_name,
+                "sc": sc,
+                "stat": merged,
+            })
+        if not entries:
+            continue
+        entries.sort(key=lambda e: level_rank(e["sport_level"]))
+
+        if len(entries) > 1:
+            if pooled is None:
+                pooled = _pooled_year_pitches(logs)
+            compute = (
+                compute_pitcher_statcast if player.is_pitcher
+                else compute_batter_statcast
+            )
+            combined_sc = compute(pooled.get(year, []))
+            for key, empty in _COMBINED_EMPTY_DEFAULTS.items():
+                combined_sc.setdefault(key, empty())
+            entries.insert(0, {
+                "sport_level": "_combined",
+                "team_name": "合計",
+                "sc": combined_sc,
+                "stat": None,
+            })
+        statcast_by_year[year] = entries
+
+    return statcast_by_year
 
 
 _CSS_IMPORT_RE = re.compile(r"""^\s*@import\s+["']([^"']+)["']\s*;\s*$""")
@@ -381,54 +573,9 @@ def build_static_site(
             videos_by_game=videos_by_game,
         )
 
-        # Season-level Statcast data keyed by year → list of {sport_level, team_name, sc}
-        statcast_by_year: dict[int, list] = {}
-        for s in all_stats:
-            raw_sc = s.get("statcast")
-            if raw_sc:
-                sc = dict(raw_sc)
-                if player.is_pitcher:
-                    # pitch_movement is already computed per level by the statcast
-                    # pipeline and stored on this row's statcast dict; just ensure
-                    # the key exists for older rows predating that field.
-                    sc.setdefault("pitch_movement", {})
-                statcast_by_year.setdefault(s.year, []).append({
-                    "sport_level": s.sport_level,
-                    "team_name": s.team_name,
-                    "sc": sc,
-                    "stat": s,
-                })
-            elif (
-                not player.is_pitcher
-                and s.year >= MIN_WRC_YEAR
-                and s.sport_level in WRC_LEVELS
-            ):
-                # No real Statcast data for this row, but it may still carry a
-                # computed wRC+ (annotate_wrc_plus, above). Inject a near-empty
-                # entry so the Statcast Overview section can still surface it
-                # instead of silently dropping the year.
-                has_wrc = (
-                    s.get("wrc_plus_calc") if s.sport_level == "MLB" else s.get("wrc_plus")
-                ) is not None
-                if has_wrc:
-                    statcast_by_year.setdefault(s.year, []).append({
-                        "sport_level": s.sport_level,
-                        "team_name": s.team_name,
-                        "sc": {},
-                        "stat": s,
-                    })
-        # For years with multiple levels, prepend a combined summary entry so the
-        # summary row in the template can display real weighted-average values.
-        for yr_key, yr_entries in statcast_by_year.items():
-            if len(yr_entries) > 1:
-                combined_sc = combine_statcast_dicts(yr_entries)
-                yr_entries.insert(0, {
-                    "sport_level": "_combined",
-                    "team_name": "合計",
-                    "sc": combined_sc,
-                    "stat": None,
-                })
-
+        # Season-level Statcast entries keyed by year (one row per level, plus a
+        # pooled "_combined" entry for years spanning 2+ levels).
+        statcast_by_year = _build_statcast_entries(player, all_stats, all_logs)
         statcast_available = bool(statcast_by_year)
 
         # Determine available Statcast years (sorted desc)

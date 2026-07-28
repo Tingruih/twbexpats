@@ -11,6 +11,7 @@ from typing import Optional
 
 from ...constants import LC_LEVEL_CODE, MIN_WRC_YEAR, WOBA_SCALE, WRC_LEVELS
 from ...db.tjstats_cache import get_league_constants, get_park_factors
+from ..core.aggregate import aggregate_stats
 from .woba import compute_season_woba
 
 
@@ -46,6 +47,13 @@ def annotate_wrc_plus(bundles, conn: sqlite3.Connection, force_refresh: bool = F
         API-sourced `wrc_plus` value itself is never overwritten.
       - Non-MLB rows: the computed value is written directly into
         `wrc_plus`, the field the templates already render.
+      - When the group holds more than one row (traded inside the same
+        level), a whole-group value computed from the summed batting line is
+        written to every row of the group as `wrc_plus_calc_group` (MLB) /
+        `wrc_plus_group` (non-MLB).  render.pages reads it when collapsing a
+        year's several same-level rows into one; averaging the per-row wRC+
+        would be wrong, since wOBA is a rate and has to be recomputed from
+        the combined counting stats.
     """
     pf_cache: dict[tuple[str, int], dict] = {}
     lc_cache: dict[int, dict] = {}
@@ -81,16 +89,22 @@ def annotate_wrc_plus(bundles, conn: sqlite3.Connection, force_refresh: bool = F
             if lc_entry is None:
                 continue
 
-            for row in rows:
-                woba = compute_season_woba(row)
+            def _wrc_plus_of(stat_row):
+                woba = compute_season_woba(stat_row)
                 if woba is None:
-                    continue
-                calc = compute_wrc_plus(
+                    return None
+                return compute_wrc_plus(
                     woba, pf_entry["pf_final"], lc_entry["lg_woba"], lc_entry["lg_r_pa"]
                 )
-                if calc is None:
-                    continue
-                if level == "MLB":
-                    row["wrc_plus_calc"] = calc
-                else:
-                    row["wrc_plus"] = calc
+
+            calc_field = "wrc_plus_calc" if level == "MLB" else "wrc_plus"
+            for row in rows:
+                calc = _wrc_plus_of(row)
+                if calc is not None:
+                    row[calc_field] = calc
+
+            if len(rows) > 1:
+                group_calc = _wrc_plus_of(aggregate_stats(rows))
+                if group_calc is not None:
+                    for row in rows:
+                        row[calc_field + "_group"] = group_calc

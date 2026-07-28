@@ -3,7 +3,7 @@
 與 movement.py / plinko.py 同樣的檔案定位——一個圖表一個檔案。跟兩者不同的是
 這裡的資料是「逐場」而非「球季+層級」彙整，且直接在 build time 從已快取的
 game_logs 現算（pitches_json 已經在 sync 階段抓好，逐場再彙整一次的成本很低），
-所以不走 compute_*（sync）/combine_*（build）那組慣例，是單一 build-time 入口。
+所以不走 compute_*（sync 時算好存進 season_stats）那條路，是單一 build-time 入口。
 
 投手與打者版本都支援數據/年度/層級三維篩選，並共用分組與跨層級組裝邏輯。
 """

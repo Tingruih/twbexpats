@@ -1,32 +1,7 @@
 (function() {
-    function renderPitchLog(container, entry) {
-        if (typeof _renderPitchLog === 'function') {
-            _renderPitchLog(container, entry);
-            return;
-        }
-        container.innerHTML = entry && entry.html ? entry.html : '';
-        container.dataset.rendered = '1';
-    }
-
-    function loadPitchLog(src) {
-        if (typeof _loadPitchLogData === 'function') return _loadPitchLogData(src);
-        return fetch(src).then(function(response) {
-            if (!response.ok) throw new Error('HTTP ' + response.status);
-            return response.json();
-        }).then(function(pitches) {
-            return {
-                pitches: Array.isArray(pitches) ? pitches : [],
-                html: typeof _buildPitchTable === 'function' ? _buildPitchTable(pitches) : ''
-            };
-        });
-    }
-
     function prefetchPanel(panel) {
         if (!panel || !panel.dataset.src) return Promise.resolve(null);
-        if (typeof _loadPitchLogData === 'function') {
-            return _loadPitchLogData(panel.dataset.src).catch(function() { return null; });
-        }
-        return Promise.resolve(null);
+        return _loadPitchLogData(panel.dataset.src).catch(function() { return null; });
     }
 
     function toggleMobilePitchLog(id) {
@@ -44,8 +19,8 @@
 
         container.dataset.loading = '1';
         container.innerHTML = '<div class="pitch-log-loading">載入逐球資料中...</div>';
-        loadPitchLog(panel.dataset.src)
-            .then(function(entry) { renderPitchLog(container, entry); })
+        _loadPitchLogData(panel.dataset.src)
+            .then(function(entry) { _renderPitchLog(container, entry); })
             .catch(function() { container.innerHTML = '<div class="pitch-log-loading">逐球資料載入失敗</div>'; })
             .finally(function() { delete container.dataset.loading; });
     }

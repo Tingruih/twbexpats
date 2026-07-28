@@ -138,6 +138,12 @@
     stroke-width: 2.1;                 /* 略粗 */
 }
 
+/* 控制【對左右打球種使用率 / 最上層中央基準線】 */
+.pitch-chart-zero-line--foreground {
+    stroke: rgba(255, 255, 255, 0.72); /* 穿過各色長條時仍保持清楚 */
+    pointer-events: none;              /* 不攔截圖表互動 */
+}
+
 /* 控制【圖表 Tab / 散點圖的 Y=0 水平中線（虛線）】 */
 .pitch-chart-zero-line--horizontal {
     stroke: rgba(255, 255, 255, 0.18); /* 比垂直中線更淡 */

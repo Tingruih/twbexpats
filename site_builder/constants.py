@@ -259,8 +259,8 @@ PITCH_TYPE_TO_GROUP: dict[str, str] = {
     code: key for key, _label, codes in PITCH_TYPE_GROUPS for code in codes
 }
 
-# Ball-strike count buckets used when computing per-level usage tables at sync
-# time (labels are stored inside the statcast JSON payload).
+# Ball-strike count buckets shared by per-level computation and cross-level
+# combination. Labels are stored inside the statcast JSON payload.
 COUNT_USAGE_BUCKETS = (
     {
         "key": "early",
@@ -292,19 +292,6 @@ COUNT_USAGE_BUCKETS = (
         "counts_label": "0-2, 1-2, 2-2, 3-2",
         "counts": {(0, 2), (1, 2), (2, 2), (3, 2)},
     },
-)
-
-# Bucket list used by the cross-level *combine* step at build time. Kept as a
-# separate table because the historical builder version had an extra "all"
-# bucket and English labels; combined rows in the rendered site rely on these
-# exact labels. (Candidate for future unification with COUNT_USAGE_BUCKETS.)
-COMBINED_COUNT_USAGE_BUCKETS = (
-    ("all", "All Counts", "All ball-strike counts"),
-    ("early", "Early Count", "0-0, 0-1, 1-0"),
-    ("pitcher_ahead", "Pitcher Ahead", "0-1, 0-2, 1-2, 2-2"),
-    ("pitcher_behind", "Pitcher Behind", "1-0, 2-0, 3-0, 2-1, 3-1"),
-    ("pre_two_strikes", "Pre Two Strikes", "0-0, 0-1, 1-0, 1-1, 2-1, 3-1"),
-    ("two_strikes", "Two Strikes", "0-2, 1-2, 2-2, 3-2"),
 )
 
 # Pitch Plinko count-transition graph: the 12 legal counts and 17 legal edges.
@@ -342,6 +329,42 @@ PITCHER_PLINKO_SPLITS = (
 # position-player-pitching situations; excluded from batter breakdowns to
 # match TJStats / Baseball Savant behaviour.
 BATTER_PLINKO_SKIP_TYPES = {"EP", "FA"}
+
+# ── 逐球軌跡幾何 ──
+# 來源：MLB Stats API 的 ``pitchData``。API 給的是一組九參數等加速度軌跡擬合
+# （x0/y0/z0、vX0/vY0/vZ0、aX/aY/aZ），可以求值在任何一個 y 平面上。
+#
+# 投手板前緣到本壘板尖端的距離，規則值 60.5 呎。出手點平面 = 60.5 - extension。
+RUBBER_TO_PLATE_FT = 60.5
+
+# 軌跡擬合的原點平面，也就是 ``coordinates.x0`` / ``z0`` 所在的位置。
+#
+# 這個常數有兩個用途，兩者都很重要：
+#
+# 1. 它「不是」出手點。x0/z0 是球飛到距本壘板 50 呎時的位置，此時球已離手約
+#    3–4 呎、飛了約 30 毫秒，期間已經因為自身速度而位移（主導項是等速項
+#    v·t，不是重力或球種位移）。直接把 x0/z0 當出手點會同時低估出手高度
+#    與左右幅度，且方向隨慣用手相反，等於把左右投的出手寬度差壓縮約 4 吋。
+#    出手點的正確平面是 60.5 - extension——這點用 API 自己的 ``startSpeed``
+#    驗證過：在出手平面求值可還原到 0.04 mph 誤差，在 50 呎平面則差 0.51 mph。
+#
+# 2. 它是舊資料缺 ``y0`` 時的預設值。PITCHf/x 剛上線時各球場的擬合原點並不
+#    統一，實測出現過 40、45、50、55 四種平面：2007 年賽季初全聯盟是 55 呎，
+#    6 月下旬出現 40 呎，7 月中多數球場才轉 50 呎；2009 年 Fenway Park 另有
+#    5 場跑在 45 呎，其中 2009-07-28 那場甚至在場中從 45 切換到 50。把不同
+#    平面的 x0/z0 平均，等於把沿飛行路徑相距最多 15 呎的位置混在一起。
+#
+#    因此 y0 必須逐球讀，不能整組共用一個值。本專案的處理方式是：
+#    ``sync.extract`` 會把 API 的 ``coordinates.y0`` 一併存進逐球紀錄，
+#    ``stats.pitching.release_point._origin_plane()`` 逐球取用；只有在該欄
+#    不存在（在 y0 開始儲存之前寫入的舊列）時才退回這個預設值。
+#
+#    退回 50 對現有資料是精確的：全庫 49,233 顆帶完整軌跡與落點的投球逐顆
+#    做過平面判定，0 顆無法判定，非 50 的只有 2007 全年與 2009-08-10；而這
+#    些比賽的逐球紀錄都已經回抓過、y0 已入庫。但這是對「現有資料」的稽核
+#    結論，不是對 MLB 的通則主張——日後若加入有 2017 年前資歷的新球員，
+#    應重跑一次平面稽核再信任這個預設值。
+PITCH_TRAJECTORY_ORIGIN_Y_FT = 50.0
 
 # ── Batted-ball trajectory classification ──
 # Source: MLB Stats API ``hitData.trajectory`` values.

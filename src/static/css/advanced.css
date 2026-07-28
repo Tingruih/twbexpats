@@ -140,3 +140,15 @@
     font-weight: 500;           /* 中粗體 */
     line-height: 1.25;          /* 行高 */
 }
+
+/* 控制【進階數據 Tab / Statcast 三表的年度合計列】
+   多層級年度在各層級列之後補一列池化重算的合計。這三張表沒有展開箭頭欄
+   （第一欄就是年度），所以要把 .year-summary-row 為箭頭欄預留的左縮排
+   補回一般儲存格的邊距，並加一層極淡背景讓合計列一眼可辨。 */
+.sc-total-row td {
+    background: rgba(255, 255, 255, 0.03); /* 極淡的白色背景（與層級列區隔） */
+}
+
+.sc-total-row td:first-child {
+    padding-left: .8rem; /* 覆蓋 .year-summary-row 的箭頭欄縮排，與層級列對齊 */
+}

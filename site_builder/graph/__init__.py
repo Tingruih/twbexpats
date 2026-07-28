@@ -1,6 +1,8 @@
 """Chart payload builders (Pitch Plinko, pitch movement).
 
-Each module owns one chart: a ``compute_*`` function building the per-level
-payload from cached pitches (sync time) and a ``combine_*`` function merging
-multiple levels for the season summary row (build time).
+Each module owns one chart via a ``compute_*`` function building the payload
+from a pitch list.  The same function serves both the per-level payloads
+(sync time, one level's pitches) and a year's cross-level total (build time,
+every level's pitches pooled) — there is no separate combining algorithm to
+keep in step.
 """

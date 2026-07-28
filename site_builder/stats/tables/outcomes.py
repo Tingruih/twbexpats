@@ -14,7 +14,6 @@ from ..discipline.pitch_strike_pct import compute_pitch_strike_pct
 from ..discipline.put_away import compute_put_away
 from ..discipline.swstr_pct import compute_swstr_pct
 from ..discipline.z_whiff_pct import compute_z_whiff_pct
-from .weighted import combine_pitch_type_data
 
 
 def compute_pitch_outcomes(pitches: list[dict]) -> list[dict]:
@@ -57,16 +56,3 @@ def compute_pitch_outcomes(pitches: list[dict]) -> list[dict]:
         })
     out.sort(key=lambda r: r.get("count", 0), reverse=True)
     return out
-
-
-def combine_pitch_outcomes(entries: list[dict]) -> list[dict]:
-    """Combine per-level pitcher pitch_outcomes into a count-weighted list."""
-    return combine_pitch_type_data(
-        entries,
-        sc_key="pitch_outcomes",
-        rate_fields=[
-            "strike_pct", "z_whiff_pct", "o_swing_pct", "swstr_pct",
-            "csw_pct", "avg", "woba", "barrel_pct", "hard_hit_pct",
-        ],
-        include_pct=True,
-    )

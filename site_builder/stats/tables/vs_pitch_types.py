@@ -11,7 +11,7 @@ from ..batted_ball.barrel import compute_barrel_pct
 from ..batted_ball.hard_hit import compute_hard_hit_pct
 from ..batting.avg import compute_avg
 from ..core.pa_outcomes import compute_pa_outcome_totals
-from ..core.pitches import aggregate_pitches
+from ..core.pitches import aggregate_pitches, filter_known_pitch_events
 from ..discipline.csw_pct import compute_csw_pct
 from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.pitch_strike_pct import compute_pitch_strike_pct
@@ -20,12 +20,8 @@ from ..discipline.swstr_pct import compute_swstr_pct
 from ..discipline.whiff_pct import compute_whiff_pct
 from ..discipline.z_swing_pct import compute_z_swing_pct
 from ..discipline.zone_pct import compute_zone_pct
-from .splits import combine_pitch_splits, compute_pitch_splits
-from .usage_by_count import (
-    combine_pitch_group_usage_by_count,
-    compute_pitch_group_usage_by_count,
-)
-from .weighted import combine_pitch_type_data
+from .splits import compute_pitch_splits
+from .usage_by_count import compute_pitch_group_usage_by_count
 
 
 VS_PITCH_RATE_FIELDS = [
@@ -64,6 +60,8 @@ def _compute_pitch_bucket_row(key: str, name: str, ps: list[dict]) -> dict:
 
 def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
     """Per-pitch-type breakdown for a batter."""
+    pitches = filter_known_pitch_events(pitches)
+
     # EP (Eephus) and FA (generic Fastball) almost exclusively appear in
     # position-player-pitching situations (e.g. catcher or shortstop mops up
     # in a blowout).  Exclude them so they don't pollute the breakdown or
@@ -75,11 +73,6 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
             continue
         by_type.setdefault(t, []).append(p)
 
-    # Drop the UN (unknown) bucket when there are real named pitch types,
-    # so unknown pitches don't pollute the per-type breakdown.
-    if any(t != "UN" for t in by_type):
-        by_type = {t: v for t, v in by_type.items() if t != "UN"}
-
     out = [
         _compute_pitch_bucket_row(
             ptype,
@@ -90,15 +83,6 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
     ]
     out.sort(key=lambda r: r.get("count", 0), reverse=True)
     return out
-
-
-def combine_vs_pitch_types(entries: list[dict]) -> list[dict]:
-    """Combine per-level vs_pitch_types into a single count-weighted list."""
-    return combine_pitch_type_data(
-        entries,
-        sc_key="vs_pitch_types",
-        rate_fields=VS_PITCH_RATE_FIELDS,
-    )
 
 
 def compute_vs_pitch_groups(pitches: list[dict]) -> list[dict]:
@@ -121,18 +105,6 @@ def compute_vs_pitch_groups(pitches: list[dict]) -> list[dict]:
     ]
 
 
-def combine_vs_pitch_groups(entries: list[dict]) -> list[dict]:
-    """Combine per-level vs_pitch_groups into a single count-weighted list."""
-    combined = combine_pitch_type_data(
-        entries,
-        sc_key="vs_pitch_groups",
-        rate_fields=VS_PITCH_RATE_FIELDS,
-    )
-    order = {key: i for i, (key, _label, _codes) in enumerate(PITCH_TYPE_GROUPS)}
-    combined.sort(key=lambda r: order.get(r.get("type", ""), len(order)))
-    return combined
-
-
 def compute_batter_pitch_hand_splits(pitches: list[dict]) -> dict[str, dict]:
     """Build all/L/R pitcher-hand splits of the vs-pitch-types /
     vs-pitch-groups / pitch-group-usage-by-count tables for batters."""
@@ -144,20 +116,5 @@ def compute_batter_pitch_hand_splits(pitches: list[dict]) -> dict[str, dict]:
             "vs_pitch_types": compute_vs_pitch_types,
             "vs_pitch_groups": compute_vs_pitch_groups,
             "pitch_group_usage_by_count": compute_pitch_group_usage_by_count,
-        },
-    )
-
-
-def combine_batter_pitch_hand_splits(entries: list[dict]) -> dict:
-    """Combine all/L/R pitcher-hand vs-pitch-types/vs-pitch-groups/
-    pitch-group-usage-by-count splits across levels."""
-    return combine_pitch_splits(
-        entries,
-        PITCH_HAND_SPLITS,
-        sc_field="batter_pitch_hand_splits",
-        table_fns={
-            "vs_pitch_types": ([], combine_vs_pitch_types),
-            "vs_pitch_groups": ([], combine_vs_pitch_groups),
-            "pitch_group_usage_by_count": ({}, combine_pitch_group_usage_by_count),
         },
     )

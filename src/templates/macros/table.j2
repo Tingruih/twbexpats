@@ -4,19 +4,16 @@
 <th{% if tooltip %} data-tooltip="{{ tooltip|e }}"{% endif %}{% if formula %} data-formula="{{ formula|e }}"{% endif %}>{{ label }}</th>
 {%- endmacro %}
 
-{% macro th_html(tooltip=None, formula=None) -%}
-<th{% if tooltip %} data-tooltip="{{ tooltip|e }}"{% endif %}{% if formula %} data-formula="{{ formula|e }}"{% endif %}>{{ caller() }}</th>
-{%- endmacro %}
-
 {# 打者「對戰球種」表格（逐球種 / 三大類皆共用同一組欄位） #}
-{% macro vs_pitch_table(rows, tags, type_header='球種') %}
+{% macro vs_pitch_table(rows, tags, type_header='球種', type_tooltip=None) %}
+{% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
 <table class="data-table">
     <thead>
         <tr>
-            {{ th(type_header, '球種名稱', '\\mathrm{pitch\\ type}') }}{{ th('Pitches', '面對球數', '\\sum \\mathrm{Pitches}_{type}') }}{{ th('Strike%', '好球率', '\\frac{\\mathrm{Strikes}+\\mathrm{BIP}}{\\mathrm{Pitches}}') }}{{ th('Zone%', '進壘好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
-            {{ th('Z-Swing%', '好球帶揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZone}}') }}{{ th('O-Swing%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ th('Whiff%', '揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ th('SwStr%', '揮空好球率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
-            {{ th('CSW%', '看揮好球率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ th('Put Away%', '被解決率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ th('AVG', '對球種打擊率', '\\frac{H}{AB}') }}{{ th('wOBA', '對球種加權上壘率', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}
-            {{ th('Barrel%', 'Barrel率', '\\frac{\\mathrm{Barrels}}{\\mathrm{BBE}_{EV}}') }}{{ th('Hard-Hit%', '強擊率', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{EV}}') }}
+            {{ th(type_header, _type_tip) }}{{ th('Pitches', '該球種/分類總球數') }}{{ th('Strike%', '好球率\\n界外球或場內擊球不論安打或出局也算Strikes', '\\mathrm{\\frac{Strikes}{Pitches}}') }}{{ th('Zone%', '好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
+            {{ th('Z-Swing%', '好球帶內揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZonePitches}}') }}{{ th('O-Swing%', '壞球追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZonePitches}}') }}{{ th('Whiff%', '出棒揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ th('SwStr%', '投球揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
+            {{ th('CSW%', '看球與揮空率','\\frac{\\mathrm{CalledStrikes}\\text(看球好球數)+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ th('Put Away%', '兩好球後三振率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ th('AVG', '打擊率', '\\frac{H}{AB}') }}{{ th('wOBA', '加權上壘率\\n此數據權重與TJStats相同', '\\mathrm{\\frac{w_{BB}\\times (BB-IBB)+w_{HBP}\\times HBP+w_{1B}\\times 1B+w_{2B}\\times 2B+w_{3B}\\times 3B+w_{HR}\\times HR}{AB+BB-IBB+SF+HBP}}') }}
+            {{ th('Barrel%', 'Barrel 定義：\\nEV 98mph時，LA 須落在26°–30°\\n每增加1 mph，角度下限降1°（下限8°）、上限升1.5°（上限50°）','\\mathrm{\\frac{Barrels}{BBE_{ev}\\text{(打進場內球數)}}}') }}{{ th('Hard-Hit%', 'Hard-Hit定義：\\n EV≥95 mph', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{ev}\\text{(打進場內球數)}}') }}
         </tr>
     </thead>
     <tbody>
@@ -45,16 +42,17 @@
 {% endmacro %}
 
 {# 「各球數配球比例」表格（逐球種 / 三大類皆共用同一組欄位） #}
-{% macro usage_by_count_table(usage_types, usage_rows, tags, type_header='球種') %}
+{% macro usage_by_count_table(usage_types, usage_rows, tags, type_header='球種', type_tooltip=None) %}
 {% if usage_types and usage_rows %}
+{% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
 <div class="table-scroll">
     <table class="data-table pitch-usage-table">
         <thead>
             <tr>
-                {{ th(type_header, '球種名稱', '\\mathrm{pitch\\ type}') }}
+                {{ th(type_header, _type_tip) }}
                 {% for row in usage_rows %}
                 {% if row.key != 'all' %}
-                {% call th_html(tooltip="配球率", formula="\\frac{\\mathrm{Pitches}_{type,count}}{\\mathrm{Pitches}_{count}}") %}{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span>{% endcall %}
+                <th>{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span></th>
                 {% endif %}
                 {% endfor %}
             </tr>

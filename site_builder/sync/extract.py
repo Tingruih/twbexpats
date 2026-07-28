@@ -345,6 +345,13 @@ def extract_pitch_logs(
                     "px": coords.get("pX"),
                     "pz": coords.get("pZ"),
                     "x0": coords.get("x0"),
+                    # y0 是 x0/z0 這兩個座標所在的平面（距本壘板幾呎），不是
+                    # 球的第三個座標軸。2008 年起實測一律是 50，但 PITCHf/x
+                    # 上線期出現過 40/45/50/55 四種，2007 年還會在賽季中途與
+                    # 場中切換，所以必須逐球存、不能整組假設。缺這一欄的舊列
+                    # 由 release_point._origin_plane() 退回 50——詳見
+                    # constants.PITCH_TRAJECTORY_ORIGIN_Y_FT 的說明。
+                    "y0": coords.get("y0"),
                     "z0": coords.get("z0"),
                     "vx0": coords.get("vX0"),
                     "vy0": coords.get("vY0"),

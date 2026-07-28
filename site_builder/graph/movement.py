@@ -2,13 +2,11 @@
 
 from typing import Optional
 
-from ..stats.core.pitches import filter_known_pitch_events, is_unknown_pitch_type
+from ..stats.core.pitches import filter_known_pitch_events
 from ..util.numbers import float_or_none, ratio
 
-# Per-level payloads cap at 700 points; the cross-level combined chart allows
-# more before downsampling since it merges multiple levels.
+# Scatter payloads are downsampled past this many points to keep the page light.
 COMPUTE_MAX_POINTS = 700
-COMBINE_MAX_POINTS = 900
 
 
 def compute_pitch_movement_chart(
@@ -58,69 +56,6 @@ def compute_pitch_movement_chart(
             "name": type_names.get(t, t),
             "count": type_counts[t],
             "pct": ratio(type_counts[t], total, digits=4),
-        }
-        for t in ordered_types
-    ]
-
-    return {
-        "total_pitches": total,
-        "shown_pitches": len(points),
-        "pitch_types": pitch_types,
-        "points": points,
-    }
-
-
-def combine_pitch_movement(entries: list[dict]) -> dict:
-    """Combine per-level pitch movement chart payloads."""
-    type_names: dict[str, str] = {}
-    totals_by_type: dict[str, int] = {}
-    points: list[dict] = []
-    total = 0
-
-    for e in entries:
-        if e.get("sport_level") == "_combined":
-            continue
-        movement = ((e.get("sc") or {}).get("pitch_movement") or {})
-        total += movement.get("total_pitches") or 0
-
-        for pt in movement.get("pitch_types") or []:
-            ptype = pt.get("type") or "UN"
-            if is_unknown_pitch_type(ptype, pt.get("name")):
-                continue
-            type_names[ptype] = pt.get("name") or ptype
-            totals_by_type[ptype] = totals_by_type.get(ptype, 0) + (pt.get("count") or 0)
-
-        for point in movement.get("points") or []:
-            ptype = point.get("type") or "UN"
-            if is_unknown_pitch_type(ptype, point.get("name")):
-                continue
-            points.append(dict(point))
-
-    if not points:
-        return {"total_pitches": 0, "shown_pitches": 0, "pitch_types": [], "points": []}
-
-    if not total:
-        total = len(points)
-    if not totals_by_type:
-        for point in points:
-            ptype = point.get("type") or "UN"
-            type_names.setdefault(ptype, point.get("name") or ptype)
-            totals_by_type[ptype] = totals_by_type.get(ptype, 0) + 1
-
-    if len(points) > COMBINE_MAX_POINTS:
-        step = len(points) / COMBINE_MAX_POINTS
-        points = [
-            points[min(len(points) - 1, int(i * step))]
-            for i in range(COMBINE_MAX_POINTS)
-        ]
-
-    ordered_types = sorted(totals_by_type, key=lambda t: totals_by_type[t], reverse=True)
-    pitch_types = [
-        {
-            "type": t,
-            "name": type_names.get(t, t),
-            "count": totals_by_type[t],
-            "pct": ratio(totals_by_type[t], total, digits=4),
         }
         for t in ordered_types
     ]

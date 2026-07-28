@@ -147,11 +147,12 @@
         var ticks = [-1, -0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75, 1];
         var grid = ticks.map(function(tick) {
             var x = center + tick * half;
-            var cls = tick === 0 ? "pitch-chart-zero-line" : "pitch-chart-gridline";
-            return '<line class="' + cls + '" x1="' + x.toFixed(1) + '" y1="' + top + '" x2="' + x.toFixed(1) + '" y2="' + (height - bottom + 12) + '" />' +
+            var gridLine = tick === 0 ? "" :
+                '<line class="pitch-chart-gridline" x1="' + x.toFixed(1) + '" y1="' + top + '" x2="' + x.toFixed(1) + '" y2="' + (height - bottom + 12) + '" />';
+            return gridLine +
                 '<text class="pitch-chart-tick-label" x="' + x.toFixed(1) + '" y="' + (height - 42) + '">' + Math.round(Math.abs(tick) * 100) + '%</text>';
         }).join("");
-        var centerLine = '<line class="pitch-chart-zero-line" x1="' + center.toFixed(1) + '" y1="' + top + '" x2="' + center.toFixed(1) + '" y2="' + (height - bottom + 12) + '" />';
+        var centerLine = '<line class="pitch-chart-zero-line pitch-chart-zero-line--foreground" x1="' + center.toFixed(1) + '" y1="' + top + '" x2="' + center.toFixed(1) + '" y2="' + (height - bottom + 12) + '" />';
 
         var rows = types.map(function(type, index) {
             var leftRow = leftByType[type] || null;
@@ -179,10 +180,11 @@
         var rightTotal = sumCounts(rightRows);
         root.innerHTML = '<div class="pitch-chart-heading"><h3>對左右打球種使用率</h3></div>' +
             '<svg class="pitch-chart-svg pitch-usage-hand-svg" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Pitch Usage by Batter Hand">' +
-            grid + rows + centerLine +
+            grid + rows +
             '<text class="pitch-chart-axis-label" x="' + center + '" y="' + (height - 16) + '">Usage %</text>' +
             '<text class="pitch-chart-hand-label" x="' + (center - half * 0.5) + '" y="' + (height - 16) + '">vs LHH (' + leftTotal + ')</text>' +
             '<text class="pitch-chart-hand-label" x="' + (center + half * 0.5) + '" y="' + (height - 16) + '">vs RHH (' + rightTotal + ')</text>' +
+            centerLine +
             '</svg>';
     }
 
@@ -202,10 +204,23 @@
 
     function moveTooltip(root, tooltip, event) {
         var rect = root.getBoundingClientRect();
-        var left = event.clientX - rect.left + 14;
-        var top = event.clientY - rect.top - tooltip.offsetHeight / 2;
-        left = Math.min(left, root.clientWidth - tooltip.offsetWidth - 8);
-        top = Math.max(8, Math.min(top, root.clientHeight - tooltip.offsetHeight - 8));
+        var edge = 8;
+        var gap = 18;
+        var pointerX = event.clientX - rect.left;
+        var pointerY = event.clientY - rect.top;
+        var placeOnLeft = pointerX >= root.clientWidth / 2;
+        var left = placeOnLeft
+            ? pointerX - tooltip.offsetWidth - gap
+            : pointerX + gap;
+        var top = pointerY - tooltip.offsetHeight / 2;
+        left = Math.max(edge, Math.min(
+            left,
+            root.clientWidth - tooltip.offsetWidth - edge
+        ));
+        top = Math.max(edge, Math.min(
+            top,
+            root.clientHeight - tooltip.offsetHeight - edge
+        ));
         tooltip.style.left = left + "px";
         tooltip.style.top = top + "px";
     }

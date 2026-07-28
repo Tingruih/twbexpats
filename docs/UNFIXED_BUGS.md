@@ -5,7 +5,7 @@
 
 > 說明：`site_builder` 已重構成子套件，以下位置皆以目前程式碼重新定位，不沿用舊文件行號。此文件只列「目前仍可在程式碼中確認未修」或「仍需修正/驗證的 bug」。純架構重構、一般 DRY 建議、已修復項目放在附錄。
 
-> 跨層級「合計」相關的 #8 與 #14 已於 2026-07-28 用全庫資料實測驗證，範圍比原記錄大得多（球種表的加權錯誤先前完全未被記錄）。完整驗證數字與受影響表格清單見 **`docs/cross-level-aggregation-bugs.md`**。
+> 2026-07-28：跨層級「合計」的整套加權演算法已移除，改由該年度所有層級的原始逐球資料池化重算（設計見 `docs/superpowers/specs/2026-07-28-statcast-level-tables-and-cross-level-totals-design.md`）。#7、#8、#9、#14、#43、#44 因此解除，移至附錄 A。編號保留空號以免既有交叉引用錯位。
 
 ## P0 / P1 — 優先修
 
@@ -53,27 +53,7 @@
 
 ## P2 — 數據正確性 / 安全健壯性
 
-### 7. WAR / FIP / xWPCT 的 `0.0` 仍會顯示成「—」
-
-- 目前位置：`src/templates/tabs/tab_advanced.j2`、`src/templates/mobile/sections/m_advanced.j2`
-- 證據：模板仍用 `{% if ss_row and ss_row.fip %}`、`xwpct`、`war` 的 truthy 判斷。
-- 影響：合法數值 `0.0` 被當成缺值。
-- 建議修法：改成 `is not none`。
-
-### 8. 合計 Statcast 仍用 BBE 權重合併 `ev90`、`hr_fb_pct`、`avg_la`
-
-- 目前位置：`site_builder/stats/combine.py`
-- 證據：`bbe_fields` 包含 `avg_la`、`hr_fb_pct`、`ev90`，並一律 `_wpct(f, "bbe")`。
-- 影響：`ev90` 是百分位，不能由各層級百分位加權平均還原；`hr_fb_pct` 正確分母應是 FB；`avg_la` 正確權重應是有 LA 的 BBE。
-- 建議修法：`ev90` 合計列設 `None`；`hr_fb_pct` 保存/合併 FB 分母；`avg_la` 保存/合併 LA 樣本數。
-- **2026-07-28 更新**：實測後範圍比此條目大。除了列出的三個欄位，`barrel_pct` / `hard_hit_pct` / `avg_ev`（分母應是 `bbe_ev` 而非 `bbe`）、`swsp_pct`、`avg_extension`、`zone_pct` 也錯；`weighted.py` 的整組球種表（`pitch_arsenal` / `pitch_outcomes` / `vs_pitch_types` / `vs_pitch_groups`）另有一組**更嚴重且先前完全未記錄**的加權錯誤，最大誤差 AVG 差 .106、Whiff% 差 30.6pp、轉速差 96 rpm。詳見 `docs/cross-level-aggregation-bugs.md` §2。
-
-### 9. 合計配球桶仍保留不存在的 `all` bucket
-
-- 目前位置：`site_builder/constants.py`、`site_builder/stats/tables/usage_by_count.py`
-- 證據：`COUNT_USAGE_BUCKETS` 沒有 `all`，但 `COMBINED_COUNT_USAGE_BUCKETS` 仍有 `("all", "All Counts", ...)`；combine 裡也仍有 `row.get("key") == "all"` 的回填分支。
-- 影響：合計列的 `all` bucket 不是由 per-level 產生端輸出，容易維持空桶/死碼；也讓中英文標籤分岔。若未來產生端補出 `all`，目前回填邏輯仍可能和 top-level `pitch_types` 雙重累加。
-- 建議修法：移除 combine 端 `all` bucket，或讓產生端也明確產生 `all`，兩端採單一常數來源並重寫 totals fallback。
+### 7–9. （已修，見附錄 A）
 
 ### 10. Rate stat 缺值仍以空字串寫入，會阻擋衍生重算
 
@@ -103,13 +83,7 @@
 - 影響：投打雙修球員若打者公式先填值，投手 K%/BB% 會被 None guard 擋住而顯示打擊 K%/BB%。
 - 建議修法：投手改用 `p_k_pct` / `p_bb_pct`，模板同步讀新欄位。
 
-### 14. 同年同層級多隊 Statcast entry 仍未去重
-
-- 目前位置：`site_builder/render/pages.py`
-- 證據：`statcast_by_year` 直接 append 每個 `season_stats` row 的 `statcast`，沒有 `(year, sport_level)` seen set。
-- 影響：若同年同層級換隊，而 sync 寫入同一層級聚合到多個 team row，進階表會重複列，合計列也會雙倍計權。
-- 建議修法：建立 `_build_statcast_entries()`，以 `(year, sport_level)` 去重。
-- **2026-07-28 更新**：已確認實際發生，全庫 19 個 (球員, 年度, 層級) 組合、分布在 18 個 (球員, 年度)。已建置站台可直接驗證：張育成 2022 的合計球數是實際的 3.6 倍，`id="arsenal-2022-MLB"` 在 HTML 中出現 4 次，Statcast 概覽／Plate Discipline／擊球型態 三張表各印出 4 列一模一樣的 MLB。當該年度還有其他層級時，被重複的層級拿到 N 倍權重，所有比率也跟著偏移。完整清單見 `docs/cross-level-aggregation-bugs.md` §3。
+### 14. （已修，見附錄 A）
 
 ### 15. `compute_season_combined()` 仍未補算 advanced derived fields
 
@@ -310,19 +284,7 @@
 - 影響：頁面可能混用 UTC ISO 片段與 UTC+8 顯示格式，造成使用者誤判開賽時間。
 - 建議修法：fallback 也標明原始時區/格式，或回傳空字串並記 warning。
 
-### 43. 合計 pitch movement 在缺 `total_pitches` 時仍有語意混淆
-
-- 目前位置：`site_builder/graph/movement.py`
-- 證據：`combine_pitch_movement()` 若各 level 都沒有 `total_pitches`，用抽樣前 `len(points)` 當 `total`；之後可能再 downsample 到 `COMBINE_MAX_POINTS`。
-- 影響：`total_pitches`、`shown_pitches` 與 `pitch_types[*].pct` 的分母語意依資料是否有 total 而變，舊資料/缺欄位資料較難解讀。
-- 建議修法：保留明確欄位，例如 `total_pitches_source` / `sampled_from_points`，或在缺 total 時只顯示 shown/sample 而不輸出 pct。
-
-### 44. 合計 Pitch Plinko 節點 pct 仍可能因節點 pitches 缺失而變成 None
-
-- 目前位置：`site_builder/graph/plinko.py`
-- 證據：`combine_pitch_plinko()` 的節點球種 pct 使用 `ratio(type_count, node_bucket["pitches"])`；如果舊資料存在 `type_counts` 但 node `pitches=0`，pct 會是 `None`。
-- 影響：舊快取或不完整資料會造成節點分子/分母不一致，顯示層可能出現空百分比。
-- 建議修法：combine 時若 node pitches 缺失但 type_counts 有值，使用 `sum(type_counts)` 補分母，或略過該節點。
+### 43–44. （已修，見附錄 A）
 
 ### 45. Workflow / 基礎設施仍有幾項未修
 
@@ -336,6 +298,16 @@
 - 已修項：OAuth token 失敗時已不再 echo 完整 `TOKEN_JSON`。
 
 ## 附錄 A — 已確認已修 / 不再列入未修 bug
+
+**2026-07-28 跨層級「合計」改為池化重算**（設計見 `docs/superpowers/specs/2026-07-28-statcast-level-tables-and-cross-level-totals-design.md`）。`stats/combine.py`、`stats/tables/weighted.py` 及各模組的 `combine_*()` 已整批刪除，「合計」不再是獨立演算法，而是把該年度所有層級的原始 pitches 池化後呼叫與單層級完全相同的 `compute_pitcher_statcast()` / `compute_batter_statcast()`：
+
+- **#7** WAR / FIP / xWPCT 的 `0.0` 顯示成「—」：`fip` / `xwpct` / `war` 已改 `is not none`。`expected.xwoba` 刻意維持 truthy —— MiLB expected stats 全為 `0.0` 是 API 缺陷產生的假值，truthy 判斷正好把它們擋成「—」。
+- **#8** 合計 Statcast 的加權分母錯誤：整套加權移除。`ev90` 是百分位、本來就無法由各層級百分位還原，池化重算後才首次正確（但 `compute_ev90()` 自身的 off-by-one 仍未修，見 #17）。
+- **#9** 合計配球桶的 `all` bucket：`COMBINED_COUNT_USAGE_BUCKETS` 已移除、改用單一來源 `COUNT_USAGE_BUCKETS`；`_combine_usage_by_count()` 隨後整支刪除。
+- **#14** 同年同層級多隊 Statcast entry 未去重：`_build_statcast_entries()` 以 `(year, resolve_tier(sport_level))` 去重。全站稽核 1,224 個 (表格, 年度) 區塊，重複層級列 0、重複 DOM id 頁面 0。
+- **#43** 合計 pitch movement 的 `total_pitches` 語意混淆：`combine_pitch_movement()` 已刪除。
+- **#44** 合計 Pitch Plinko 節點 pct 可能為 None：`combine_pitch_plinko()` 已刪除。
+- **層級命名不匹配**（兩份文件皆未記錄，本次發現）：`game_logs.sport_level` 存現代縮寫（`A`、`A+`），`season_stats.sport_level` 對舊球季存舊制名稱（`A(Full)`、`A(Adv)`、`A(Short)`），`sync/statcast.py` 的字串相等比對永遠不成立，導致 **110 組 (球員, 年度, 層級)、57,955 顆球**的 statcast 被靜默丟棄。已改用 `resolve_tier()` 比對，重跑 statcast 後降至 0。
 
 - MiLB `yearByYear` 缺 try/except：已修到 `site_builder/api/stats.py`。
 - FIP 使用棒球小數 IP：已修到 `site_builder/stats/advanced/fip.py`，使用 `ip_to_outs()`。

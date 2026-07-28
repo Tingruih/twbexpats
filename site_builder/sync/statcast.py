@@ -25,7 +25,7 @@ from ..db.play_videos import (
 )
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
-from ..levels import sport_obj_to_abbr
+from ..levels import resolve_tier, sport_obj_to_abbr
 from ..roster import build_roster_map
 from ..stats.advanced.fip import compute_fip
 from ..stats.advanced.xwpct import compute_xwpct
@@ -78,6 +78,24 @@ def _fetch_and_extract_game(
         out[mlb_id] = pitches
         events_out[mlb_id] = events
     return out, events_out, sport_level
+
+
+def _same_level(a: str, b: str) -> bool:
+    """兩個層級字串是否指向同一個 Tier。
+
+    game_logs.sport_level 存的是現代縮寫（``A``、``A+``），season_stats
+    對 2020 年以前的球季卻存舊制名稱（``A(Full)``、``A(Adv)``、``A(Short)``），
+    直接用字串相等比對永遠不成立，整份 statcast 會被靜默丟棄。
+    改用 levels.resolve_tier() 收斂世代拼寫後再比；任一邊無法解析時
+    退回字串比對，行為與舊版一致。
+    """
+    if not a or not b:
+        return False
+    tier_a = resolve_tier(a)
+    tier_b = resolve_tier(b)
+    if tier_a and tier_b:
+        return tier_a.key == tier_b.key
+    return a == b
 
 
 def _pitches_need_hit_coord_backfill(pitches: list[dict]) -> bool:
@@ -151,7 +169,7 @@ def _merge_statcast_into_season(
         # If sport_level is empty (unresolved legacy data), only write when
         # there is a single row for the year (unambiguous).
         if sport_level:
-            if row_sport_level == sport_level:
+            if _same_level(row_sport_level, sport_level):
                 stat_doc["statcast"] = statcast_data
         elif len(rows) == 1:
             stat_doc["statcast"] = statcast_data
@@ -161,14 +179,14 @@ def _merge_statcast_into_season(
         # Sabermetrics are always fetched from the MLB endpoint; broadcasting them
         # to MiLB rows of the same year would be misleading.
         if sabermetrics and row_sport_level == "MLB":
-            if not sport_level or row_sport_level == sport_level:
+            if not sport_level or _same_level(row_sport_level, sport_level):
                 stat_doc["saber"] = sabermetrics
 
         # Attach expected stats — only write to the matching sport_level row.
         # MiLB expected stats are all 0.0 (API limitation), so valid data only
         # arrives for MLB rows; still guard by sport_level match for correctness.
         if expected_stats:
-            if sport_level and row_sport_level == sport_level:
+            if sport_level and _same_level(row_sport_level, sport_level):
                 stat_doc["expected"] = expected_stats
             elif not sport_level and len(rows) == 1:
                 stat_doc["expected"] = expected_stats

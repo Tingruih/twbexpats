@@ -189,23 +189,27 @@
         <div class="mc-list">
             {% for yr in available_statcast_years %}
             {% set entries = statcast_by_year[yr] %}
-            {% set level_entries = entries if entries|length == 1 else entries[1:] %}
+            {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
+               球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
+            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
+            {% set is_total = entry.sport_level == '_combined' %}
             {% set sc = entry.sc %}
             {% set ss_row = entry.stat %}
-            <article class="mc-card">
+            <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
                 <header class="mc-hd">
                     <div class="mc-hd-meta">
                         <span class="mc-yr">{{ yr }}</span>
-                        {{ tags.level_tag(entry.sport_level, yr) }}
+                        {% if is_total %}<span class="multi-tag">合計</span>{% else %}{{ tags.level_tag(entry.sport_level, yr) }}{% endif %}
                     </div>
                 </header>
                 {% if is_pitcher %}
                 <div class="mc-hero">
-                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.fip %}{{ ss_row.fip|floatformat(2) }}{% else %}—{% endif %}</span><b>FIP</b></div>
+                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.fip is not none %}{{ ss_row.fip|floatformat(2) }}{% else %}—{% endif %}</span><b>FIP</b></div>
                     <div class="mc-hero-cell"><span>{{ sc.woba_against|floatformat(3) }}</span><b>wOBA</b></div>
                     <div class="mc-hero-cell"><span>{% if ss_row and ss_row.expected and ss_row.expected.xwoba %}{{ ss_row.expected.xwoba|floatformat(3) }}{% else %}—{% endif %}</span><b>xwOBA</b></div>
-                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.xwpct %}{{ ss_row.xwpct|floatformat(3) }}{% else %}—{% endif %}</span><b>xWPCT</b></div>
+                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.xwpct is not none %}{{ ss_row.xwpct|floatformat(3) }}{% else %}—{% endif %}</span><b>xWPCT</b></div>
                 </div>
                 <div class="mc-grid">
                     {{ mcell('Barrel%', sc.barrel_pct|pct_fmt) }}
@@ -221,7 +225,7 @@
                     <div class="mc-hero-cell"><span>{{ sc.woba|floatformat(3) }}</span><b>wOBA</b></div>
                     <div class="mc-hero-cell"><span>{% if ss_row and ss_row.expected and ss_row.expected.xwoba %}{{ ss_row.expected.xwoba|floatformat(3) }}{% else %}—{% endif %}</span><b>xwOBA</b></div>
                     <div class="mc-hero-cell"><span>{% if ss_row and ss_row.wrc_plus is not none %}{{ ss_row.wrc_plus }}{% elif ss_row and ss_row.wrc_plus_calc is not none %}{{ ss_row.wrc_plus_calc }}{% else %}—{% endif %}</span><b>wRC+</b></div>
-                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.war %}{{ ss_row.war|floatformat(1) }}{% else %}—{% endif %}</span><b>WAR</b></div>
+                    <div class="mc-hero-cell"><span>{% if ss_row and ss_row.war is not none %}{{ ss_row.war|floatformat(1) }}{% else %}—{% endif %}</span><b>WAR</b></div>
                 </div>
                 <div class="mc-grid">
                     {{ mcell('BBE', sc.bbe|num_dash) }}
@@ -246,14 +250,18 @@
         <div class="mc-list">
             {% for yr in available_statcast_years %}
             {% set entries = statcast_by_year[yr] %}
-            {% set level_entries = entries if entries|length == 1 else entries[1:] %}
+            {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
+               球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
+            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
+            {% set is_total = entry.sport_level == '_combined' %}
             {% set sc = entry.sc %}
-            <article class="mc-card">
+            <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
                 <header class="mc-hd">
                     <div class="mc-hd-meta">
                         <span class="mc-yr">{{ yr }}</span>
-                        {{ tags.level_tag(entry.sport_level, yr) }}
+                        {% if is_total %}<span class="multi-tag">合計</span>{% else %}{{ tags.level_tag(entry.sport_level, yr) }}{% endif %}
                     </div>
                     <div class="mc-hd-aside">
                         <span class="mc-meta">{{ sc.total_pitches|num_dash }} Pitches</span>
@@ -284,15 +292,19 @@
         <div class="mc-list">
             {% for yr in available_statcast_years %}
             {% set entries = statcast_by_year[yr] %}
-            {% set level_entries = entries if entries|length == 1 else entries[1:] %}
+            {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
+               球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
+            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
+            {% set is_total = entry.sport_level == '_combined' %}
             {% set sc = entry.sc %}
             {% if sc.bbe is not none %}
-            <article class="mc-card">
+            <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
                 <header class="mc-hd">
                     <div class="mc-hd-meta">
                         <span class="mc-yr">{{ yr }}</span>
-                        {{ tags.level_tag(entry.sport_level, yr) }}
+                        {% if is_total %}<span class="multi-tag">合計</span>{% else %}{{ tags.level_tag(entry.sport_level, yr) }}{% endif %}
                     </div>
                     <div class="mc-hd-aside">
                         <span class="mc-meta">{{ sc.bbe|num_dash }} BBE</span>

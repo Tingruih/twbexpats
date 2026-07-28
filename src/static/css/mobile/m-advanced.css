@@ -118,3 +118,13 @@
     padding: 1.1rem 0.9rem;
     text-align: center;
 }
+
+/* ── Statcast 三表的年度合計卡 ──
+   多層級年度在各層級卡之後補一張池化重算的合計卡，用較亮的邊框區隔。 */
+.mc-card-total {
+    border-color: rgba(255, 255, 255, 0.18);
+}
+
+.mc-card-total .mc-hd {
+    background: rgba(255, 255, 255, 0.06);
+}

@@ -13,7 +13,7 @@
         boxShadow:    '0 4px 14px rgba(0,0,0,0.45)',
         pointerEvents:'none',
         zIndex:       '9999',
-        maxWidth:     'min(360px, calc(100vw - 16px))',
+        maxWidth:     'min(380px, calc(100vw - 16px))',
         whiteSpace:   'normal',
         overflowWrap: 'break-word',
         visibility:   'hidden',
@@ -48,10 +48,14 @@
         var formula = header.dataset.formula;
         if (label) {
             var title = document.createElement('div');
-            title.textContent = label;
+            // Jinja strings commonly render "\\n" as two literal characters.
+            // Normalize those escapes, then preserve both escaped and real
+            // newlines without allowing arbitrary HTML in tooltip content.
+            title.textContent = label.replace(/\\n/g, '\n');
             Object.assign(title.style, {
                 fontWeight: '700',
                 marginBottom: formula ? '4px' : '0',
+                whiteSpace: 'pre-line',
             });
             tip.appendChild(title);
         }
