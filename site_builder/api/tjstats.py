@@ -8,10 +8,25 @@ import logging
 
 from bs4 import BeautifulSoup
 
-from ..constants import PF_LEVEL_PARAM
 from .client import get_text
 
 logger = logging.getLogger(__name__)
+
+# site_builder.levels Tier key → (pf_level query value, league-constants Level
+# code) on tjstats.ca. The two pages spell the same levels differently
+# (hi_a/lo_a vs hi-a/lo-a), hence one table with both spellings.  This lives
+# with the scraper rather than in constants.py because it is nothing but this
+# one site's URL/table spelling — and because league_constant/ imports this
+# module, so the reverse direction would be circular.
+TJSTATS_LEVEL_PARAMS = {
+    "MLB": ("mlb", "mlb"),
+    "AAA": ("aaa", "aaa"),
+    "AA": ("aa", "aa"),
+    "A+": ("hi_a", "hi-a"),
+    "A": ("lo_a", "lo-a"),
+}
+PF_LEVEL_PARAM = {k: v[0] for k, v in TJSTATS_LEVEL_PARAMS.items()}
+LC_LEVEL_CODE = {k: v[1] for k, v in TJSTATS_LEVEL_PARAMS.items()}
 
 
 def fetch_park_factors(level: str, year: int) -> dict[str, dict]:
@@ -54,7 +69,7 @@ def fetch_league_constants(year: int) -> dict[tuple[str, str], dict]:
     """Fetch TJStats league constants for every level/league in one year.
 
     Returns {(level_code, league_name): {"lg_woba": float, "lg_r_pa": float}}.
-    level_code matches constants.LC_LEVEL_CODE's values (mlb/aaa/aa/hi-a/lo-a).
+    level_code matches LC_LEVEL_CODE's values above (mlb/aaa/aa/hi-a/lo-a).
     Returns {} on any fetch/parse failure.
     """
     url = f"https://tjstats.ca/park-factors/?lc_season={year}"

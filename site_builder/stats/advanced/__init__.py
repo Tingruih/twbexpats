@@ -1,5 +1,8 @@
-"""Advanced stats needing annual constants or external data — one stat per file.
+"""Advanced stats needing league constants or external data — one stat per file.
 
-These are the modules to revisit at season start; their constants live in
-``site_builder.constants`` §2 (ANNUAL CONSTANTS).
+Every constant these formulas need arrives as a function argument; the
+fetching and caching lives in ``site_builder.league_constant``. The one
+exception is the fixed weights in ``site_builder.constants`` §3 (wOBA linear
+weights, WOBA_SCALE), which are formula constants and do not vary by league
+or season.
 """

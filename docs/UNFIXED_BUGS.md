@@ -9,13 +9,6 @@
 
 ## P0 / P1 — 優先修
 
-### 1. Pitch log 仍以 `innerHTML` 注入未跳脫資料，存在 XSS 風險
-
-- 目前位置：`src/static/js/pitch-log.js`
-- 證據：`_buildPitchTable()` 直接把 `p.pitch_type`、`p.pitch_name`、`p.result`、`p.pa_event` 串進 HTML；`_renderPitchLog()` 再用 `container.innerHTML` 注入。
-- 影響：若 API 或快取資料含惡意 HTML/JS，球員頁逐球展開區可能被注入。
-- 建議修法：使用 `window.TW.escapeHtml()` 轉義可見文字；用 whitelist/sanitize 處理 class token（如 `pitch_type`）。
-
 ### 2. `build_static_site()` 仍會無 guard 刪除輸出目錄
 
 - 目前位置：`site_builder/render/pages.py`
@@ -242,12 +235,7 @@
 - 影響：新增或修正球種名稱/顏色需改兩處，容易漂移。
 - 建議修法：抽 `pitch-meta.js` 或掛在 `window.TW` 的單一來源，兩個圖表共用。
 
-### 37. xWPCT docstring 仍誤稱 Pythagenpat，且 RA9 仍只有少數層級/年份
-
-- 目前位置：`site_builder/stats/advanced/xwpct.py`、`site_builder/constants.py`
-- 證據：docstring 寫 `Pythagenpat, exponent 1.83`；`LEAGUE_RA9` 只列 2024 的 MLB/AAA/AA/A+/A。
-- 影響：docstring 誤導；ROK/A-/WIN 或未列年份會 fallback 到 4.5。
-- 建議修法：docstring 改成 fixed-exponent Pythagorean；補齊 annual RA9 或明確標註 fallback。
+### 37. （已修，見附錄 A）
 
 ### 38. CSS 仍有多處 `!important`
 
@@ -297,6 +285,28 @@
   - `requirements.txt` 仍無 hash lock。
 - 已修項：OAuth token 失敗時已不再 echo 完整 `TOKEN_JSON`。
 
+### 46. TJStats 常數在賽季中不會更新，整季 wRC+ 可能用四月的 park factor
+
+- 目前位置：`site_builder/league_constant/batting.py`、`site_builder/league_constant/policy.py`
+- 證據：`batting.py` 宣告 `RefreshPolicy.FINAL_ONCE_PUBLISHED`，`should_use_cache()` 因此對「當年球季」也回 True。park factor 與 lg_wOBA/lg_R∕PA 只要在四月抓到過一次，整季都不會再更新，除非手動 `--update-constants`。
+- 影響：賽季進行中的 wRC+ 分母偏舊。tjstats.ca 是否在季中重算這些數字尚未實測，所以嚴重程度未定。
+- 建議修法：先實測（抽一年，對照已快取值與現場值）確認 tjstats.ca 季中是否真的會變；若會，把 `batting.py` 的政策改成 `ACCUMULATES_IN_SEASON`（`policy.py` 已經有這個選項，改一行即可）。
+- 備註：2026-07-30 抽出 `league_constant/` 套件時發現——把兩條供應鏈的快取政策攤成具名 enum 之後才看得出這個差異。
+
+### 47. `stats/advanced/woba.py` 與 `api/tjstats.py` 目前沒有測試覆蓋
+
+- 目前位置：`site_builder/stats/advanced/woba.py`、`site_builder/api/tjstats.py`
+- 證據：舊的 `tests/test_wrc_plus.py` 曾涵蓋 `compute_woba` 與兩支 HTML 抓取函式，但它 import 的是兩次重構前的 `site_builder.wrc_plus` 單一模組，已長期無法 import；2026-07-30 改寫該檔時只復活了 `compute_wrc_plus` 與 `annotate_wrc_plus` 的部分。
+- 影響：wOBA 公式與 tjstats.ca HTML 解析（欄位位置、`table.tjs-guts` 選擇器）若因對方改版而失效，不會有測試攔下來。
+- 建議修法：新增 `tests/test_woba.py`（`compute_season_woba` / `compute_pitch_woba`）與 `tests/test_api_tjstats.py`（以 `unittest.mock.patch("site_builder.api.tjstats.get_text")` 餵固定 HTML）。注意：`tests/` 目錄本身從未被 git 追蹤（見 `.gitignore`），所以舊檔的測試資料與斷言無法從 git 歷史取回，只能重新撰寫。
+
+### 48. MiLB xWPCT 混用所屬聯盟 FIP constant 與整層級 lgERA，跨聯盟基準不一致
+
+- 目前位置：`site_builder/league_constant/pitching.py`、`site_builder/sync/statcast.py`
+- 證據：MiLB FIP 優先使用投手所屬聯盟的 `fip_constant`，但 xWPCT 分母固定取 `league_constants[""].lg_era`（整個層級合計），而非同一筆所屬聯盟常數中的 `lg_era`。以資料庫快取的 2026 AAA 為例，International League lgERA 為 4.899、Pacific Coast League 為 5.471，level-wide lgERA 為 5.092；因此兩聯盟各自的平均投手代入目前公式後，IL 約為 `.518`、PCL 約為 `.467`，不會同時落在 `.500`。
+- 影響：若 xWPCT 的語意是「相對所屬聯盟平均的中立預期勝率」，目前做法會系統性高估低得分聯盟、低估高得分聯盟，AAA、A、ROK 等同層級含多個聯盟時尤其明顯。若產品刻意要保留各聯盟得分環境的絕對差異，現況可視為設計選擇而非計算 bug，但欄位說明必須明確標示它不是 league-neutral 指標。
+- 建議修法：先確定指標語意。若要 league-relative，xWPCT 應使用與 FIP constant 同一筆 `own_league.lg_era`，僅在聯盟無法解析時退回 level-wide，並新增「各聯盟平均 FIP 對應 xWPCT = .500」測試；若要 level-wide absolute comparison，則保留現行分母，但更新 tooltip／文件說明基準，並另行評估球場與聯盟 run environment 調整，避免把環境差異誤當投手能力。
+
 ## 附錄 A — 已確認已修 / 不再列入未修 bug
 
 **2026-07-28 跨層級「合計」改為池化重算**（設計見 `docs/superpowers/specs/2026-07-28-statcast-level-tables-and-cross-level-totals-design.md`）。`stats/combine.py`、`stats/tables/weighted.py` 及各模組的 `combine_*()` 已整批刪除，「合計」不再是獨立演算法，而是把該年度所有層級的原始 pitches 池化後呼叫與單層級完全相同的 `compute_pitcher_statcast()` / `compute_batter_statcast()`：
@@ -307,6 +317,7 @@
 - **#14** 同年同層級多隊 Statcast entry 未去重：`_build_statcast_entries()` 以 `(year, resolve_tier(sport_level))` 去重。全站稽核 1,224 個 (表格, 年度) 區塊，重複層級列 0、重複 DOM id 頁面 0。
 - **#43** 合計 pitch movement 的 `total_pitches` 語意混淆：`combine_pitch_movement()` 已刪除。
 - **#44** 合計 Pitch Plinko 節點 pct 可能為 None：`combine_pitch_plinko()` 已刪除。
+- **#37** xWPCT docstring 誤稱 Pythagenpat，且 `LEAGUE_RA9` 只有 2024 年資料：已改為純函式 `compute_xwpct(fip, lg_era)`，`lg_era` 與 FIP constant 共用同一次 `league_constant.pitching` 查詢（`compute_league_fip_constant()` 回傳 `LeagueFipConstant(fip_constant, lg_era)`、同一列快取），逐年逐層級即時算出，不再是手寫表格。同時修正比對基準：原本拿校準到 lgERA 尺度的 FIP，去除以含非自責分的 `LEAGUE_RA9`，造成系統性正偏差；現在除以同尺度的 `lg_era`，且無法解析時回傳 None 而非 fallback 到 4.5。docstring 也已改標為 fixed-exponent Pythagorean-style。
 - **層級命名不匹配**（兩份文件皆未記錄，本次發現）：`game_logs.sport_level` 存現代縮寫（`A`、`A+`），`season_stats.sport_level` 對舊球季存舊制名稱（`A(Full)`、`A(Adv)`、`A(Short)`），`sync/statcast.py` 的字串相等比對永遠不成立，導致 **110 組 (球員, 年度, 層級)、57,955 顆球**的 statcast 被靜默丟棄。已改用 `resolve_tier()` 比對，重跑 statcast 後降至 0。
 
 - MiLB `yearByYear` 缺 try/except：已修到 `site_builder/api/stats.py`。

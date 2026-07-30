@@ -3,25 +3,24 @@ Single source of truth for computation constants, paths, and runtime config.
 
 Layout (keep new constants in the right section):
 
-  1. Paths & runtime config     — project paths, timeouts, worker counts.
-  2. ANNUAL CONSTANTS           — values that must be refreshed each spring.
-                                  SEASON_YEAR rolls over automatically;
-                                  LEAGUE_RA9 needs a manual entry each year
-                                  (falls back to the latest year otherwise).
-                                  The MiLB FIP constant is no longer manual —
-                                  see db.fip_constants_cache.
-  3. Stable domain constants    — pitch codes, wOBA weights, chart definitions.
+  1. Paths & runtime config     — project paths, timeouts, worker counts,
+                                  plus SEASON_YEAR (rolls over on its own).
+  2. Stable domain constants    — pitch codes, wOBA weights, chart definitions.
                                   These do not change year to year; every entry
                                   carries a source note.
 
-League *levels* are NOT defined here — that registry lives in
-``site_builder.levels`` (see its module docstring).
+Two kinds of constant are deliberately NOT here:
+
+  - League *levels* live in ``site_builder.levels`` (see its docstring).
+  - Per-season, per-league run-environment numbers (FIP constants, league
+    ERA, park factors, lg_wOBA / lg_R/PA) live in
+    ``site_builder.league_constant``, which fetches and caches them instead
+    of anyone maintaining a table by hand.
 """
 
 import datetime
 import os
 from pathlib import Path
-from typing import Optional
 
 # ══════════════════════════════════════════════════════════════════════════
 # 1. PATHS & RUNTIME CONFIG
@@ -59,23 +58,6 @@ GAME_FETCH_WORKERS = 50
 # zero videos for this many days after game date.
 CONTENT_RETRY_DAYS = 14
 
-# ══════════════════════════════════════════════════════════════════════════
-# 2. ANNUAL CONSTANTS — refresh each spring
-# ══════════════════════════════════════════════════════════════════════════
-#
-# Season-start checklist (one place, one commit):
-#   1. SEASON_YEAR rolls over automatically (see _auto_season_year below) —
-#      nothing to bump by hand.
-#   2. Add LEAGUE_RA9 entries for the new year.
-# get_league_ra9 falls back to the latest available year, so a season
-# without a new entry keeps working — just with a stale constant.
-#
-# FIP_CONSTANTS is no longer a manual table: the MiLB FIP constant is computed
-# from real league-wide pitching totals fetched from the MLB Stats API (see
-# db.fip_constants_cache / api.league_stats / stats.advanced.fip). Nothing to
-# refresh here by hand.
-
-
 def _auto_season_year() -> int:
     """Current MLB season year, rolling over each March.
 
@@ -91,47 +73,16 @@ def _auto_season_year() -> int:
 _env_season_year = os.environ.get("DEFAULT_SEASON_YEAR")
 SEASON_YEAR = int(_env_season_year) if _env_season_year else _auto_season_year()
 
-# Last-resort FIP constant when db.fip_constants_cache can't resolve one at
-# all (fetch failure, unrecognized level, season hasn't started yet).
-FIP_DEFAULT_CONSTANT = 3.2
-
-# League RA/9 per (sport_level, year), used in the xWPCT (Pythagenpat) formula.
-# Approximate values; refresh manually each spring (source: TJStats/FanGraphs
-# guts). Candidate for the same auto-computed treatment as the FIP constant
-# (db.fip_constants_cache) — deferred for now.
-LEAGUE_RA9 = {
-    ("MLB", 2024): 4.40,
-    ("AAA", 2024): 5.10,
-    ("AA", 2024): 4.80,
-    ("A+", 2024): 4.60,
-    ("A", 2024): 4.70,
-}
-LEAGUE_RA9_DEFAULT = 4.5  # last-resort fallback when a level has no entry at all
-
-
-def _lookup_annual(table: dict, level: str, year: Optional[int]):
-    """Shared (level, year) lookup with fall-back to the latest year at *level*.
-
-    Returns ``(value, exact)`` where *exact* is True only for a direct
-    (level, year) hit. ``(None, False)`` when the level is entirely unknown.
-    """
-    if year is not None:
-        exact = table.get((level, year))
-        if exact is not None:
-            return exact, True
-    candidates = {yr: v for (lvl, yr), v in table.items() if lvl == level}
-    if candidates:
-        return candidates[max(candidates)], False
-    return None, False
-
-
-def get_league_ra9(level: str, year: Optional[int] = None) -> tuple[Optional[float], bool]:
-    """League RA/9 for *level*/*year*; falls back to the latest year at *level*."""
-    return _lookup_annual(LEAGUE_RA9, level, year)
-
+# ── Season rollover ──
+# There is deliberately no "annual constants" table in this file any more.
+# Every per-season, per-league number (FIP constants, league ERA, park
+# factors, lg_wOBA / lg_R/PA) is fetched and cached by
+# site_builder.league_constant, so nothing here needs a manual spring
+# refresh. SEASON_YEAR is the only season-dependent value left, and it rolls
+# over on its own.
 
 # ══════════════════════════════════════════════════════════════════════════
-# 3. STABLE DOMAIN CONSTANTS
+# 2. STABLE DOMAIN CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════
 
 # ── Pitch result-code classifications ──
@@ -194,23 +145,6 @@ WOBA_EVENT_MAP = {
 # TJStats wRC+ scale converting a wOBA gap back to runs.
 # Source: https://tjstats.ca/glossary/
 WOBA_SCALE = 1.24
-
-# Seasons before this have no TJStats coverage, so wRC+ is never computed.
-MIN_WRC_YEAR = 2021
-
-# site_builder.levels Tier key → (pf_level query value, league-constants Level
-# code) on tjstats.ca. The two pages spell the same levels differently
-# (hi_a/lo_a vs hi-a/lo-a), hence one table with both spellings.
-TJSTATS_LEVEL_PARAMS = {
-    "MLB": ("mlb", "mlb"),
-    "AAA": ("aaa", "aaa"),
-    "AA": ("aa", "aa"),
-    "A+": ("hi_a", "hi-a"),
-    "A": ("lo_a", "lo-a"),
-}
-PF_LEVEL_PARAM = {k: v[0] for k, v in TJSTATS_LEVEL_PARAMS.items()}
-LC_LEVEL_CODE = {k: v[1] for k, v in TJSTATS_LEVEL_PARAMS.items()}
-WRC_LEVELS = tuple(TJSTATS_LEVEL_PARAMS.keys())
 
 # Baserunning play events that occur during a batter's PA but do NOT
 # constitute a plate appearance outcome for the batter (e.g. caught stealing,

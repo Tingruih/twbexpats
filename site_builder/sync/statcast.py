@@ -16,7 +16,6 @@ from ..api import (
 )
 from ..api.content import extract_play_videos
 from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS
-from ..db.fip_constants_cache import get_fip_constants
 from ..db.game_logs import load_all_pitches_for_player
 from ..db.play_videos import (
     content_fetch_candidates,
@@ -25,6 +24,7 @@ from ..db.play_videos import (
 )
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
+from ..league_constant.pitching import PitchingConstants
 from ..levels import resolve_tier, sport_obj_to_abbr
 from ..roster import build_roster_map
 from ..stats.advanced.fip import compute_fip
@@ -136,10 +136,13 @@ def _merge_statcast_into_season(
     rows). This prevents shuttle-player rows at MiLB levels from receiving
     MLB-derived aggregate stats.
 
-    ``fip_constants_lookup(sport_level, year) -> {league_name: fip_constant}``
-    resolves the MiLB FIP constant per-league (see db.fip_constants_cache);
-    callers should memoize it across a whole sync run so the same
-    (level, year) isn't re-fetched for every player.
+    ``fip_constants_lookup(sport_level, year) -> {league_name: LeagueFipConstant}``
+    resolves the per-league FIP constant and the level-wide league ERA.  Pass
+    ``league_constant.pitching.PitchingConstants(conn, ...).for_level`` — the
+    resolver memoizes across a whole sync run so the same (level, year) isn't
+    re-fetched for every player.  The MLB branch below calls it too (with
+    sport_level="MLB"), purely to get the level-wide lg_era for xWPCT — MLB's
+    own FIP still comes from the sabermetrics endpoint, not from this lookup.
     """
     cur.execute(
         "SELECT team_name, league_name, sport_level, stat_json, fielding_json "
@@ -195,27 +198,39 @@ def _merge_statcast_into_season(
         if is_pitcher and row_sport_level and row_sport_level != "MLB":
             ip = stat_doc.get("ip")
             league_constants = fip_constants_lookup(row_sport_level, year)
-            c_fip = league_constants.get(league_name) or league_constants.get("")
+            # The "" entry is the level-wide aggregate: FIP prefers the
+            # pitcher's own league and falls back to it, while xWPCT always
+            # uses its lg_era (the stat is measured against the level
+            # average, not one league inside it).
+            level_wide = league_constants.get("")
+            own_league = league_constants.get(league_name) or level_wide
             fip_val = compute_fip(
                 hr=stat_doc.get("p_hr"),
                 bb=stat_doc.get("bb"),
                 hbp=stat_doc.get("p_hbp"),
                 k=stat_doc.get("so"),
                 ip=safe_float(ip),
-                c_fip=c_fip,
+                c_fip=own_league.fip_constant if own_league else None,
             )
             if fip_val is not None:
                 # Store FIP rounded for display, but feed the raw value into
                 # xwpct so the downstream stat isn't computed off a truncated FIP.
                 stat_doc["fip"] = round(fip_val, 2)
-                stat_doc["xwpct"] = compute_xwpct(fip_val, row_sport_level, year)
+                lg_era = level_wide.lg_era if level_wide else None
+                stat_doc["lg_era"] = lg_era
+                stat_doc["xwpct"] = compute_xwpct(fip_val, lg_era)
         elif is_pitcher and row_sport_level == "MLB" and sabermetrics:
             fip_val = safe_float(sabermetrics.get("fip"))
             if fip_val is not None:
                 stat_doc["fip"] = round(fip_val, 2)
                 stat_doc["xfip"] = safe_float(sabermetrics.get("xfip"))
                 stat_doc["war"] = safe_float(sabermetrics.get("war"))
-                stat_doc["xwpct"] = compute_xwpct(fip_val, "MLB", year)
+                # MLB FIP comes from the API, but its xWPCT denominator still
+                # has to be the league ERA we compute ourselves.
+                level_wide = fip_constants_lookup("MLB", year).get("")
+                lg_era = level_wide.lg_era if level_wide else None
+                stat_doc["lg_era"] = lg_era
+                stat_doc["xwpct"] = compute_xwpct(fip_val, lg_era)
         elif not is_pitcher and row_sport_level == "MLB" and sabermetrics:
             if not saber_written:
                 # API 回傳的 sabermetrics 是整季合計，與球隊無關。
@@ -380,7 +395,7 @@ def sync_statcast(
          and expectedStatistics (all levels).
 
     ``update_constants`` forces a fresh fetch of the MiLB FIP constants for
-    *past* seasons too (see db.fip_constants_cache) — the current season's
+    *past* seasons too (see league_constant.pitching) — the current season's
     constants are always fetched fresh regardless, since its league totals
     keep changing as games are played.
     """
@@ -389,15 +404,7 @@ def sync_statcast(
     init_db(conn)
     cur = conn.cursor()
 
-    fip_constants_cache: dict[tuple[str, int], dict[str, float]] = {}
-
-    def _fip_constants(sport_level: str, yr: int) -> dict[str, float]:
-        key = (sport_level, yr)
-        if key not in fip_constants_cache:
-            fip_constants_cache[key] = get_fip_constants(
-                conn, sport_level, yr, force_refresh=update_constants
-            )
-        return fip_constants_cache[key]
+    pitching_constants = PitchingConstants(conn, force_refresh=update_constants)
 
     roster_map = build_roster_map(roster_file)
     if only_player is not None:
@@ -600,7 +607,7 @@ def sync_statcast(
                         year=yr,
                         position=position,
                         statcast_data=data["statcast"],
-                        fip_constants_lookup=_fip_constants,
+                        fip_constants_lookup=pitching_constants.for_level,
                         sport_level=lvl,
                         sabermetrics=data["sabermetrics"],
                         expected_stats=data["expected_stats"],

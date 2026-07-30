@@ -23,6 +23,137 @@
     });
     document.body.appendChild(tip);
 
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function svgEl(name, attrs, text) {
+        var el = document.createElementNS(SVG_NS, name);
+        for (var key in attrs) el.setAttribute(key, attrs[key]);
+        if (text != null) el.textContent = text;
+        return el;
+    }
+
+    // 好球帶區域圖：內圈 1–9 為好球帶九宮格，外圈 11–14 為好球帶外四象限（捕手視角）
+    function buildZoneDiagram() {
+        var OUT = { x: 6, y: 6, w: 168, h: 188 };
+        var CELL_W = 32, CELL_H = 36;
+        var IN_X = 42, IN_Y = 46;          // 九宮格左上角
+        var IN_W = CELL_W * 3, IN_H = CELL_H * 3;
+        var MID_X = IN_X + IN_W / 2, MID_Y = IN_Y + IN_H / 2;
+        var outerStroke = 'rgba(255,255,255,0.30)';
+        var innerStroke = 'rgba(255,255,255,0.55)';
+
+        var svg = svgEl('svg', {
+            viewBox: '0 0 180 200',
+            width: '144',
+            height: '160',
+            role: 'img',
+            'aria-label': '好球帶區域編號圖：中央九宮格 1 至 9，外圈四象限 11 至 14',
+        });
+
+        svg.appendChild(svgEl('rect', {
+            x: OUT.x, y: OUT.y, width: OUT.w, height: OUT.h, rx: 3,
+            fill: 'rgba(255,255,255,0.04)', stroke: outerStroke, 'stroke-width': 1.5,
+        }));
+
+        // 外圈四象限的分隔線（避開中央九宮格）
+        [
+            [MID_X, OUT.y, MID_X, IN_Y],
+            [MID_X, IN_Y + IN_H, MID_X, OUT.y + OUT.h],
+            [OUT.x, MID_Y, IN_X, MID_Y],
+            [IN_X + IN_W, MID_Y, OUT.x + OUT.w, MID_Y],
+        ].forEach(function (line) {
+            svg.appendChild(svgEl('line', {
+                x1: line[0], y1: line[1], x2: line[2], y2: line[3],
+                stroke: outerStroke, 'stroke-width': 1.5,
+            }));
+        });
+
+        // 中央九宮格 1–9
+        for (var row = 0; row < 3; row++) {
+            for (var col = 0; col < 3; col++) {
+                var x = IN_X + col * CELL_W;
+                var y = IN_Y + row * CELL_H;
+                svg.appendChild(svgEl('rect', {
+                    x: x, y: y, width: CELL_W, height: CELL_H,
+                    fill: 'rgba(255,255,255,0.08)', stroke: innerStroke, 'stroke-width': 1.5,
+                }));
+                svg.appendChild(svgEl('text', {
+                    x: x + CELL_W / 2, y: y + CELL_H / 2,
+                    'text-anchor': 'middle', 'dominant-baseline': 'central',
+                    fill: '#fff', 'font-size': '15', 'font-weight': '700',
+                }, String(row * 3 + col + 1)));
+            }
+        }
+
+        // 外圈 11–14
+        [
+            [11, OUT.x + 22, OUT.y + 24],
+            [12, OUT.x + OUT.w - 22, OUT.y + 24],
+            [13, OUT.x + 22, OUT.y + OUT.h - 24],
+            [14, OUT.x + OUT.w - 22, OUT.y + OUT.h - 24],
+        ].forEach(function (label) {
+            svg.appendChild(svgEl('text', {
+                x: label[1], y: label[2],
+                'text-anchor': 'middle', 'dominant-baseline': 'central',
+                fill: 'rgba(221,221,238,0.72)', 'font-size': '13', 'font-weight': '600',
+            }, String(label[0])));
+        });
+
+        var wrap = document.createElement('div');
+        Object.assign(wrap.style, { marginTop: '4px' });
+        wrap.appendChild(svg);
+
+        var caption = document.createElement('div');
+        caption.textContent = '1–9 好球帶內 · 11–14 好球帶外（捕手視角）';
+        Object.assign(caption.style, {
+            marginTop: '2px',
+            fontSize: '0.66rem',
+            color: 'rgba(221,221,238,0.7)',
+        });
+        wrap.appendChild(caption);
+        return wrap;
+    }
+
+    // data-diagram="<key>" 對應的示意圖產生器
+    var DIAGRAMS = { zone: buildZoneDiagram };
+
+    // data-legend='[["原值","中文"], ...]'：兩欄式對照表（無中文對照者顯示破折號）
+    function buildLegend(raw) {
+        var rows;
+        try {
+            rows = JSON.parse(raw);
+        } catch (err) {
+            return null;
+        }
+        if (!Array.isArray(rows) || !rows.length) return null;
+
+        var grid = document.createElement('div');
+        Object.assign(grid.style, {
+            display: 'grid',
+            gridTemplateColumns: 'auto auto',
+            columnGap: '10px',
+            rowGap: '2px',
+            marginTop: '5px',
+            textAlign: 'left',
+            justifyContent: 'center',
+        });
+        rows.forEach(function (row) {
+            if (!Array.isArray(row)) return;
+            var term = document.createElement('div');
+            term.textContent = String(row[0] == null ? '' : row[0]);
+            Object.assign(term.style, {
+                color: 'rgba(221,221,238,0.7)',
+                whiteSpace: 'nowrap',
+            });
+            var zh = document.createElement('div');
+            zh.textContent = row[1] ? String(row[1]) : '—';
+            Object.assign(zh.style, { color: '#fff', whiteSpace: 'nowrap' });
+            grid.appendChild(term);
+            grid.appendChild(zh);
+        });
+        return grid.childElementCount ? grid : null;
+    }
+
     var activeHeader = null;
 
     function positionTip(header) {
@@ -74,6 +205,14 @@
                 formulaEl.textContent = formula;
             }
             tip.appendChild(formulaEl);
+        }
+        var diagram = header.dataset.diagram;
+        if (diagram && DIAGRAMS[diagram]) {
+            tip.appendChild(DIAGRAMS[diagram]());
+        }
+        if (header.dataset.legend) {
+            var legendEl = buildLegend(header.dataset.legend);
+            if (legendEl) tip.appendChild(legendEl);
         }
         tip.style.visibility = 'visible';
         tip.style.opacity = '1';

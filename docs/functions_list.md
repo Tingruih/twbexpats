@@ -1,493 +1,571 @@
-# site_builder 函式清單
+# Taiwan MLB Tracker 函式索引
 
-> 最後更新：2026-07-11
+> 最後核對：2026-07-30
 >
-> 本文件盤點 `site_builder/` 套件目前的完整結構與每個模組的職責，做為日後修改
-> 程式的導覽地圖。**舊版文件（2026-07-01）是為了替當時 9 個檔案的
-> `site_builder/` 規劃拆分方案而寫的。那次拆分已經完成，而且拆得比舊文件建議
-> 的更細、更徹底**——目前套件已有 117 個 Python 檔案、共 7852 行，依職責切成
-> 7 個子套件（`api/` `db/` `graph/` `render/` `stats/` `sync/` `util/`）
-> 加上 3 個頂層模組。本文件的目的因此從「該怎麼拆」轉為「現況長什麼樣子、還有
-> 哪些地方沒拆完」。
+> 範圍：`site_builder/` 全部 119 個 Python 檔案，以及 CLI `build.py`。
+> 第 1～8 章共盤點 254 個 function/method，包含公開函式、底線開頭的內部 helper、
+> class method 與函式內 closure。清單以目前原始碼 AST 為準。
+
+這份文件是實作時的「先去哪個檔案、該呼叫哪個函式」導覽。每個表格都同時回答：
+
+- **函式做什麼**：核心輸入、輸出或副作用。
+- **函式放在這裡的原因**：它在資料流中的定位，以及誰通常會呼叫它。
+- **是否適合作為入口**：沒有底線的是模組對外介面；`_` 開頭、class method 或
+  closure 是實作細節，除非正在修改該模組，否則不要跨模組直接依賴。
 
 ## 目錄
 
-0. [模組相依圖](#0-模組相依圖)
-1. [api/ — 外部資料來源客戶端](#1-api--外部資料來源客戶端)
-2. [db/ — SQLite 持久層](#2-db--sqlite-持久層)
-3. [stats/ — 數據計算（一個檔案一個統計量）](#3-stats--數據計算一個檔案一個統計量)
-4. [sync/ — 資料同步管線](#4-sync--資料同步管線)
+0. [整體資料流](#0-整體資料流)
+1. [api/ — 外部資料來源](#1-api--外部資料來源)
+2. [db/ + league_constant/ — 持久層與聯盟環境](#2-db--league_constant--持久層與聯盟環境)
+3. [stats/ — 統計計算](#3-stats--統計計算)
+4. [sync/ — 同步管線](#4-sync--同步管線)
 5. [render/ — 靜態網站渲染](#5-render--靜態網站渲染)
 6. [graph/ — 圖表資料](#6-graph--圖表資料)
 7. [util/ — 通用工具](#7-util--通用工具)
-8. [頂層模組：constants.py / levels.py / roster.py](#8-頂層模組constantspy--levelspy--rosterpy)
-9. [build.py — CLI 進入點](#9-buildpy--cli-進入點)
-10. [跨檔案重複與一致性檢查（對照舊文件）](#10-跨檔案重複與一致性檢查對照舊文件)
-11. [觀察與建議](#11-觀察與建議)
+8. [頂層模組](#8-頂層模組)
+9. [build.py — CLI](#9-buildpy--cli)
+10. [完整性核對方式](#10-完整性核對方式)
+11. [新增功能時的掛接位置](#11-新增功能時的掛接位置)
 
 ---
 
-## 0. 模組相依圖
+## 0. 整體資料流
 
-```
-                          ┌──────────────┐
-                          │  build.py    │  CLI 進入點（sync / statcast / refresh / build / all）
-                          └──────┬───────┘
-                    lazy import  │  lazy import
-              ┌───────────────────┴───────────────────┐
-              ▼                                        ▼
-        site_builder.sync                       site_builder.render
-      (sync_database / update_database /       (build_static_site)
-       sync_statcast)                                  │
-              │                                        │
-    ┌─────────┼─────────┬───────────┐        ┌─────────┼──────────┐
-    ▼         ▼         ▼           ▼        ▼         ▼          ▼
-  api/      db/       stats/     util/     db.bundles stats.combine  graph.*
-              │          │                  levels    stats.core
-              │          │                  roster     util
-              ▼          │
-        api/ (fetch)     │
-        levels/ (等級)   │
-        stats.core       │
-        stats.advanced.fip
-                          ▼
-                    stats/ 內部：
-                    core/ 是共用基礎，
-                    batting/ pitching/ discipline/
-                    batted_ball/ advanced/ tables/
-                    都只依賴 core/ 與 constants/util，
-                    彼此之間幾乎不互相依賴
-                          │
-                          ▼
-                    graph/ （pitch_movement, pitch_plinko）
-                    只依賴 stats.core + constants + util
+```text
+build.py
+├─ sync / update
+│  └─ sync.players → api.* → db.*
+├─ statcast
+│  └─ sync.statcast → api.games/content/stats
+│                   → sync.extract
+│                   → league_constant.pitching
+│                   → stats.* + graph.*
+│                   → db.*
+└─ build
+   └─ render.pages → db.bundles
+                   → league_constant.batting
+                   → stats.* + graph.season_trend
+                   → Jinja2 templates + static assets
 ```
 
-分層原則（由下而上）：
+分層邊界：
 
-- **`util/`**：零領域知識的泛用工具（日期、JSON、數字、`Obj`、單位換算）。被所有人依賴，自己不依賴任何人。
-- **`levels.py` / `roster.py` / `constants.py`**：頂層單一事實來源，供 `api/` `db/` `stats/` `sync/` `render/` 共用。彼此獨立、互不依賴。
-- **`api/`**：只做 HTTP 請求與 JSON→dict 轉換，不碰資料庫、不做統計計算。依賴 `levels.py`（sportId↔代碼轉換）與 `constants.py`（timeout、rate limit）。
-- **`stats/`**：純函式運算層。`stats/core/` 是共用基礎（pitch 分類、PA 結算、局數換算、聚合、annotate、selector）；`batting/` `pitching/` `discipline/` `batted_ball/` 是「一檔一個統計公式」的葉節點模組；`advanced/` 是需要外部資料或年度常數的統計（wOBA、wRC+、FIP、xWPCT，會反向依賴 `db.tjstats_cache` 與 `db.fip_constants_cache`）；`tables/` 是球種細分表；`combine.py` 是跨等級合併的總樞紐。`stats/` 內部彼此依賴但幾乎不依賴外部套件（`advanced/wrc_plus.py` 是唯一例外，需要 `db.tjstats_cache`）。
-- **`graph/`**：圖表資料。`movement`／`plinko` 只依賴 `stats.core` + `constants` + `util`；`season_trend` 在 build 期從逐場資料重用 `stats` 的純函式產生累積走勢。
-- **`db/`**：SQLite schema 與查詢層，依賴 `api/`（FIP 常數、TJStats 快取需要即時抓取資料）、`levels.py`、`roster.py`、`stats.core`、`stats.advanced.fip`。
-- **`sync/`**：資料同步管線，依賴 `api/` + `db/` + `stats/` + `util/`。
-- **`render/`**：靜態網站渲染，依賴 `db.bundles`（讀資料）、`stats.combine`（跨等級合併）、`stats.core.career`（生涯／年度加總）、`levels.py` `roster.py` `util/`，以及 Jinja2。
-- **`build.py`**：唯一的進入點，用 lazy import 串接 `sync` 與 `render`，兩者互不直接依賴，只共用底層的 `api/db/stats/util`。
-
----
-
-## 1. api/ — 外部資料來源客戶端
-
-只負責「打 API、回傳 dict」，不寫資料庫、不算統計。所有函式對外部服務失敗都
-採用 try/except + 記錄警告（log warning）後回傳空結果的「盡力而為」策略,
-讓上層可以照樣運作（缺資料而非整個流程中斷）。
-
-| 檔案 | 內容 |
-|---|---|
-| `client.py` | `BASE_URL`（v1）/`BASE_URL_V11`（live-feed 專用）；`_RateLimiter(API_RATE_LIMIT)` 是 process-wide、thread-safe 的請求節流器；`get_json(url, timeout)` 共用的 GET + JSON 解析，所有 ThreadPool worker 合計仍受同一速率上限約束。 |
-| `players.py` | `get_player_profile(mlb_id)`：`/people/{id}?hydrate=transactions,rosterEntries,currentTeam`。回傳姓名、身高體重、生日、慣用手、最新交易紀錄、球隊、**roster 狀態**（`roster_status` / `roster_status_code` / `roster_is_active`，供 `roster.py::categorize_roster_status` 使用）。 |
-| `stats.py` | `get_player_stats`（yearByYear）、`get_player_advanced_stats`（seasonAdvanced）、`get_game_logs`（gameLog）、`get_player_sabermetrics`（FIP/xFIP/WAR，MLB only）、`get_player_expected_stats`（xwOBA/xBA/xSLG，MLB only）。**MLB／MiLB 兩個端點都各自包在獨立的 try/except 裡**，任一失敗只記錄警告、不影響另一端點——這是舊文件點名的不對稱問題，現在已經統一成對稱寫法。 |
-| `games.py` | `get_game_play_by_play(game_pk)`：抓單場 live-feed 全文，統一用 `LIVE_FEED_TIMEOUT` 常數（舊文件點名的 timeout 字面值不一致問題已解決）。`get_game_sport_level(game_pk)`：只抓該場比賽的等級（用 `fields=` 過濾縮小 payload）。sport 物件轉等級代碼的 `sport_obj_to_abbr` 已移到 `levels.py`，讓 level registry 更完整地集中。 |
-| `schedule.py` | `get_next_game(team_id)`：查未來 7 天內第一場「Preview」狀態的比賽，換算成台灣時間字串。 |
-| `content.py`（新模組） | `get_game_content(game_pk)`：抓 `/game/{pk}/content`，失敗時 log warning 並回 `{}`。`extract_play_videos(content)`：從 highlights items 裡挑出 `guid == playId` 且有 `.mp4` playback 的片段，回傳 `{play_id,title,mp4_url}`，供 pitch log 延遲載入影片連結用。 |
-| `league_stats.py`（新模組） | `fetch_team_league_map(sport_id, year)`：`{team_id: league_name}`。`fetch_team_pitching_totals(sport_id, year)`：各隊投手計數型數據加總，供反推 FIP 常數用。 |
-| `tjstats.py` | `fetch_park_factors(level, year)` / `fetch_league_constants(year)`：BeautifulSoup 解析 tjstats.ca 同一頁面裡的兩張 `<table class="tjs-guts">`。依模組 docstring 定位為「best-effort 加值資料，非核心資料」，任何失敗都吞掉、回傳 `{}`。 |
-| `__init__.py` | 統一 re-export 上述所有公開函式，呼叫端可直接 `from site_builder.api import get_player_profile`。 |
+- `api/` 只取得及解析外部資料，不寫 SQLite。
+- `db/` 只管 schema、查詢與 upsert，不打外部 API。
+- `league_constant/` 負責取得、計算、快取每年度/層級/聯盟的投打環境常數。
+- `stats/` 是純計算層；聯盟環境一律由呼叫端以參數傳入。
+- `sync/` 協調網路、平行 worker、資料抽取與 DB 寫入。
+- `render/` 把 DB bundle 塑形成模板 payload 並輸出網站。
+- `graph/` 產生前端圖表 payload，不負責 HTML。
+- `util/` 不含棒球領域規則。
 
 ---
 
-## 2. db/ — SQLite 持久層
+## 1. api/ — 外部資料來源
 
-| 檔案 | 內容 |
-|---|---|
-| `schema.py` | `init_db(conn)`：`CREATE TABLE IF NOT EXISTS` 建立核心表 `players` / `season_stats` / `game_logs` / `playbyplay_processed`、常數快取表 `tjstats_park_factors` / `tjstats_league_constants` / `league_fip_constants`、以及影片快取表 `play_videos` / `game_content_processed` + 2 個索引；接著跑包在 `try/except sqlite3.OperationalError` 裡的 `ALTER TABLE ... ADD COLUMN` 正向遷移（`game_logs.pitches_json`/`sport_level`/`hit_coord_checked`/`events_json`、`players.roster_status_code`/`roster_is_active`）。 |
-| `season_stats.py` | `load_season_row` / `save_season_row`（`INSERT ... ON CONFLICT DO UPDATE`，key 是 `(player_mlb_id, year, team_name)`）；`players_with_existing_stats(conn)`：找出已有資料的球員 id，用來判斷是否為「首次同步」（首次同步即使在 `update`/`refresh` 模式下也要做完整回補）。 |
-| `players.py` | `warn_orphaned_players`：印出資料庫裡有、但 roster.json 已移除的球員（並附上可直接執行的清理 SQL）；`get_cached_is_active`：批次查詢資料庫裡既有的 `is_active` 快取。舊版曾有的 `get_positions` 已移除。 |
-| `game_logs.py` | `load_all_pitches_for_player(cur, mlb_id)` → `{(year, sport_level): [pitch,...]}`。對舊資料裡 `sport_level` 為空字串的列做消歧義：若該球員該年只待過一個等級就直接指派，否則歸到 `(year, "")` 交給呼叫端處理。 |
-| `bundles.py` | `load_player_bundle(cur, player_row)`：建出模板要用的完整球員 `Obj`（解析 `transactions_json`/`next_game_json`、算年齡、`is_pitcher`）；載入並依 `(-year, level_order)` 排序 `season_stats`；算出 `latest_stat` / `available_years` / **`latest_level_is_mlb`**（用 `has_appearance` 篩出「最近一個有實際出賽紀錄的等級」，而非「生涯是否曾上過大聯盟」，這樣被降回小聯盟的球員在挑選頭像 CDN 版本時才不會誤判）；相容處理沒有 `pitches_json` 欄位的舊資料庫（先用 `SELECT ... LIMIT 0` 探測欄位是否存在）。 |
-| `fip_constants_cache.py` | FIP 聯盟常數的 SQLite 快取。**快取策略**：進行中賽季（`year >= SEASON_YEAR`）永遠即時重抓並覆寫；已結束賽季永久快取。`_fetch_and_compute`：等級→sportId（經 `levels.resolve_tier`）→抓各隊投手數據＋隊伍所屬聯盟 map→依聯盟與整體等級各加總一份→呼叫 `compute_league_fip_constant`。`get_fip_constants(conn, sport_level, year, force_refresh=False)` 為對外唯一入口。 |
-| `tjstats_cache.py` | Park factor 與聯盟常數的 SQLite 快取；`get_park_factors(conn, level, year, force_refresh=False)` 與 `get_league_constants(conn, year, force_refresh=False)` 是對外入口，內部各自搭配 `_load_*`/`_save_*`。**快取策略與 `fip_constants_cache.py` 不同**：任何年份的抓取結果只要非空就永久快取；若抓回空結果則**不快取**，下次 build 會自動重試（區別在於：TJStats 資料一旦公布就不會再變，只需要處理「還沒公布」的情況；FIP 常數則是進行中賽季本身數值就會一直變動）。 |
-| `play_videos.py`（新模組） | `save_play_videos` / `mark_content_processed`：寫入 `/content` 抓到的 per-play highlight mp4 快取與處理紀錄。`content_fetch_candidates(cur, roster_ids, retry_cutoff_date)`：只挑 MLB game logs，未處理或近期處理但 0 支影片的比賽會重試。`load_video_map(cur)`：build 時載入 `{game_pk: {play_id: mp4_url}}`，schema 不存在時相容回 `{}`。 |
-| `__init__.py` | 純文件註解，列出各子模組職責，不 re-export（呼叫端直接 `from .schema import init_db` 等）。 |
+### 1.1 套件入口與 HTTP 基礎設施
+
+| 檔案 | 所有函式 / method | 功能與定位 |
+|---|---|---|
+| `api/__init__.py` | 無函式 | Re-export API 公開入口；呼叫端可從 `site_builder.api` 匯入。 |
+| `api/client.py` | `_RateLimiter.__init__(rate)`<br>`_RateLimiter.acquire()` | 建立 process-wide、thread-safe 節流器；`acquire()` 計算下一個請求時槽並在需要時阻塞。只供本模組使用。 |
+|  | `_build_session()` | 建立帶連線池與 429/502/503/504 retry/backoff 的 `requests.Session`。 |
+|  | `_session()` | 從 thread-local 取出 session；每個 worker thread 第一次呼叫時才建立。 |
+|  | `_request(url, timeout=API_TIMEOUT)` | 所有 HTTP GET 的共同底層：先節流，再使用 thread-local session，最後 `raise_for_status()`。 |
+|  | `get_json(url, timeout=API_TIMEOUT)` | 對外 JSON GET；回傳解析後 dict，錯誤交由呼叫端處理。 |
+|  | `get_text(url, timeout=API_TIMEOUT)` | 對外文字 GET；供 TJStats HTML 解析使用，沿用同一套節流與 retry。 |
+
+### 1.2 MLB Stats API 與 TJStats
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `api/content.py` | `get_game_content(game_pk)` | 取得 `/game/{pk}/content`；失敗記 warning 並回 `{}`。 |
+|  | `extract_play_videos(content)` | 從 highlights 找出 `guid == playId` 且具有 `.mp4` playback 的片段，回傳 `{play_id,title,mp4_url}` 列表。 |
+| `api/games.py` | `get_game_play_by_play(game_pk)` | 取得單場 v1.1 `withMetrics` 完整 live feed；供 `sync.extract` 擷取逐球資料。 |
+|  | `get_game_sport_level(game_pk)` | 用 fields-filtered live feed 只查比賽層級，並經 `sport_obj_to_abbr()` 正規化；舊 DB 回補層級時使用。 |
+| `api/league_stats.py` | `fetch_team_league_map(sport_id, year)` | 回傳 `{team_id: league_name}`；用來把球隊投球總量分到各聯盟。 |
+|  | `fetch_team_pitching_totals(sport_id, year)` | 回傳每隊 HR、BB、HBP、K、ER、outs；是反推聯盟 FIP 常數的原始資料。 |
+| `api/players.py` | `get_player_profile(mlb_id)` | 取得 profile、current team、transactions、rosterEntries，整理姓名、身體資料、守備位置、慣用手、現役與 roster 狀態、目前球隊/層級。 |
+| `api/schedule.py` | `get_next_game(team_id)` | 查未來七天第一場 Preview 比賽，轉成台灣時區的下一場賽事摘要；沒有賽事或失敗時回 `None`。 |
+| `api/stats.py` | `get_player_stats(mlb_id)` | 同時查 MLB/MiLB `yearByYear` 的 hitting/pitching/fielding，回傳所有球季基礎數據。 |
+|  | `get_player_advanced_stats(mlb_id, years=None)` | 逐年查 MLB/MiLB `seasonAdvanced`；供補入 BABIP、P/PA 等進階球季欄位。 |
+|  | `get_game_logs(mlb_id, season)` | 同時查指定球季 MLB 與 MiLB gameLog；升降級球員不會漏掉任一端。 |
+|  | `get_player_sabermetrics(mlb_id, years=None)` | 查 MLB-only sabermetrics（FIP、xFIP、WAR、wRC+）原始 splits。 |
+|  | `get_player_expected_stats(mlb_id, years=None, group="pitching")` | 查 MLB-only expectedStatistics（xwOBA、xBA、xSLG）；`group` 決定打擊或投球。 |
+| `api/tjstats.py` | `fetch_park_factors(level, year)` | 解析 TJStats park-factor 表，回 `{team_name: {pf_final, league}}`；未知層級或失敗回 `{}`。TJStats 專屬的 `TJSTATS_LEVEL_PARAMS` / `PF_LEVEL_PARAM` / `LC_LEVEL_CODE` 也定義在此。 |
+|  | `fetch_league_constants(year)` | 解析 TJStats league-constants 表，回 `{(level_code, league): {lg_woba, lg_r_pa}}`；由 `league_constant.batting` 與 park factor join 後供 wRC+。 |
+
+實作判斷：新增 MLB endpoint 放在語意對應檔案；只有共用 HTTP 行為才放
+`client.py`。API 函式不要直接寫 DB，也不要在此計算玩家統計量。
 
 ---
 
-## 3. stats/ — 數據計算（一個檔案一個統計量）
+## 2. db/ + league_constant/ — 持久層與聯盟環境
 
-`stats/__init__.py` 的 docstring 明白寫出這個套件的設計哲學與擴充方式：
+### 2.1 `db/` — 純 SQLite row access
 
-> 新增一個統計量 = 新增一個帶有純 `compute_*` 函式的檔案，再掛進對應的組裝點：
-> 球季列衍生統計 → `core/annotate.py`；投手 Statcast 摘要 →
-> `pitcher_statcast.py`；打者 Statcast 摘要 → `batter_statcast.py`；跨等級
-> 合併列 → `combine.py`。
-
-### 3.1 `stats/core/` — 共用基礎
-
-| 檔案 | 內容 |
-|---|---|
-| `pitches.py` | `is_swing` / `is_whiff` / `is_called_strike` / `is_in_zone` / `is_out_of_zone`；`filter_known_pitch_events`（統一過濾未知球種、缺球種與非投球事件）；**`is_unknown_pitch_type(pitch_type, pitch_name=None)`**——舊文件點名跨檔案重複定義的函式，現在整個套件只有這一份；`pre_count_tuple` / `post_count_tuple` / `count_label`；`ensure_pre_strikes(pitches)`：替沒有 `pre_balls`/`pre_strikes` 欄位的舊快取資料回填（以 `game_pk` 邊界與 `is_pa_final` 重置計數）；**`aggregate_pitches(pitches)`**：單次掃描分類器，一次迴圈同時算出 `total`/`swings`/`whiffs`/`called`/`in_zone`/`out_zone`/`in_zone_swings`/`out_zone_swings`/`in_zone_contact`/`in_play`/`bbe_ev`/`pa_final`/`gb`/`fb`/`ld`/`pu`/spray 相關欄位（透過 `compute_spray`）/`barrels`/`hard_hits`，是投手與打者 Statcast 摘要共用的核心。 |
-| `pa_outcomes.py` | `compute_pa_outcome_totals(pa_final)` → `{woba_num, woba_den, hits, ab}`，明確排除 `NON_PA_EVENTS`、故意四壞（`intent_walk`）、犧牲觸擊（`sac_bunt`）。 |
-| `innings.py` | `ip_to_outs(ip_value)` / `outs_to_ip(outs)`：棒球記法（7.2 局 = 7⅔ 局）↔出局數換算，任何比率型投手數據都要先換算過再算，否則會有微幅誤差。 |
-| `aggregate.py` | `sum_counting(stats, result)`（依 `COUNTING_FIELDS` 加總，全為 `None` 才維持 `None`，否則視 `None` 為 0）；`compute_rate_stats(agg)`（`ab>0` 才算打擊率／上壘率／長打率／OPS，`ip_actual>0` 才算防禦率／WHIP）；`aggregate_stats(stats)`：生涯／單季合併加總的共用核心。 |
-| `annotate.py` | `annotate_row(s)`：舊 `helpers.py` 215 行 `_compute_advanced_stats` 的直接替代品，清楚分成「打者欄位」（p_per_pa、xbh、iso、babip、ab_per_hr、go_ao、sb_pct、k_pct、bb_pct）與「投手欄位」（pitches_per_pa、k_per_9/bb_per_9/h_per_9/hr_per_9/p_per_ip/rs_per_9 皆以 `ip_actual > 0` 為前提、k_bb_ratio、以 BF 為分母的 k_pct/bb_pct、strike_pct、p_babip、p_go_ao、win_pct，並呼叫 `annotate_opponent_slash`）。**內含一則重要的中文註解記錄了一個 bug 修正**：投手 BABIP 的分母改用 `p_ab`（對方打數）而非舊版的 `bf`（面對打者數）——舊版只從 BF 扣掉 BB，漏扣 HBP 與犧牲觸擊，導致分母灌水、BABIP 被系統性低估；新版改用與打者版對稱的 `(AB − SO − HR + SF)` 公式。`annotate_computed_stats(all_stats)`：設定 `np`（pitches 別名）後對每列呼叫 `annotate_row`。 |
-| `career.py` | `compute_career(stats, level_filter=None)`：生涯（或篩選 MLB-only/MiLB-only）加總，附球隊清單與年份區間字串。`compute_season_combined(stats, year)`：單一年度跨隊加總。`compute_year_groups(all_stats)`：依年份分組，每組附加總列（MLB 優先排序、ERA/WHIP 用出局數換算確保跨隊防禦率正確）＋逐隊細項列＋`multi` 旗標（該年是否待過 2 隊以上）。 |
-| `formatting.py` | `fmt_avg(value)`：棒球慣用去掉開頭 0 的格式化（0.333 → ".333"）。 |
-| `selectors.py` | `has_appearance(stat)`（gp/pa/ab/bf/`ip_to_outs(ip)` 任一 > 0）；`highest_level_row(stats)`（優先挑有出賽紀錄的列，依 `level_rank` 排序）；`highest_level(stats)`（回傳等級字串）。 |
-
-### 3.2 `stats/batting/` — 打者計數型公式（一檔一函式）
-
-| 檔案 | 函式 | 說明 |
+| 檔案 | 所有函式 | 功能與定位 |
 |---|---|---|
-| `avg.py` | `compute_avg` | 打擊率 |
-| `obp.py` | `compute_obp` | 上壘率 |
-| `slg.py` | `compute_slg` | 長打率 |
-| `ops.py` | `compute_ops` | OPS |
-| `iso.py` | `compute_iso` | 純長打率（ISO） |
-| `babip.py` | `compute_babip` | 場內球打擊率（打者／投手共用同一公式，見 §3.1 annotate.py 的 bug 修正說明） |
-| `bb_pct.py` | `compute_bb_pct` | 四壞率 |
-| `k_pct.py` | `compute_k_pct` | 三振率 |
-| `xbh.py` | `compute_xbh` | 長打數；三項分量全為 0/空才回傳 `None`，否則加總 |
-| `ab_per_hr.py` | `compute_ab_per_hr` | 每支全壘打打數 |
-| `go_ao.py` | `compute_go_ao` | 滾飛比 |
-| `sb_pct.py` | `compute_sb_pct` | 盜壘成功率（回傳 `fmt_avg` 字串） |
-| `p_per_pa.py` | `compute_p_per_pa` | 每打席用球數 |
+| `db/__init__.py` | 無函式 | 套件說明，不做 re-export；此層只讀寫資料表，不抓外部資料或計算統計。 |
+| `db/schema.py` | `init_db(conn)` | 建立 players、season_stats、game_logs、play-by-play、聯盟常數/影片快取表與索引；以可重複執行的 `CREATE IF NOT EXISTS` 和容錯 `ALTER TABLE` 做正向 migration。新增的 `lg_era` 欄位預設 0，會由 pitching constant loader 視為 cache miss 自動修復。 |
+| `db/season_stats.py` | `load_season_row(cur, mlb_id, year, team_name)` | 讀單一 `(球員, 年, 球隊)` 球季列並解析 JSON；不存在時回空 dict。 |
+|  | `save_season_row(cur, mlb_id, year, team_name, league_name, sport_level, stat_json, fielding_json)` | 以同一複合 key upsert 球季數據及守備 JSON。 |
+|  | `players_with_existing_stats(conn)` | 回傳已有 season_stats 的 MLB ID set；refresh 用它判定新球員是否必須完整回補。 |
+| `db/players.py` | `warn_orphaned_players(conn, roster_ids)` | 找出 DB 有但 roster 已移除的球員並印出警告/清理 SQL；只診斷，不自動刪除。 |
+|  | `get_cached_is_active(cur)` | 批次讀取 `{mlb_id: bool(is_active)}`，讓同步管線可跳過已知非現役球員。 |
+| `db/game_logs.py` | `load_all_pitches_for_player(cur, mlb_id)` | 合併玩家所有 `pitches_json` 成 `{(year, sport_level): pitches}`；舊列缺層級時只在可唯一推定時補入。 |
+| `db/bundles.py` | `load_player_bundle(cur, player_row)` | build 的主要讀取入口；建立 `(player, stats, logs)` 三元組，解析 JSON/date、計算年齡/status/headshot 層級、排序球季列，並相容沒有 `pitches_json` 的舊 DB。 |
+| `db/play_videos.py` | `save_play_videos(cur, game_pk, videos, now_iso)` | 將一場比賽的 play-level mp4 URL upsert 到 `play_videos`；不自行 commit。 |
+|  | `mark_content_processed(cur, game_pk, videos_found, now_iso)` | 記錄 `/content` 已處理及影片數；不自行 commit。 |
+|  | `content_fetch_candidates(cur, roster_ids, retry_cutoff_date)` | 回傳需要初抓或近期零影片重試的 MLB game PK。 |
+|  | `load_video_map(cur)` | build 時載入 `{game_pk: {play_id: mp4_url}}`；舊 schema 沒有表時安全回 `{}`。 |
 
-### 3.3 `stats/pitching/` — 投手計數型公式（一檔一函式）
+### 2.2 `league_constant/` — 聯盟環境供應層
 
-| 檔案 | 函式 | 說明 |
+這是唯一同時抓外部資料、計算環境值並寫 SQLite cache 的層。`stats/` 只接收已解
+出的常數，`db/` 只保留 schema 與一般 row access。
+
+| 檔案 | 所有函式 / method | 功能與定位 |
 |---|---|---|
-| `era.py` | `compute_era` | 防禦率 |
-| `whip.py` | `compute_whip` | WHIP |
-| `k_per_9.py` / `bb_per_9.py` / `h_per_9.py` / `hr_per_9.py` | `compute_k_per_9` / `compute_bb_per_9` / `compute_h_per_9` / `compute_hr_per_9` | 每 9 局率 |
-| `k_bb_ratio.py` | `compute_k_bb_ratio` | 三振四壞比 |
-| `p_per_ip.py` | `compute_p_per_ip` | 每局用球數 |
-| `rs_per_9.py` | `compute_rs_per_9` | 每 9 局得分支援 |
-| `strike_pct.py` | `compute_strike_pct` | 球季層級好球率（回傳 `fmt_avg` 字串，與 §3.5 pitch 層級的 `pitch_strike_pct` 是不同概念，各自模組docstring 有說明區分） |
-| `win_pct.py` | `compute_win_pct` | 勝率（回傳 `fmt_avg` 字串） |
-| `opponent_slash.py` | `annotate_opponent_slash(s)` | 對手三圍（p_avg/p_obp/p_slg/p_ops）合併在同一檔，因為 OPS 需要 OBP、SLG 的未捨入浮點數；只在欄位仍為 `None` 時才填入，且刻意在任一分量缺值時整項留白，避免用不完整資料算出偏低的對手 OBP。 |
-| `extension.py` | `compute_avg_extension` | 平均延伸（投手釋放點延伸，ft）；原本放在 `batted_ball/`，因非打擊球質指標而搬到這裡 |
+| `league_constant/__init__.py` | 無新函式 | Re-export batting/pitching resolver、one-shot helper 與 cache policy。 |
+| `league_constant/policy.py` | `should_use_cache(year, *, policy, force_refresh)` | 共用 cache 決策；`force_refresh` 永遠略過 cache，`ACCUMULATES_IN_SEASON` 對當季重抓，`FINAL_ONCE_PUBLISHED` 一旦有值即重用。`RefreshPolicy` 是 Enum，沒有自訂 method。 |
+| `league_constant/pitching.py` | `_load(conn, level, year)` | 讀 `{league_name: LeagueFipConstant}`；忽略 `lg_era <= 0` 的舊 cache row，促使自動重抓。 |
+|  | `_save(conn, level, year, data)` | upsert 每聯盟與 `""` 層級總體的 FIP constant + lgERA，並 commit。 |
+|  | `_fetch_and_compute(level, year)` | level→sportId，抓球隊 totals/league map，按聯盟及整層加總後呼叫 `compute_league_fip_constant()`。 |
+|  | `get_pitching_constants(conn, level, year, *, force_refresh=False)` | 單次查詢入口；依累積型 policy 讀 cache/重抓，失敗時退回舊 cache。 |
+|  | `PitchingConstants.__init__(conn, *, force_refresh=False)` | 建立單次 sync 使用的 resolver 與 `(level,year)` 記憶體 cache。 |
+|  | `PitchingConstants.for_level(level, year)` | 多 slice 查詢入口；同一次 sync 每個 `(level,year)` 最多解析一次。 |
+| `league_constant/batting.py` | `publishes_constants(level, year)` | 判斷 TJStats 是否涵蓋該層級/年度；render 也用它決定 wRC+ 欄位是否可能存在。 |
+|  | `_load_park_factors(conn, level, year)` | 讀一個 `(level,year)` 的球隊 park factors。 |
+|  | `_save_park_factors(conn, level, year, data)` | upsert park factors 並 commit。 |
+|  | `_get_park_factors(conn, level, year, *, force_refresh)` | 依 final-once-published policy 選 cache 或 scraper；空結果不覆蓋舊值。 |
+|  | `_load_league_constants(conn, year)` | 一次讀某年度所有層級/聯盟的 lg_wOBA、lg_R/PA。 |
+|  | `_save_league_constants(conn, year, data)` | upsert league constants 並 commit。 |
+|  | `_get_league_constants(conn, year, *, force_refresh)` | 依年度 cache 或抓取整張 TJStats league-constants 表。 |
+|  | `_join(level, pf_entries, lc_entries)` | 以 league 將每隊 park factor 與 lg_wOBA/lg_R/PA join 成 `{team_name: BattingConstant}`；缺聯盟常數的球隊略過。 |
+|  | `BattingConstants.__init__(conn, *, force_refresh=False)` | 建立 build-run resolver；分開 memoize `(level,year)` park factors 與年度 league constants。 |
+|  | `BattingConstants.for_level(level, year)` | 多 slice 查詢入口；未涵蓋範圍回 `{}`，否則回每隊完整 wRC+ 環境。 |
+|  | `get_batting_constants(conn, level, year, *, force_refresh=False)` | one-shot 等價入口；只查單一 slice 時使用。 |
 
-### 3.4 `stats/discipline/` — 打擊紀律（pitch 層級聚合）
-
-`__init__.py` 的 `discipline_metrics(agg)` 彙整以下 8 個函式（吃 `aggregate_pitches` 的輸出）：
-`compute_csw_pct`、`compute_o_swing_pct`、`compute_swing_pct`、`compute_swstr_pct`、
-`compute_whiff_pct`、`compute_z_contact_pct`、`compute_z_swing_pct`、`compute_zone_pct`。
-
-另外 3 個檔案**不在** `discipline_metrics()` 的彙整範圍內，但都經 grep 確認被
-`stats/tables/` 底下的球種細分表直接引用，屬於刻意的架構分工（球季總彙整 vs.
-球種層級細分表），並非死代碼：
-
-| 檔案 | 函式 | 使用位置 |
-|---|---|---|
-| `put_away.py` | `compute_put_away(pitches)` → `(put_away_pct, two_strike_count)` | docstring 明寫「之前是三處重複的同一段迴圈」；現用於 `tables/arsenal.py`、`tables/outcomes.py`、`tables/vs_pitch_types.py` |
-| `z_whiff_pct.py` | `compute_z_whiff_pct(agg)` | 用於 `tables/outcomes.py`，並被 `tab_advanced.j2:409`、`m_advanced.j2:338` 兩個模板直接引用 |
-| `pitch_strike_pct.py` | `compute_pitch_strike_pct(pitches)` | pitch 層級好球率，用於多張球種細分表 |
-
-### 3.5 `stats/batted_ball/` — 打擊球質
-
-| 檔案 | 函式 | 說明 |
-|---|---|---|
-| `barrel.py` | `compute_barrel_pct` / `is_barrel(ev, la)` | Statcast 標準桶身球定義（98 mph 起跳，仰角窗隨球速線性放寬，116 mph 兩端封頂） |
-| `hard_hit.py` | `compute_hard_hit_pct` / `is_hard_hit(ev)` | 硬擊球（EV ≥ 95 mph） |
-| `sweet_spot.py` | `compute_sweet_spot_pct` / `is_sweet_spot(la)` | 甜蜜點仰角區間 8°–32° |
-| `exit_velocity.py` | `compute_avg_ev` / `compute_max_ev` / `compute_ev90` | 平均／最大／90 百分位擊球初速；`compute_ev90` 註解說明樣本數 < 10 顆時會跟 TJStats 對不上 |
-| `launch_angle.py` | `compute_avg_la` | 平均擊球仰角 |
-| `hr_fb.py` | `compute_hr_fb_pct` | HR/FB%（投手專用） |
-| `spray.py` | `spray_direction_from_coordinates` / `spray_direction_from_location`（座標缺失時的備援） / `compute_spray` | 依 Gameday 250×250 像素噴射圖座標算出拉打／中外野／反方向分類，含詳細中文註解說明座標系換算公式與 0.75 透視修正係數的來源（The Hardball Times, 2017） |
-| `__init__.py` | `batted_ball_metrics(agg)` | 組裝 `bbe`/`gb_pct`/`ld_pct`/`fb_pct`/`pu_pct`/`air_pct`/拉打噴射欄位（若座標資料可用才填）/`barrel_pct`/`hard_hit_pct`/`avg_ev`，是投手與打者共用的組裝函式；`hr_fb_pct` 因為是投手專用欄位，不在這裡組裝，而是在 `pitcher_statcast.py` 裡單獨呼叫（`avg_extension` 現已移至 `stats/pitching/extension.py`，見 §3.3） |
-
-### 3.6 `stats/advanced/` — 需要年度常數或外部資料的統計
-
-`__init__.py` 註明這裡是「開季要重新檢視」的模組，常數都在 `constants.py` §2。
-
-| 檔案 | 內容 |
-|---|---|
-| `woba.py` | `compute_pitch_woba(totals)`：吃 `compute_pa_outcome_totals` 的結果算 wOBA。`compute_season_woba(stat)`：從球季計數型數據算 wOBA（供 `wrc_plus.py` 使用），故意排除故意四壞的非故意部分之外的量，對齊 TJStats 定義。 |
-| `fip.py` | `compute_fip(hr, bb, hbp, k, ip, c_fip=None)`：MiLB 用的 FIP 公式，本身不做任何 I/O，常數需由呼叫端經 `db.fip_constants_cache` 解出後傳入 `c_fip`，解不出來才退回 `FIP_DEFAULT_CONSTANT`（舊文件點名的「dead 參數」`year`/`sport_level` 已移除）。`compute_league_fip_constant(totals)`：反向代數解出聯盟 FIP 常數（`C = 聯盟ERA − (13HR+3(BB+HBP)−2K)/IP`），取代舊版手抄、容易過時的常數表。 |
-| `xwpct.py` | `compute_xwpct(fip, sport_level, year=None)`：Pythagenpat 公式（指數 1.83），用 `constants.get_league_ra9` 查該等級年度聯盟 RA/9。 |
-| `wrc_plus.py` | `compute_wrc_plus(woba, pf_final, lg_woba, lg_r_pa)`：TJStats glossary 公式。`annotate_wrc_plus(bundles, conn, force_refresh=False)`：build 時針對每位非投手球員，依 `(year, sport_level)` 分組，用 **PA 最多的那筆列**決定該組要套用哪個球隊的球場係數／聯盟常數（模仿 TJStats 處理球季內轉隊球員的方式），MLB 列寫入 `wrc_plus_calc`（不覆蓋 API 原生 `wrc_plus`），非 MLB 列直接寫入 `wrc_plus`（模板實際渲染的欄位）。 |
-
-### 3.7 `stats/tables/` — 球種細分表（一表一檔）
-
-每個檔案都有一對函式：`compute_*`（sync 時依單一等級的 pitch 清單算出）與
-`combine_*`（build 時跨等級合併）。
-
-| 檔案 | 內容 |
-|---|---|
-| `weighted.py` | `combine_pitch_type_data(entries, sc_key, rate_fields, include_pct)`：共用的「依球數加權平均」合併器，被下面所有球種表的 `combine_*` 共用；`put_away_pct` 一律另外用 `two_strike_count` 加權。 |
-| `arsenal.py` | `compute_pitch_arsenal`（投手球種：球速/位移/轉速/延伸/進壘點＋好球率/引誘率/揮空率/致勝率/wOBA）/ `combine_pitch_arsenal` |
-| `outcomes.py` | `compute_pitch_outcomes`（投手球種結果面：好球率/區內揮空率/引誘率/揮空進好球率/CSW/致勝率/對手打擊率/wOBA/桶身率/硬擊率）/ `combine_pitch_outcomes` |
-| `vs_pitch_types.py` | `compute_vs_pitch_types`（打者對各球種的表現，同時排除 `BATTER_PLINKO_SKIP_TYPES={"EP","FA"}` 這類代打投球的雜訊球種，並在有具名球種時丟棄 UN 桶）/ `combine_vs_pitch_types` |
-| `usage_by_count.py` | `compute_pitch_usage_by_count`（依球數優劣勢分桶統計球種配比）/ `combine_pitch_usage_by_count` |
-| `bat_side_splits.py` | `compute_pitcher_bat_side_splits`（all/L/R 三份球種表）/ `combine_pitcher_bat_side_splits`（對舊資料缺 splits 欄位時 fallback 到頂層表當作 "all" split） |
-
-### 3.8 統計彙整入口與跨等級合併
-
-| 檔案 | 內容 |
-|---|---|
-| `pitcher_statcast.py` | `compute_pitcher_statcast(pitches)`：投手球季 Statcast 彙整入口，串接 `aggregate_pitches` → `compute_pa_outcome_totals` → `compute_pitcher_bat_side_splits` → 球路位移圖 (`graph.movement`) → Pitch Plinko (`graph.plinko`) → `discipline_metrics` → `batted_ball_metrics`，外加投手專屬的 `hr_fb_pct`/`avg_extension`。 |
-| `batter_statcast.py` | `compute_batter_statcast(pitches)`：打者球季 Statcast 彙整入口，結構對稱但額外算 `max_ev`/`ev90`/`avg_la`/`swsp_pct`/`vs_pitch_types`，Pitch Plinko 依 `pitch_hand` 分 split 且排除 `BATTER_PLINKO_SKIP_TYPES`。 |
-| `combine.py` | `combine_statcast_dicts(entries)`：舊 `builder.py` 跨等級合併邏輯的新家。分母就是總球數的欄位用 `total_pitches` 加權，`whiff_pct`／`z_swing_pct`／`o_swing_pct`／`z_contact_pct` 則使用各自的 `*_den` 真實分母加權（舊快取缺分母時相容退回總球數）；BBE 類欄位用 `bbe`、wOBA 類用 `pa_count`。`max_ev` 用 `max()` 而非平均，並把球種表、Pitch Plinko 與球路位移委派給各自的 `combine_*` 函式。 |
+`BattingConstant` 與 `LeagueFipConstant` 是 `NamedTuple` 資料載體，沒有自訂 method。
+cache `_save*` helper 會自行 commit；一般 `db/play_videos.py` cursor 寫入函式則由
+外層 transaction 決定 commit 時機。
 
 ---
 
-## 4. sync/ — 資料同步管線
+## 3. stats/ — 統計計算
 
-`__init__.py` re-export `sync_database`/`update_database`（來自 `.players`）、
-`sync_statcast`（來自 `.statcast`）。整個套件分兩條管線：
+`stats/__init__.py` 本身無函式，只描述套件哲學。這一層不做 I/O；FIP、xWPCT、
+wRC+ 所需的聯盟環境皆由 `league_constant/` 解析後以參數傳入。
 
-### 4.1 Pipeline A — `players.py`（基礎數據同步）
+### 3.1 `stats/core/` — 共用資料模型與聚合
 
-- `_is_first_sync(mlb_id, synced_ids)`：判斷是否為該球員第一次同步。
-- `_fetch_player_data(pconf, year, fetch_all_years)`：thread-safe 的純抓取 worker；對已知非現役／退休球員有特殊處理（重複執行時跳過重量級請求，但首次回補仍會完整抓取）。
-- `_write_player_to_db(conn, bundle, year)`：寫入 `players` 表；把 yearByYear + seasonAdvanced 寫進 `season_stats`（`fielding` 分割的 `gp` 特殊處理，避免蓋掉打擊/投球的 `gp`）；用依 `level_rank` 排序的 SQL `CASE` 更新球員目前等級/球隊；寫入 `game_logs`；寫入 `next_game` 快照。
-- `_run_pipeline(db_path, roster_file, year, only_player, fetch_all_years, mode_label)`：兩階段（`ThreadPoolExecutor(max_workers=PLAYER_FETCH_WORKERS)` 平行抓取 → 循序寫入資料庫）；已知 `is_active=False` 的球員會跳過，除非是首次同步或指定 `--player`。
-- `sync_database` / `update_database`：對外入口，分別是 `fetch_all_years=True`/`False` 的薄包裝。
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `core/__init__.py` | 無函式 | 共用核心套件標記。 |
+| `core/innings.py` | `ip_to_outs(ip_value)` | 把棒球局數記法（`7.2` = 7⅔ 局）轉為 outs；所有投手率先走這裡。 |
+|  | `outs_to_ip(outs)` | 把 outs 轉回棒球局數記法。 |
+| `core/formatting.py` | `fmt_avg(value)` | 格式化棒球小數，`0.333 → ".333"`；`None` 原樣保留。 |
+| `core/selectors.py` | `has_appearance(stat)` | gp/pa/ab/bf/IP 任一大於 0 即視為真正出賽。 |
+|  | `highest_level_row(stats)` | 優先從有出賽列中依 `level_rank` 找最高層級列；全無出賽才退回所有列。 |
+|  | `highest_level(stats)` | 回傳最高層級的 canonical tier key，而非時代顯示字串。 |
+| `core/pa_outcomes.py` | `compute_pa_outcome_totals(pa_final)` | 從打席結束球彙整 wOBA numerator/denominator、hits、AB；排除故意四壞、犧牲觸擊與非 PA 跑壘事件。 |
+| `core/aggregate.py` | `sum_counting(stats, result)` | 依 `COUNTING_FIELDS` 加總；全部為 `None` 才保留 `None`，否則缺值視為 0。會修改 `result`。 |
+|  | `compute_rate_stats(agg)` | 從合計列重算 AVG/OBP/SLG/OPS 與 ERA/WHIP；會修改 `agg`。 |
+|  | `aggregate_stats(stats)` | 建立新 `Obj`，加總 counting stats、以 outs 正確合併 IP，再計算 rate stats。 |
+| `core/annotate.py` | `_fill(s, field, value)` | value 非 `None` 才寫入欄位；是衍生欄位的共同 guard。 |
+|  | `annotate_row(s)` | 在單列缺值時補打者/投手衍生數據，絕不覆蓋 API 既有值；會修改輸入列。 |
+|  | `annotate_computed_stats(all_stats)` | 為每列設定 `np = pitches` 並呼叫 `annotate_row()`；回傳同一列表。 |
+| `core/career.py` | `compute_career(stats, level_filter=None)` | 跨球季合計，選擇性篩 MLB/MiLB；附球隊清單與年份範圍。 |
+|  | `compute_season_combined(stats, year)` | 同一年跨球隊/層級計數合計。 |
+|  | `compute_year_groups(all_stats)` | 組成最近年度優先的 `{year, summary, rows, multi}`，供模板顯示年度總列與逐隊列。 |
+| `core/pitches.py` | `is_swing(p)` / `is_whiff(p)` / `is_called_strike(p)` | 依 MLB result code 判斷揮棒、揮空、主審好球。 |
+|  | `is_in_zone(p)` / `is_out_of_zone(p)` | 依 zone 1–9 / 11–14 分類；缺 zone 兩者皆 False。 |
+|  | `is_unknown_pitch_type(pitch_type, pitch_name=None)` | 判斷空值、UN、UNKNOWN placeholder。 |
+|  | `filter_known_pitch_events(pitches)` | 球種細分表的共同前處理：剔除未知球種事件。 |
+|  | `pre_count_tuple(p)` / `post_count_tuple(p)` | 安全取得投球前/後 `(balls, strikes)`；不完整或無法轉 int 時回 `None`。 |
+|  | `count_label(count)` | `(balls, strikes)` 轉 `"B-S"`。 |
+|  | `ensure_pre_strikes(pitches)` | 為舊快取逐球回填 `pre_balls/pre_strikes`；依 game/PA 邊界重置，會原地修改 pitch dict。 |
+|  | `aggregate_pitches(pitches)` | 單次掃描建立 swings、whiffs、zone、in-play、PA-final、BBE、球路類型、barrel/hard-hit 與 spray 等共用聚合。 |
 
-### 4.2 Pipeline B — `statcast.py`（進階數據同步）
+### 3.2 `stats/batting/` — 打者球季公式
 
-- `_fetch_and_extract_game(game_pk, players_in_game)`：抓單場 live-feed 並依球員抽取 pitch 清單，含角色 fallback（投打身份不明或雙向球員時，先試某個角色抽不到就試另一個）。
-- `_pitches_need_hit_coord_backfill(pitches)`：判斷是否需要回補打擊座標。
-- `_merge_statcast_into_season(cur, mlb_id, year, position, statcast_data, fip_constants_lookup, sport_level, sabermetrics, expected_stats)`：全模組最複雜的函式。只把 statcast/sabermetrics/expected-stats 寫進**對應的 sport_level 那一列**（防止同年多隊時寫錯列）；MiLB 用解出的 `c_fip` 算 FIP；MLB 用 sabermetrics 算 FIP+xFIP+WAR+xwpct；**WAR/wRC+ 只寫進該年第一筆 MLB 列**（用 `saber_written` 旗標控制），並附中文註解說明原因：wRC+ 與 WAR 是整季合計數值，若每支球隊記錄都各寫一次會造成轉隊球員的數字重複顯示。
-- `_compute_player_statcast_bundle(mlb_id, db_path, position)`：平行 worker，各自開自己的唯讀 SQLite 連線，抓 sabermetrics（僅當該球員有 MLB 資料時）＋expectedStats（全等級皆抓），並呼叫 `compute_pitcher_statcast`/`compute_batter_statcast`。
-- `sync_statcast(db_path, roster_file, year, only_player, update_constants)`：完整 6 階段管線：① 用輕量 live-feed 呼叫回補舊資料缺的 `sport_level` → ② 建立「尚未抓取」的 (球員, 比賽) 對照表 → ③ 平行抓取＋抽取 → ④ 寫入 pitch log（**空結果寫入 JSON `null` 而非 `[]`**，避免下次誤判為「已抓過但確實是空」而無限重抓）＋標記 `playbyplay_processed` → ⑤ 平行計算＋API 抓取後循序寫回資料庫。單次執行內用一個記憶體字典 `fip_constants_cache` 避免同一個 `(level, year)` 組合被每個球員各自重抓一次。最後第 6 階段呼叫 `fetch_highlight_videos`，從 MLB `/content` endpoint 快取 play-level mp4 highlight；Baseball Savant 影片則不在 Python build 期預抓，改由前端按需解析。
+`batting/__init__.py` 無函式。下列函式都是小型純函式；分母無效或必要輸入缺失時
+回 `None`，避免模板把「不可計算」誤顯示為 0。
 
-### 4.3 支援模組
+| 檔案 | 唯一函式 | 公式 / 定位 |
+|---|---|---|
+| `ab_per_hr.py` | `compute_ab_per_hr(ab, hr)` | AB ÷ HR。 |
+| `avg.py` | `compute_avg(hits, ab)` | H ÷ AB。 |
+| `babip.py` | `compute_babip(hits, hr, ab, so, sac_flies=0)` | `(H−HR)/(AB−SO−HR+SF)`；打者與投手對手 BABIP 共用。 |
+| `bb_pct.py` | `compute_bb_pct(bb, plate_appearances)` | BB ÷ PA。 |
+| `go_ao.py` | `compute_go_ao(ground_outs, air_outs)` | GO ÷ AO。 |
+| `iso.py` | `compute_iso(slg, avg)` | SLG − AVG。 |
+| `k_pct.py` | `compute_k_pct(so, plate_appearances)` | SO ÷ PA/BF，由呼叫端決定分母語意。 |
+| `obp.py` | `compute_obp(hits, bb, hbp, ab, sac_flies)` | `(H+BB+HBP)/(AB+BB+HBP+SF)`。 |
+| `ops.py` | `compute_ops(obp, slg)` | OBP + SLG。 |
+| `p_per_pa.py` | `compute_p_per_pa(pitches, plate_appearances)` | 用球數 ÷ PA/BF。 |
+| `sb_pct.py` | `compute_sb_pct(sb, cs)` | SB ÷ (SB+CS)，回傳棒球小數字串。 |
+| `slg.py` | `compute_slg(tb, ab)` | TB ÷ AB。 |
+| `xbh.py` | `compute_xbh(doubles, triples, hr)` | 2B + 3B + HR；三項皆為 0/空時回 `None`。 |
 
-| 檔案 | 內容 |
+### 3.3 `stats/pitching/` — 投手球季與出手點公式
+
+`pitching/__init__.py` 無函式。
+
+| 檔案 | 所有函式 | 公式 / 定位 |
+|---|---|---|
+| `era.py` | `compute_era(earned_runs, ip_actual)` | `9×ER/IP`；`ip_actual` 必須是真實分數局數。 |
+| `whip.py` | `compute_whip(hits_allowed, bb, ip_actual)` | `(H+BB)/IP`。 |
+| `k_per_9.py` | `compute_k_per_9(so, ip_actual)` | `9×SO/IP`。 |
+| `bb_per_9.py` | `compute_bb_per_9(bb, ip_actual)` | `9×BB/IP`。 |
+| `h_per_9.py` | `compute_h_per_9(hits_allowed, ip_actual)` | `9×H/IP`。 |
+| `hr_per_9.py` | `compute_hr_per_9(hr_allowed, ip_actual)` | `9×HR/IP`。 |
+| `k_bb_ratio.py` | `compute_k_bb_ratio(so, bb)` | SO ÷ BB。 |
+| `p_per_ip.py` | `compute_p_per_ip(pitches, ip_actual)` | pitches ÷ IP。 |
+| `rs_per_9.py` | `compute_rs_per_9(run_support, ip_actual)` | `9×run_support/IP`。 |
+| `strike_pct.py` | `compute_strike_pct(strikes, pitches)` | 球季 API strikes ÷ pitches，回棒球小數字串；不同於逐球 `compute_pitch_strike_pct()`。 |
+| `win_pct.py` | `compute_win_pct(wins, losses)` | W ÷ (W+L)，回棒球小數字串。 |
+| `extension.py` | `compute_avg_extension(pitches)` | 平均非空 extension（ft）。 |
+| `opponent_slash.py` | `annotate_opponent_slash(s)` | 從投手對手 counting stats 補 `p_avg/p_obp/p_slg/p_ops`；任一必要分量不足就保留空值，會修改輸入列。 |
+| `release_point.py` | `_origin_plane(p)` | 讀逐球 `y0` 軌跡原點；舊資料退回 50 ft 常數。 |
+|  | `_at_plane(p, y_target)` | 解二次軌跡在指定 y 平面的 `(x,z)`；欄位不全或無有效根回 `None`。 |
+|  | `compute_release_point(p)` | 用 extension 定出真正出手平面並回單球 `(h_rel,v_rel)`；缺 extension 不估算。 |
+|  | `compute_avg_release_point(pitches)` | 平均一組球的出手點；整組皆無 extension 時才統一退回正規化 50 ft 平面。 |
+
+### 3.4 `stats/discipline/` — 打擊紀律
+
+| 檔案 | 唯一函式 | 分子 / 分母與用途 |
+|---|---|---|
+| `discipline/__init__.py` | `discipline_metrics(agg)` | 組裝球季紀律指標，並保存各率真實 denominator 欄位。 |
+| `csw_pct.py` | `compute_csw_pct(agg)` | (called strikes + whiffs) ÷ total pitches。 |
+| `o_swing_pct.py` | `compute_o_swing_pct(agg)` | zone 外揮棒 ÷ zone 外球。 |
+| `pitch_strike_pct.py` | `compute_pitch_strike_pct(pitches)` | 依逐球結果/zone 判斷好球 ÷ pitches；供球種表與打者 Statcast。 |
+| `put_away.py` | `compute_put_away(pitches)` | 兩好球後造成三振的比例；回 `(put_away_pct, two_strike_count)`。 |
+| `swing_pct.py` | `compute_swing_pct(agg)` | swings ÷ total pitches。 |
+| `swstr_pct.py` | `compute_swstr_pct(agg)` | whiffs ÷ total pitches。 |
+| `whiff_pct.py` | `compute_whiff_pct(agg)` | whiffs ÷ swings。 |
+| `z_contact_pct.py` | `compute_z_contact_pct(agg)` | zone 內接觸 ÷ zone 內揮棒。 |
+| `z_swing_pct.py` | `compute_z_swing_pct(agg)` | zone 內揮棒 ÷ zone 內球。 |
+| `z_whiff_pct.py` | `compute_z_whiff_pct(agg)` | zone 內揮空 ÷ zone 內揮棒；主要供球種 outcomes 表。 |
+| `zone_pct.py` | `compute_zone_pct(agg)` | zone 內球 ÷ total pitches。 |
+
+### 3.5 `stats/batted_ball/` — 擊球品質與方向
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `batted_ball/__init__.py` | `batted_ball_metrics(agg)` | 組裝 BBE、GB/LD/FB/PU/air、spray、barrel、hard-hit、avg EV 等打者/投手共用欄位。 |
+| `barrel.py` | `compute_barrel_pct(agg)` | barrels ÷ 有 EV 的 BBE。 |
+|  | `is_barrel(ev, la)` | 依 Statcast 98 mph 起跳、隨 EV 放寬且 116 mph 封頂的角度窗判定單球 barrel。 |
+| `hard_hit.py` | `compute_hard_hit_pct(agg)` | hard hits ÷ 有 EV 的 BBE。 |
+|  | `is_hard_hit(ev)` | EV ≥ 95 mph。 |
+| `exit_velocity.py` | `compute_avg_ev(bbe_ev)` | 平均 EV。 |
+|  | `compute_max_ev(bbe_ev)` | 最大 EV。 |
+|  | `compute_ev90(bbe_ev)` | EV 第 90 百分位；排序後依現有離散 index 取實際觀測值，不做插值。 |
+| `launch_angle.py` | `compute_avg_la(la_values)` | 平均 launch angle。 |
+| `sweet_spot.py` | `is_sweet_spot(la)` | 8°–32° 判定。 |
+|  | `compute_sweet_spot_pct(la_values)` | sweet-spot 球數 ÷ 有 LA 的球數。 |
+| `hr_fb.py` | `compute_hr_fb_pct(pa_final, fb_count)` | PA-final HR ÷ fly balls；投手專用。 |
+| `spray.py` | `spray_direction_from_location(p)` | 缺 hit coordinate 時，以 `hit_location` zone 備援判斷 pull/center/opposite。 |
+|  | `spray_direction_from_coordinates(p)` | 將 Gameday `(coord_x,coord_y)` 經透視修正換成噴射角度方向。 |
+|  | `compute_spray(in_play)` | 優先座標、再用 location 分類，回各方向 count/rate 與可用樣本數。 |
+
+### 3.6 `stats/advanced/` — 需要年度/聯盟常數的統計
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `advanced/__init__.py` | 無函式 | 標記需要聯盟環境或固定公式常數的統計；環境值仍由外層傳入，套件內不做 I/O。 |
+| `advanced/fip.py` | `compute_fip(hr, bb, hbp, k, ip, c_fip=None)` | 純函式 FIP；棒球 IP 先轉 outs，未傳常數才用本模組的 `FIP_DEFAULT_CONSTANT` 最終 fallback。回 full precision。 |
+|  | `compute_league_fip_constant(totals)` | 從聯盟 HR/BB/HBP/K/ER/outs 同時計算 lgERA 並反解 FIP constant，回 `LeagueFipConstant(fip_constant, lg_era)`；無有效局數回 `None`。 |
+| `advanced/woba.py` | `compute_pitch_woba(totals)` | 從 `compute_pa_outcome_totals()` 結果算逐球 wOBA。 |
+|  | `compute_season_woba(stat)` | 從球季 counting stats 算 wOBA；故意四壞從 numerator/denominator 排除。 |
+| `advanced/xwpct.py` | `compute_xwpct(fip, lg_era)` | 用同一批聯盟投球 totals 算出的 lgERA 與固定 1.83 指數計算預期勝率；任一輸入缺失/非正數回 `None`，不再查表或套用預設 run environment。 |
+| `advanced/wrc_plus.py` | `compute_wrc_plus(woba, pf_final, lg_woba, lg_r_pa)` | 套用 TJStats 公式與 park-factor midpoint，回整數 wRC+。 |
+|  | `annotate_wrc_plus(bundles, batting_lookup)` | 接受 `BattingConstants.for_level` 類 callback，原地補入每列及同層轉隊合計 wRC+；本身不碰 network/DB，也不寫回 season_stats。 |
+|  | `annotate_wrc_plus._wrc_plus_of(stat_row, env=env)` | closure；以該 `(year,level)` 主球隊已解析的 `BattingConstant` 計算單列或聚合列 wRC+。 |
+
+### 3.7 `stats/tables/` — 球種與 split 表
+
+現在沒有 `combine_*` 或 `weighted.py`。跨層級顯示由
+`render.pages._build_statcast_entries()` 合併同年度原始 pitches，再重新呼叫
+`compute_pitcher_statcast()` / `compute_batter_statcast()`；因此不同欄位的分母與
+EV90 等百分位不會被錯誤加權。
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `tables/__init__.py` | 無函式 | 球種細分表套件標記。 |
+| `tables/splits.py` | `compute_pitch_splits(pitches, split_specs, split_field, table_fns)` | 通用 all/L/R 等 split 組裝器；過濾指定欄位後對每個 table function 計算 payload。 |
+| `tables/arsenal.py` | `compute_pitch_arsenal(pitches)` | 投手逐球種物理/結果表：usage、velo、IVB/HB、spin、extension、release、zone/chase/whiff/put-away、wOBA。 |
+| `tables/outcomes.py` | `compute_pitch_outcomes(pitches)` | 投手逐球種結果表：strike、z-whiff、chase、SwStr、CSW、put-away、AVG/wOBA、barrel、hard-hit。 |
+| `tables/bat_side_splits.py` | `compute_pitcher_bat_side_splits(pitches)` | 透過 `compute_pitch_splits()` 建立投手對 all/L/R 打者的 arsenal、outcomes、count usage。 |
+| `tables/usage_by_count.py` | `_compute_usage_by_count(pitches, key_fn, ordered_keys=None)` | 球數情境 × 球種/球種群組的共用 cross-tab 核心。 |
+|  | `compute_pitch_usage_by_count(pitches)` | 逐球種在各 count bucket 的數量與使用率。 |
+|  | `compute_pitch_usage_by_count.key_fn(p)` | closure；把 pitch 映射為 `(pitch_type,pitch_name)`。 |
+|  | `compute_pitch_group_usage_by_count(pitches)` | 將球種捲成 fastball/breaking/offspeed 後計算 count usage。 |
+|  | `compute_pitch_group_usage_by_count.key_fn(p)` | closure；排除雜訊球種並映射至固定球種群組。 |
+| `tables/vs_pitch_types.py` | `_compute_pitch_bucket_row(key, name, ps)` | 球種與球種群組共用的打者表單列計算，避免欄位定義漂移。 |
+|  | `compute_vs_pitch_types(pitches)` | 打者對逐球種的 discipline、AVG/wOBA 與 contact-quality 表。 |
+|  | `compute_vs_pitch_groups(pitches)` | 同一組指標捲成 fastball/breaking/offspeed。 |
+|  | `compute_batter_pitch_hand_splits(pitches)` | 建立打者對 all/L/R 投手的球種、球種群組與 count usage 表。 |
+
+### 3.8 Statcast 彙整入口
+
+| 檔案 | 唯一函式 | 功能與定位 |
+|---|---|---|
+| `stats/pitcher_statcast.py` | `compute_pitcher_statcast(pitches)` | 投手球季入口：先回填 count、聚合 pitches/PA，再組裝 wOBA against、HR/FB、extension、bat-side tables、Plinko、movement、discipline 與 batted-ball metrics。空輸入回 `{}`。 |
+| `stats/batter_statcast.py` | `compute_batter_statcast(pitches)` | 打者球季入口：組裝逐球 strike%、wOBA、max EV/EV90/LA/sweet spot、球種/球種群組、pitch-hand splits、Plinko、discipline 與 batted-ball metrics。空輸入回 `{}`。 |
+
+---
+
+## 4. sync/ — 同步管線
+
+### 4.1 套件入口與欄位映射
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `sync/__init__.py` | 無新函式 | Re-export `sync_database`、`update_database`、`sync_statcast`。 |
+| `sync/field_maps.py` | `apply_yearbyyear_fields(stat_doc, group_name, stat)` | 把 yearByYear API camelCase 欄位安全轉型並寫入內部 snake_case schema；處理 hitting/pitching，fielding 由 `sync/players.py` 另行保存。 |
+|  | `apply_advanced_fields(stat_doc, group_name, stat)` | 把 seasonAdvanced 特有欄位補入同一 stat dict。 |
+
+### 4.2 `sync/players.py` — 基礎資料同步
+
+| 函式 | 功能與定位 |
 |---|---|
-| `extract.py` | `_extract_runners(play)`：濃縮跑壘/守備功勞資料。`_condense_defense`/`_condense_offense`/`_condense_nonpitch_event`/`_pa_context`：4 個小 condenser，分別濃縮守備站位、攻方壘況、牽制/踏板事件、打席最終 WP/LI/drama 等 withMetrics 新節點。`extract_pitch_logs(game_data, player_id, role)`：走訪 withMetrics JSON，回傳 `(pitches, nonpitch_events)` 2-tuple——`pitches` 定義了 `game_logs.pitches_json` 快取 schema（含球種/結果/好壞球/好球帶座標/位移/轉速/擊球初速仰角/落點座標/計數/跑壘者，加上這次新增的 `play_id`/`pitch_number`/`sz_*`/`break_vertical`/`defense`/`offense`/PA-final WP/LI/drama 等約 25 個新欄位，共約 75 個欄位）；`nonpitch_events` 定義了 `game_logs.events_json` schema（`pickoff`/`stepoff` 非投球事件）。 |
-| `field_maps.py` | `apply_yearbyyear_fields`（約 45 個投手欄位、25 個打者欄位，API camelCase → 內部 snake_case，經 `safe_float`/`safe_int`）、`apply_advanced_fields`（seasonAdvanced 專屬欄位：roe/wo/gidpo/xbh/babip/pitches_per_pa 等）。 |
+| `_is_first_sync(mlb_id, synced_ids)` | 該 ID 尚無 season_stats 即為首次同步；refresh 也要為新球員完整回補。 |
+| `_fetch_player_data(pconf, year, fetch_all_years=True)` | thread worker；只做 API 抓取與 bundle 組裝，不寫 DB。完整模式抓所有 game-log 年份，快速模式只抓當年。 |
+| `_write_player_to_db(conn, bundle, year)` | 單一玩家的序列寫入：players、season_stats、game_logs、next_game，並處理 fielding gp 與目前最高層級/球隊。 |
+| `_run_pipeline(db_path, roster_file, year, only_player=None, fetch_all_years=True, mode_label="Sync")` | 共用 orchestration：初始化 DB、判斷首次/非現役、平行抓玩家、主執行緒逐一寫入。 |
+| `sync_database(db_path, roster_file, year, only_player=None)` | 完整歷史同步薄包裝，`fetch_all_years=True`。 |
+| `update_database(db_path, roster_file, year, only_player=None)` | 日常快速更新薄包裝，僅更新當年 game logs。 |
+
+### 4.3 `sync/extract.py` — live-feed 精簡 schema
+
+| 函式 | 功能與定位 |
+|---|---|
+| `_extract_runners(play)` | 濃縮 PA-final runners movement 與守備 credit。 |
+| `_condense_defense(d)` | 保留守備站位/球員必要欄位，移除 API boilerplate。 |
+| `_condense_offense(d)` | 保留壘上進攻球員必要欄位。 |
+| `_condense_nonpitch_event(ev, play)` | 將 pickoff/stepoff 等非投球事件轉成 `events_json` schema。 |
+| `_pa_context(play)` | 擷取 PA-final WP、LI、drama 與上下文欄位。 |
+| `extract_pitch_logs(game_data, player_id, role)` | 單次走訪 live feed，依 pitcher/batter 身分回傳 `(pitches, nonpitch_events)`；此函式定義 `pitches_json` 與 `events_json` 的實際欄位契約。 |
+
+### 4.4 `sync/statcast.py` — 逐球與進階數據管線
+
+| 函式 | 功能與定位 |
+|---|---|
+| `_fetch_and_extract_game(game_pk, players_in_game)` | 每場只抓一次 live feed，為所有相關球員抽 pitches/events，並回 sport level；必要時嘗試另一角色。 |
+| `_same_level(a, b)` | 透過 `resolve_tier()` 比較現代/歷史層級拼法；無法解析才退回字串相等。 |
+| `_pitches_need_hit_coord_backfill(pitches)` | 判斷舊快取是否有 in-play 球缺 hit coordinates，需要重抓 live feed。 |
+| `_merge_statcast_into_season(cur, mlb_id, year, position, statcast_data, fip_constants_lookup, sport_level="", sabermetrics=None, expected_stats=None)` | 將單一 `(year,level)` Statcast 合併進正確 season_stats 列；lookup 回 `LeagueFipConstant`。MiLB 優先用所屬聯盟 FIP constant、失敗退整層；MLB FIP 仍取 API。兩者 xWPCT 都使用整層 `lg_era`，並把它存回 stat JSON。 |
+| `_compute_player_statcast_bundle(mlb_id, db_path, position)` | 平行唯讀 worker；載入玩家 pitches、抓 MLB saber/expected stats，逐 `(year,level)` 呼叫投手或打者 Statcast 入口。 |
+| `fetch_highlight_videos(conn, roster_ids, *, now_iso=None)` | 找 `/content` 候選、抓取/抽取影片、寫 play video 與 processed cache；回新增/更新影片數。 |
+| `sync_statcast(db_path, roster_file, year, only_player=None, update_constants=False)` | 對外總入口：建立 `PitchingConstants` resolver → 回補 level/coordinates → 找未處理比賽 → 平行抓與抽取 → 寫 pitch cache → 平行重算玩家 Statcast → 以 `for_level` merge season rows → 抓 highlights。 |
 
 ---
 
 ## 5. render/ — 靜態網站渲染
 
-`__init__.py` re-export `build_static_site`（來自 `.pages`）。
+### 5.1 Jinja 環境、filters 與 URL
 
-| 檔案 | 內容 |
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `render/__init__.py` | 無新函式 | Re-export `build_static_site`。 |
+| `render/env.py` | `create_jinja_env(template_dir=None, base_url="/", site_origin="https://tingruih.github.io")` | 建立 Jinja environment，註冊顯示 filters、level helper、相對/絕對 URL、headshot 與站台 globals。 |
+| `render/filters.py` | `floatformat(value, digits=2)` | 固定位數格式，`None` 顯示 `-`。 |
+|  | `default_if_none(value, fallback="-")` | 只在 `None` 時套 fallback，不把合法的 0 當空。 |
+|  | `num_dash(value)` | 數值直接顯示，`None`/空字串顯示 `-`。 |
+|  | `_json_html_safe(s)` | 轉義 `</`，避免 JSON 提前關閉 `<script>`。 |
+|  | `tojson_safe(value)` | JSON serialize + HTML-safe `Markup`，供一般 script payload。 |
+|  | `jsonld(value)` | 緊湊 JSON-LD serialize + HTML-safe `Markup`。 |
+|  | `pct_fmt(value, digits=1)` | decimal fraction 轉百分比字串，使用 half-up rounding。 |
+| `render/urls.py` | `headshot_cdn_urls(mlb_id, latest_level_is_mlb)` | 依最近實際出賽層級決定 MLB/MiLB CDN 主備 URL 順序。 |
+|  | `make_url_helpers(base_url)` | 回傳三個已綁 base URL 的 closure，供 Jinja globals。 |
+|  | `make_url_helpers.player_url(mlb_id)` | closure；產生現役球員頁相對 URL。 |
+|  | `make_url_helpers.retired_player_url(mlb_id)` | closure；產生退役球員頁相對 URL。 |
+|  | `make_url_helpers.static_url(path)` | closure；產生靜態資產相對 URL。 |
+|  | `make_absolute_url(site_origin, base_url)` | 建立絕對 URL closure。 |
+|  | `make_absolute_url.absolute_url(path="")` | closure；把站台 origin、base URL、path 正規化成 canonical 絕對 URL。 |
+
+### 5.2 SEO 與 pitch-log 輸出
+
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `render/seo.py` | `player_display_name(player)` | 組合中文/英文顯示名稱。 |
+|  | `player_canonical_path(player, is_retired=False)` | 依現役/退役目錄產生 canonical path。 |
+|  | `player_description(player)` | 依球員、位置、球隊/層級產生 meta description。 |
+|  | `index_structured_data(absolute_url, player_data)` | 建立首頁 WebSite + ItemList JSON-LD。 |
+|  | `player_structured_data(absolute_url, player, is_retired=False)` | 建立球員 Person + BreadcrumbList JSON-LD。 |
+|  | `write_robots(out_dir, sitemap_url)` | 寫 `robots.txt`。 |
+|  | `write_sitemap(out_dir, urls)` | 寫 XML sitemap。 |
+| `render/pitch_log.py` | `summarize_pitch_for_display(p, video_map=None, include_video=False)` | 將完整 pitch dict 投影成前端需要的精簡欄位；可按 `play_id` 附 mp4。 |
+|  | `write_pitch_log_files(logs_by_year, out_dir, normalized_base_url, mlb_id, videos_by_game=None)` | 每場輸出獨立延遲載入 JSON，並在 log 摘要附 `pitch_data_url`/`pitch_count`。 |
+
+### 5.3 `render/pages.py` — payload 塑形與全站輸出
+
+| 函式 | 功能與定位 |
 |---|---|
-| `env.py` | `create_jinja_env(template_dir, base_url, site_origin)`：註冊自訂 filter（floatformat/default_if_none/num_dash/tojson_safe/jsonld/pct_fmt/level_display）與 global（is_mlb/player_url/retired_player_url/static_url/headshot_cdn_urls/absolute_url/base_url/site_url/site_origin）。 |
-| `filters.py` | `floatformat` / `default_if_none` / `num_dash`；`_json_html_safe`（把 `</` 轉義，避免 JSON 內容意外提前關閉 `<script>` 標籤）→ `tojson_safe` → `jsonld`；`pct_fmt`（用 `Decimal` + `ROUND_HALF_UP` 做百分比捨入，避免浮點誤差造成的捨入不一致）。 |
-| `urls.py` | `HEADSHOT_CDN_TEMPLATE_MLB` / `_MILB`（Cloudinary 上 MLB Photos CDN 的兩種資產家族："67" vs "milb"）；`headshot_cdn_urls(mlb_id, latest_level_is_mlb)` 依球員最近一次「有出賽紀錄」的等級決定主/備選頭像順序；`make_url_helpers(base_url)` / `make_absolute_url(site_origin, base_url)`。 |
-| `seo.py` | 站台層級常數（`SITE_TITLE`/`SITE_DESCRIPTION`/`SITE_SAME_AS`）與退役球員專屬文案；`player_display_name` / `player_canonical_path` / `player_description`；`index_structured_data`（WebSite + ItemList JSON-LD）/ `player_structured_data`（Person + BreadcrumbList JSON-LD）；`write_robots` / `write_sitemap`。 |
-| `pitch_log.py` | `summarize_pitch_for_display(p, video_map=None, include_video=False)`：pitch dict 的精簡投影，MLB pitch 若 `play_id` 命中 `play_videos` 快取就附上 `video` mp4 URL。`write_pitch_log_files(logs_by_year, out_dir, normalized_base_url, mlb_id, videos_by_game=None)`：把逐場比賽的 pitch log 寫成延遲載入的獨立 JSON 檔（`data/pitchlogs/{mlb_id}/{game_id}.json`），並在每筆 log 上附加 `pitch_data_url`/`pitch_count`。 |
-| `pages.py` | `_pick_display_stat(stats_current, player)`：三層優先序（完全同隊 > 目前等級相符 > 最高等級 fallback）。`_inline_css_imports` / `_bundle_css`：build 期展開 CSS `@import` 並輸出單一 bundle。**`build_static_site(db_path, year, output_dir, base_url, roster_file, update_constants)`**——見下方說明，是本套件中唯一**尚未依照舊文件建議拆分**的大函式。 |
+| `_pick_display_stat(stats_current, player)` | 首頁/hero 代表列優先序：同隊 → 同目前層級 → 最高已出賽層級。 |
+| `_statcast_row_qualifies(player, s)` | 有 Statcast 即納入；沒有 Statcast 時，只有 `publishes_constants(level,year)` 涵蓋且已有計算 wRC+ 的打者列可納入 advanced 區。 |
+| `_first_not_none(rows, field)` | 找同組列第一個實值，供只寫在其中一列的整季欄位。 |
+| `_merge_level_rows(rows)` | 合併同 `(year,tier)` 的轉隊列：重加 counting/rates、IP-weighted FIP，取同層固定的 `lg_era` 重算 xWPCT，並取回 WAR/expected/saber/wRC+。 |
+| `_pooled_year_pitches(logs)` | 從已解析 game logs 建 `{year: pitches}`，跨層級合計時不重讀 DB。 |
+| `_build_statcast_entries(player, stats, logs)` | 建 `{year: entries}`；同層轉隊去重，多層級球季把原始 pitches pooling 後完整重算 `_combined`。 |
+| `_inline_css_imports(css_path, seen=None)` | 遞迴展開 CSS `@import`，用 `seen` 防循環且維持 cascade 順序。 |
+| `_bundle_css(static_out_dir)` | build 時把 `style.css` import graph 壓成單檔，減少瀏覽器 request waterfall。 |
+| `build_static_site(db_path, year, output_dir, base_url="/", roster_file=None, update_constants=False)` | 唯一全站入口：重建 output、複製/壓平 static、初始化 Jinja/DB、載入 roster bundles，以 `BattingConstants.for_level` 標注 wRC+、切現役/退役、組球員/圖表/pitch-log payload、渲染所有 HTML、寫 sitemap/robots/`.nojekyll`。 |
 
-`build_static_site` 目前仍是單一函式（`render/pages.py` 全檔約 509 行，主流程約 400 行），依序處理：載入 roster →
-建輸出目錄 → build 期產生 CSS bundle → 建 Jinja env → 開資料庫連線並跑 `init_db`（冪等）→ 用
-`db.bundles.load_player_bundle` 載入所有球員 bundle → 呼叫
-`annotate_wrc_plus` → 載入影片快取 `load_video_map` → 依 `is_active_player` 切分現役／退役名單 → 渲染首頁 →
-渲染退役名單頁 → 逐球員渲染詳細頁（圖表資料、`compute_career` 生涯加總、
-下一場比賽有效性檢查、透過 `combine_statcast_dicts` 為跨等級球季合成
-`"_combined"` 條目、為只有 wRC+ 沒有實際 Statcast 資料的年份注入近乎空白的
-statcast 條目）→ 渲染 404 頁 → 寫 sitemap/robots.txt → 寫 `.nojekyll`
-標記檔。詳見 §11。
+`build_static_site()` 會刪除並重建指定 `output_dir`；呼叫端必須傳入明確且安全的輸出
+路徑。純資料塑形應優先放進上面的 `_merge_*` / `_build_*` helper，避免讓主入口繼續膨脹。
 
 ---
 
 ## 6. graph/ — 圖表資料
 
-`season_trend.py` 提供 `build_pitcher_trend_by_year` 與
-`build_batter_trend_by_year`，從逐場 game logs 建立按年度、層級分組的賽季累積
-走勢資料；兩者共用 `_group_games_by_level` 與 `_build_all_levels_entry`，多層級
-球季另建立不中斷的 `_all` 累積序列。打者版重用既有 stats 純函式計算 AVG、K%、
-BB%、wOBA、擊球品質與打擊紀律指標；逐場 pitch 聚合採遞增計數，避免重複掃描
-整季 pitch log 而形成平方成本。
+| 檔案 | 所有函式 | 功能與定位 |
+|---|---|---|
+| `graph/__init__.py` | 無函式 | 圖表 payload 套件標記。 |
+| `graph/movement.py` | `compute_pitch_movement_chart(pitches, max_points=COMPUTE_MAX_POINTS)` | 產生投手逐球 HB/IVB、球種及可用的球速/轉速點位，並按上限降採樣；單層級與跨層級都直接從原始 pitches 計算。 |
+| `graph/plinko.py` | `_empty_plinko_nodes()` | 建立固定 count nodes 的零值 payload。 |
+|  | `_empty_plinko_edges()` | 建立固定 count transitions 的零值 payload。 |
+|  | `compute_pitch_plinko(pitches, *, split_field, split_specs, skip_types=None)` | 依打者/投手慣用手 split，累計 count node 與 transition edge，輸出前端 Pitch Plinko 結構。 |
+| `graph/season_trend.py` | `_neumaier_add(total, compensation, x)` | 串流 Neumaier 補償加總一步，讓遞增 EV 等浮點結果與整批 `sum()` 一致。 |
+|  | `_compute_pitcher_cumulative_metrics(games)` | 按日期逐場累積投手 ERA/K%/BB%/discipline/contact 等；每場 pitches 只掃一次。 |
+|  | `_compute_batter_cumulative_metrics(games)` | 按日期逐場累積打者 AVG/K%/BB%/wOBA/discipline/contact 等。 |
+|  | `_group_games_by_level(year_logs, year, metrics_seq_fn)` | 依層級分組、排序，再用指定累積函式建立各層級序列。 |
+|  | `_build_all_levels_entry(year_logs, year, metrics_seq_fn)` | 合併同年所有層級 game logs 後一次累積，建立不中斷的 `_all` 走勢並保留每點 level badge。 |
+|  | `build_pitcher_trend_by_year(logs_by_year)` | 對外投手年度趨勢入口，回 `year → level/_all → payload`。 |
+|  | `build_batter_trend_by_year(logs_by_year)` | 對外打者年度趨勢入口，並依打者可用指標過濾 payload。 |
 
-`__init__.py` 記錄的慣例是：多數圖表模組各自擁有一組 `compute_*`（sync 時
-依單一等級算）與 `combine_*`（build 時跨等級合併）配對函式；`season_trend.py`
-是例外，因其資料必須按時間順序在 build 期逐場累積。
-
-| 檔案 | 內容 |
-|---|---|
-| `movement.py` | `COMPUTE_MAX_POINTS = 700` / `COMBINE_MAX_POINTS = 900`；`compute_pitch_movement_chart(pitches, max_points)`：建立逐球 HB/IVB 散佈點（含降採樣）；`combine_pitch_movement(entries)`：跨等級合併，跳過 `sport_level == "_combined"` 的條目以避免重複計算。 |
-| `plinko.py` | `_empty_plinko_nodes` / `_empty_plinko_edges`；`compute_pitch_plinko(pitches, *, split_field, split_specs, skip_types=None)`：建立依打者/投手慣用手分 split 的球數轉移圖（Pitch Plinko）payload；`combine_pitch_plinko(entries)`：跨等級加總原始計數。 |
-| `season_trend.py`（新模組） | `PITCHER_TREND_STAT_OPTIONS` / `BATTER_TREND_STAT_OPTIONS`：前端可選指標及標籤。`_compute_pitcher_cumulative_metrics` / `_compute_batter_cumulative_metrics`：逐場累積指標；`_neumaier_add` 確保遞增加總與 Python `sum()` 的浮點結果一致。`_group_games_by_level` / `_build_all_levels_entry`：分級與跨級序列組裝；`build_pitcher_trend_by_year` / `build_batter_trend_by_year`：build 期對外入口。 |
+圖表模組不再提供 `combine_*`。需要跨層級時，應傳入跨層級原始 pitches/game logs
+重新計算，而不是合併已經聚合的圖表結果。
 
 ---
 
 ## 7. util/ — 通用工具
 
-零領域知識的泛用工具，被所有其他套件依賴，自己不依賴任何人。
+| 檔案 | 所有函式 / method | 功能與定位 |
+|---|---|---|
+| `util/__init__.py` | 無函式 | 通用工具套件標記。 |
+| `util/dates.py` | `parse_date(text)` | 安全解析 ISO 日期字串為 `date`；空值/格式錯誤回 `None`。`TW_TZ` 常數也在此。 |
+| `util/json.py` | `loads_json(text, default)` | 安全 JSON decode；輸入為空或壞 JSON 時回指定 default。 |
+|  | `loads_json_dict(text)` | `loads_json(...,{})` 的 dict 專用包裝。 |
+|  | `loads_json_list(text)` | `loads_json(...,[])` 的 list 專用包裝。 |
+|  | `dumps_json(value)` | 統一 JSON serialize 設定，保留中文。 |
+| `util/numbers.py` | `safe_float(value, default=None)` | 安全轉 float，失敗回 default。 |
+|  | `safe_int(value, default=None)` | 安全轉 int；接受整數、整數字串等 `int()` 可處理的值，失敗回 default。 |
+|  | `ratio(num, den, digits=3)` | 安全除法並 round；零/缺分母回 `None`。 |
+|  | `mean(values)` | 過濾 `None` 後平均；空樣本回 `None`。 |
+|  | `mean_round(values, digits=1)` | `mean()` 後捨入。 |
+|  | `float_or_none(value)` | 轉 float 並拒絕 NaN/Infinity；外部資料清洗時使用。 |
+| `util/obj.py` | `Obj.__getattr__(key)` | 將 dict key 暴露為 attribute；缺 key 回 `None`，方便模板讀稀疏欄位。 |
+|  | `Obj.__setattr__(key, value)` | attribute assignment 寫回 dict key。 |
+| `util/units.py` | `height_to_cm(height_str)` | 解析 `6' 2"` 類身高並轉公分。 |
+|  | `lbs_to_kg(weight_lbs)` | 磅轉公斤並依顯示規則捨入。 |
 
-| 檔案 | 內容 |
+---
+
+## 8. 頂層模組
+
+### 8.1 `site_builder/__init__.py`
+
+無函式；只提供 package docstring。
+
+### 8.2 `constants.py`
+
+| 函式 | 功能與定位 |
 |---|---|
-| `dates.py` | `TW_TZ`（UTC+8）、`parse_date`。 |
-| `json.py` | `loads_json` / `loads_json_dict` / `loads_json_list` / `dumps_json`。 |
-| `numbers.py` | `safe_float` / `safe_int`；`ratio(num, den, digits=3)`；`mean` / `mean_round`；`float_or_none`（與 `safe_float` 的差異：會拒絕 NaN/inf）。 |
-| `obj.py` | `Obj(dict)`：屬性存取風格的字典類別，模板與各層資料結構的共同載體。 |
-| `units.py` | `height_to_cm`（正規表示式解析）、`lbs_to_kg`。 |
+| `_auto_season_year()` | 3 月起使用當年，1–2 月仍視為上一球季；用來初始化 `SEASON_YEAR`。 |
 
----
+此檔其餘內容是路徑、timeouts/retry/workers、`SEASON_YEAR`、固定 wOBA weights、
+pitch code、count/split/plinko、pitch-type groups、batted-ball 與
+`COUNTING_FIELDS`。已不再維護年度 RA/9、FIP 或 TJStats 對照表；季別/聯盟環境
+由 `league_constant/` 取得，TJStats 網站拼法放在 `api/tjstats.py`，層級與 roster
+規則分別留在 `levels.py`、`roster.py`。
 
-## 8. 頂層模組：constants.py / levels.py / roster.py
+### 8.3 `levels.py`
 
-### 8.1 `constants.py`（374 行）
+`Tier` 是 frozen dataclass，沒有自訂 method。
 
-分成三個區塊：
-
-1. **路徑與執行期設定**：資料庫路徑、輸出目錄、API/live-feed timeout、`API_RATE_LIMIT`、`PLAYER_FETCH_WORKERS`、`GAME_FETCH_WORKERS`、`CONTENT_RETRY_DAYS`。
-2. **年度常數**（開季要檢查/更新的區塊）：`SEASON_YEAR`（`_auto_season_year()` 自動跨年）、`LEAGUE_RA9` 表 + `get_league_ra9()`、`FIP_DEFAULT_CONSTANT = 3.2`。
-3. **穩定的領域常數**：`SWING_CODES`/`WHIFF_CODES`/`CALLED_STRIKE_CODES`；`WOBA_WEIGHTS`/`WOBA_EVENT_MAP`/`WOBA_SCALE = 1.24`；`MIN_WRC_YEAR = 2021`；`TJSTATS_LEVEL_PARAMS`/`PF_LEVEL_PARAM`/`LC_LEVEL_CODE`/`WRC_LEVELS`；`NON_PA_EVENTS`；`BAT_SIDE_SPLITS`；`COUNT_USAGE_BUCKETS` + `COMBINED_COUNT_USAGE_BUCKETS`（程式碼內就有註解標明「未來可考慮與 COUNT_USAGE_BUCKETS 統一」，見 §10）；`PLINKO_COUNTS`/`PLINKO_COUNT_LABELS`/`PLINKO_EDGES`；`BATTER_PLINKO_SPLITS`/`PITCHER_PLINKO_SPLITS`/`BATTER_PLINKO_SKIP_TYPES = {"EP","FA"}`；`GB_TRAJECTORIES`/`LD_TRAJECTORIES`/`FB_TRAJECTORIES`/`PU_TRAJECTORIES`/`AIR_TRAJECTORIES`；`BATTED_BALL_RATE_DIGITS`；Gameday 噴射圖座標常數（`GAMEDAY_HOME_X/Y`、`GAMEDAY_SPRAY_CORRECTION`、角度門檻）；`HIT_LOCATION_ZONE` 座標缺失時的備援對照表；`COUNTING_FIELDS`（生涯／單季合併加總要用到的欄位清單）。
-
-### 8.2 `levels.py`（149 行）
-
-MLB/MiLB 等級邏輯的單一事實來源。`Tier` frozen dataclass；`TIERS` tuple 涵蓋
-MLB(0)/AAA(1)/AA(2)/A+(3)/A(4)/A-(5，已於現代編制中淘汰)/ROK(6)/WIN(7)/
-Minors(99)，同時保留現代與舊制顯示名稱、sportId、別名；
-`resolve_tier`/`level_rank`/`level_display`（依 2021 年為分界的時代感知顯示）
-/`is_mlb`/`sport_id_to_code`/`sport_name_to_code`/`sport_obj_to_abbr`/`tier_keys_ordered`。
-
-### 8.3 `roster.py`（121 行）
-
-docstring 明寫「仿照 `site_builder.levels` 的模式」設計，是相對於舊文件新增
-的整併模組。`parse_roster_from_file`/`build_roster_map`；
-`ROSTER_INJURED_CODES`/`ROSTER_RESTRICTED_CODES`/`ROSTER_OTHER_CODES`/
-`ROSTER_INACTIVE_CODES` 四組狀態代碼集合；
-`categorize_roster_status(code, is_active_entry, player_is_active)` 回傳
-active/injured/restricted/inactive/other 五者之一；
-`NATIONAL_TEAM_KEYWORD = "chinese taipei"`、`is_national_team_tx`、
-`is_active_player(player, stats, year)`。
-
----
-
-## 9. build.py — CLI 進入點
-
-251 行，`argparse` 子命令：`sync` / `statcast` / `refresh` / `build` /
-`all`。每個 `cmd_*` 函式都在函式本體內才 import `site_builder.sync`/
-`site_builder.render` 的符號（而非放在檔案最上面），讓 CLI 的 `import
-argparse` 保持輕量快速。`cmd_refresh` 依序執行 `update_database` →
-`sync_statcast` → `build_static_site`（對應 CLAUDE.md 記載的每日排程）。
-`cmd_all` 依序執行 `cmd_sync` → `cmd_statcast` → `cmd_build`；若同時指定
-`--player` 與 `all` 會印出特別警告，因為 `build` 一律渲染完整名單，不會受
-`sync`/`statcast` 的 `--player` 範圍限制。`--update-constants` 會強制刷新 tjstats.ca park factor/league constant 快取；在 `statcast`/`refresh`/`all` 中也會強制刷新過去球季的 MiLB FIP 常數（當季 FIP 常數本來就永遠重抓）。
-
----
-
-## 10. 跨檔案重複與一致性檢查（對照舊文件）
-
-舊文件（2026-07-01）列出的問題，逐項核對現況：
-
-| 舊文件標記的問題 | 現況 |
+| 函式 | 功能與定位 |
 |---|---|
-| `_BAT_SIDE_SPLITS`/`_COUNT_USAGE_BUCKETS`/`_PLINKO_COUNTS`/`_PLINKO_EDGES` 在 statcast.py 與 builder.py 各自重複定義 | ✅ 已解決：全部統一收斂到 `constants.py` 單一定義，各處以 import 使用 |
-| `_is_unknown_pitch_type` 重複定義 | ✅ 已解決：唯一定義在 `stats/core/pitches.py::is_unknown_pitch_type` |
-| `_ratio` 重複定義 | ✅ 已解決：唯一定義在 `util/numbers.py::ratio` |
-| `api/stats.py` MLB/MiLB try/except 不對稱 | ✅ 已解決：兩端點現在對稱地各自獨立 try/except |
-| `api/games.py` timeout 字面值不一致 | ✅ 已解決：統一為 `LIVE_FEED_TIMEOUT` 常數 |
-| 「致勝球比例（put-away%）」三處重複迴圈 | ✅ 已解決：唯一定義在 `stats/discipline/put_away.py::compute_put_away`，`put_away.py` 的 docstring 本身就寫著「之前是三處重複的同一段迴圈」 |
-| `helpers.py` 215 行的 `_compute_advanced_stats` 該拆分 | ✅ 已解決：拆成 `stats/core/annotate.py::annotate_row` 調度一系列一檔一函式的模組 |
-| `builder.py` 跨等級合併邏輯該搬到 statcast 附近 | ✅ 已解決：搬到 `stats/combine.py` + `graph/movement.py` + `graph/plinko.py` + `stats/tables/*.py` |
-| 合計列把部分打擊紀律率錯用總球數加權 | ✅ 已解決：`discipline_metrics()` 保存 whiff／區內外揮棒／區內接觸的真實分母，`combine.py` 據此加權；舊快取仍可相容讀取 |
-| `compute_pitcher_statcast`/`compute_batter_statcast` 的 `year`/`sport_level` 是 dead 參數 | ✅ 已解決：已移除，兩函式現在只吃 `pitches` 一個參數 |
-| `compute_fip` 內部自己做 I/O 查常數 | ✅ 已解決：改成外部解出 `c_fip` 後傳入，`compute_fip` 本身零 I/O |
-| `api/games.py::sport_obj_to_abbr` 還放在 API 層 | ✅ 已解決：搬到 `levels.py::sport_obj_to_abbr`，`api/games.py` 只負責 live-feed/game-level endpoint |
-| （舊文件未提及）per-play highlight 影片快取 | ✅ 已新增：`api/content.py` + `db/play_videos.py` + `sync/statcast.py::fetch_highlight_videos`，build 時在 MLB pitch log JSON 裡按 `play_id` 附上 mp4 URL |
-| （舊文件未提及，本次審閱新發現的 bug）投手 BABIP 分母 | ✅ 已修正：從 BF 基準改為 AB 基準，與打者版公式對稱，修正系統性低估（見 `stats/core/annotate.py` 內的中文註解） |
-| （舊文件未提及）FIP 常數表、TJStats 常數表 | ✅ 已改進：從手抄靜態表格，改為即時反推計算／即時爬取，並依資料新鮮度差異分別套用兩種不同的 SQLite 快取策略（`db/fip_constants_cache.py` vs `db/tjstats_cache.py`，見 §2） |
-| `render/pages.py::build_static_site` 應拆成 per-page-type 子函式 | ❌ **尚未解決**：`build_static_site` 目前仍是單一偏大的主流程（`pages.py` 全檔約 509 行），是舊文件所有建議中唯一沒有被落實的一項。詳見 §11。 |
+| `resolve_tier(raw)` | 將現代/舊制/別名層級解析成 `Tier`；未知回 `None`。 |
+| `level_rank(raw)` | 回 hierarchy rank，數字越小層級越高；未知值用 50。 |
+| `level_display(raw, year)` | 2021+ 顯示現代名稱、2020- 顯示舊制名稱；sentinel/未知值原樣回傳。 |
+| `is_mlb(raw)` | 是否解析到 MLB tier。 |
+| `sport_id_to_code(sport_id)` | MLB Stats API sportId → 儲存用 code；短期 1A 用 legacy fallback。 |
+| `sport_name_to_code(name)` | API sport name → 儲存用 code；是缺 sportId 時的 fallback。 |
+| `sport_obj_to_abbr(sport)` | sport dict 先用 id、再用 name 解析。 |
+| `tier_keys_ordered()` | 依 rank 回傳 canonical tier keys；SQL CASE 排序會使用。 |
 
-以下兩點是本次審閱過程中發現、但認定為**刻意設計、非需要修正的問題**：
+### 8.4 `roster.py`
 
-- `constants.py` 裡 `COUNT_USAGE_BUCKETS` 與 `COMBINED_COUNT_USAGE_BUCKETS`
-  仍是兩張分開的表，程式碼自己已用註解標記「未來可考慮統一」——這是專案自我
-  意識到、尚未執行的技術債，本文件在此如實轉達，不當作新發現提出。
-- `stats/discipline/__init__.py::discipline_metrics()` 刻意不包含
-  `compute_z_whiff_pct` 與 `compute_put_away`：這兩者服務的是球種層級細分表
-  （`stats/tables/*.py`），而非球季層級彙整值，經 grep 確認在
-  `stats/tables/` 與兩個 Jinja 模板中都有實際使用，屬於刻意的架構分工。
+| 函式 | 功能與定位 |
+|---|---|
+| `parse_roster_from_file(filepath)` | 讀 roster JSON 的 `players`；任何錯誤記 log 並回空列表。 |
+| `build_roster_map(roster_file)` | 建 `{mlb_id: player_config}` 快速索引。 |
+| `categorize_roster_status(code, is_active_entry, player_is_active)` | 將 MLB roster code 分成 `active/injured/restricted/inactive/other`。 |
+| `is_national_team_tx(tx)` | 交易描述是否為 Chinese Taipei 國家隊徵召；不算 affiliated activity。 |
+| `is_active_player(player, stats, year)` | 當年有 season row 或合格交易即視為站台現役；只剩國家隊徵召者歸退役頁。 |
 
 ---
 
-## 11. 觀察與建議
+## 9. build.py — CLI
 
-**headline 發現**：舊文件提出的所有拆分建議中，唯一沒有被執行的是
-`render/pages.py::build_static_site` 這個仍偏大的單一主流程（`pages.py` 全檔約 509 行）。它一次處理
-了：roster 載入、輸出目錄與 CSS bundle 建立、Jinja env 建立、資料庫連線與 schema 初始化、
-全部球員 bundle 載入、wRC+ 標注、影片快取載入、現役/退役名單切分、首頁渲染、退役名單頁
-渲染、逐球員詳細頁渲染（含圖表資料組裝、生涯與跨隊加總、下一場比賽驗證、
-跨等級 statcast 合成）、404 頁、sitemap/robots.txt、`.nojekyll` 標記檔。
+| 函式 | 功能與定位 |
+|---|---|
+| `cmd_sync(args)` | lazy import 並呼叫 `sync_database()`。 |
+| `cmd_build(args)` | lazy import 並呼叫 `build_static_site()`。 |
+| `cmd_statcast(args)` | lazy import 並呼叫 `sync_statcast()`。 |
+| `cmd_refresh(args)` | 日常管線：`update_database()` → `sync_statcast()` → `build_static_site()`。 |
+| `cmd_all(args)` | 首次/回補管線：`cmd_sync()` → `cmd_statcast()` → `cmd_build()`；單一球員模式會警告 build 仍渲染全 roster。 |
+| `main()` | 建立 argparse 子命令/共用參數、驗證 command，最後 dispatch `args.func(args)`。 |
 
-相較之下，舊文件點出的其他所有問題——跨檔案常數重複、`_is_unknown_pitch_type`
-重複定義、`_ratio` 重複定義、MLB/MiLB try/except 不對稱、timeout 字面值
-不一致、致勝球比例三處重複迴圈、215 行的 `_compute_advanced_stats`、
-跨等級合併邏輯的擺放位置、statcast 計算函式的 dead 參數——不僅全部解決，
-拆分的細緻程度（一檔一函式）也遠超舊文件原本的建議範圍。這使得
-`build_static_site` 相對顯眼：它是目前整個套件裡最後一個仍然遵循「舊風格」
-（一個大函式處理一整個階段）的地方。
+---
 
-建議的拆分方向（比照 `stats/`、`graph/`、`db/` 已經驗證過的「依頁面類型切
-子函式」模式）：
+## 10. 完整性核對方式
 
-1. `_render_index(env, active_players, retired_players, ...)`
-2. `_render_retired_page(env, retired_players, ...)`
-3. `_render_player_page(env, player, stats, logs, conn, ...)`（目前佔
-   `build_static_site` 篇幅最大的部分：圖表資料組裝、`compute_career`、
-   下一場比賽驗證、跨等級 statcast 合成都可以在這裡獨立測試）
-4. `_render_error_and_seo_pages(env, output_dir, ...)`（404、sitemap、
-   robots.txt、.nojekyll）
+本文件把「函式」定義為 AST 中的 `FunctionDef`/`AsyncFunctionDef`，因此 class
+method 和 closure 也計入。第 1～8 章目前應有：
 
-`build_static_site` 本身可以縮成一個高層次的協調函式（載入資料 → 依序呼叫
-上述 4 個子函式），如同 `sync/statcast.py::sync_statcast` 目前「5 個階段各
-自獨立、由頂層函式依序呼叫」的組織方式。
+| 章節 | Python 檔案 | 函式 / method |
+|---|---:|---:|
+| `api/` | 9 | 22 |
+| `db/` | 7 | 12 |
+| `league_constant/` | 4 | 18 |
+| `stats/` | 73 | 108 |
+| `sync/` | 5 | 21 |
+| `render/` | 7 | 33 |
+| `graph/` | 4 | 11 |
+| `util/` | 6 | 15 |
+| 頂層 `__init__/constants/levels/roster` | 4 | 14 |
+| **合計** | **119** | **254** |
 
-其餘為次要觀察，不影響正確性，供未來參考：
+修改程式後可用下列唯讀檢查快速找出漏列：
 
-- `COUNT_USAGE_BUCKETS` / `COMBINED_COUNT_USAGE_BUCKETS` 的統一（專案自己已
-  用註解記錄此想法）。
-- `stats/tables/*.py` 裡 `compute_pitch_arsenal`/`compute_pitch_outcomes`/
-  `compute_vs_pitch_types` 三者的「依球種分組 → 逐組呼叫
-  `aggregate_pitches`/`compute_pa_outcome_totals`」結構高度相似，未來若再新增
-  第 4 張球種細分表，可以考慮把這段共用邏輯抽成 `tables/` 內部的輔助函式
-  （目前 `weighted.py` 只共用了「合併」那一半，「計算」那一半仍是三份手寫
-  迴圈——但目前只有三張表，重複量還不到需要強制抽象的門檻，暫不建議動）。
+```bash
+find site_builder -type f -name '*.py' | sort
+rg -n '^(async )?def |^ +((async )?def )' site_builder
+```
 
-① 職責拆分是否過細 —— 這是最主要的問題
+`rg` 適合人工檢視；要精確包含任意縮排 closure，應使用 Python `ast.walk()`。
 
-- 重災區:stats/batting/、stats/pitching/。13+13 個檔案裡多數是「1 docstring + 3~5 行函式」,而且多半只是 round(x/y, n)。建議併為 batting/rates.py + pitching/rates.py,可一併消掉 core/annotate.py:9-27 近 20 行 import。import 站點僅 6 處,合併風險低。
-- 反向問題(檔案太大):sync/statcast.py 602 行把 game 抓取 / pitch 回寫 / sabermetrics 抓取 / FIP 計算 / highlight content 快取 / merge 全塞一起;render/pages.py 509 行把 orchestration 與資料塑形(statcast_by_year 組裝、chart data、fielding 聚合)混在單一 build 函式。兩者都可再切一層。
-- 死程式碼:舊版 `db/players.py::get_positions` 全庫無呼叫；目前已移除。
-- 相對地,stats/discipline/、stats/batted_ball/ 的細拆是合理的——它們各自持有一個「定義」(barrel 窗、hard-hit 門檻),且都吃共用的 aggregate_pitches 結果,不重複遍歷。
+---
 
-② 數據正確性
+## 11. 新增功能時的掛接位置
 
-- combine.py / weighted.py 合計列加權：`whiff_pct`、`z_swing_pct`、`o_swing_pct`、`z_contact_pct` 已新增真實分母並改正加權。剩餘的 `hr_fb_pct`（分母=飛球）仍隨 BBE 加權；若跨等級飛球率不同，合計列會有偏差。球種表的 `weighted.py` 也仍以既定的球數／兩好球數權重合併，新增其他非同分母比率時應一併確認權重。
-- xwpct.py:分子 FIP 是自責分尺度、分母 LEAGUE_RA9 是全失分尺度,系統性略高估;docstring 稱「Pythagenpat exponent 1.83」名稱有誤(1.83 是固定指數,非動態)。
-- xbh.py:2B/3B/HR 皆為真實 0 時回 None 而非 0,有打數卻無長打者顯示空白。
-- api/players.py:65-71:同函式 transactions 有 sorted(reverse=True),rosterEntries 卻直接 [0],取最新的假設未驗證。
-- 兩個 cache 的 INSERT OR REPLACE:只 upsert 本次回傳的 league,某 league 這次沒回傳時舊列殘留。
-- 邊界(低):era.py/whip.py 對 ER/BB 為 None 但 IP 存在時算出 0 而非 None(MLB 資料實務不缺,可接受)。
+| 需求 | 新函式通常放哪裡 | 還要掛到哪裡 |
+|---|---|---|
+| 新 MLB endpoint | `api/` 對應語意模組 | `api/__init__.py`（若需公開）與 `sync/` 呼叫點 |
+| 新 DB table/query | `db/schema.py` + 專責 `db/*.py` | sync/render 的 transaction 邊界 |
+| 新逐季/逐聯盟環境常數 | `league_constant/` 專責 supply chain | cache schema、`RefreshPolicy`、resolver 與 stats 呼叫參數 |
+| 新球季衍生率 | `stats/batting/` 或 `stats/pitching/` | `core/annotate.py`；需要合計時也檢查 `COUNTING_FIELDS` / `aggregate.py` |
+| 新逐球分類 | `stats/core/pitches.py` 或專責 stats 模組 | pitcher/batter Statcast 入口及相關 table |
+| 新打擊紀律率 | `stats/discipline/` | `discipline_metrics()` 或只掛球種表，依統計層級決定 |
+| 新球種表 | `stats/tables/` | pitcher/batter Statcast 入口、split 組裝與模板 |
+| 新圖表 | `graph/` | `render/pages.py` payload 與前端模板/JS |
+| 新頁面輸出 | `render/pages.py` 或拆出的 render helper | SEO、URL helper、sitemap 與模板 |
+| 新 API 欄位 | `sync/field_maps.py` 或 `sync/extract.py` | DB JSON schema 消費端與本文件 |
 
-③ 小數精細度 / 截斷
-
-- compute_ev90(exit_velocity.py:24):idx = min(int(len*0.9), len-1),int() 截斷 + 0-indexed,n=10 時直接取最大值 → EV90 偏高。註解已自承「小於 10 顆會與 TJStats 不符」,但 ≥10 也有系統性 off-by-one。建議用線性內插或一致的 nearest-rank。
-- wOBA 兩種精度:compute_pitch_woba(woba.py:23,經 ratio 捨入到 3 位)vs compute_season_woba(woba.py:59,不捨入);前者的 3 位值又在 combine.py 被 PA 加權後再捨入(先捨再算)。應讓 pitch 版回未捨入值對齊。
-- per-9 家族位數不一:k/bb/h 為 1 位、hr/rs 為 2 位。
-- slash-line 型別混用:field_maps.py 把 win_pct/strike_pct/p_avg/p_obp/p_slg/p_ops/各 _pct 以 str() 存 DB;compute 版又回 fmt_avg 字串,opponent_slash.py:47-48 只好 safe_float 反解析回 float 才能算 OPS。
-- 捨入模式不一致:filters.floatformat(Python 預設 round-half-even)vs filters.pct_fmt(ROUND_HALF_UP)。
-
-④ 函式功能重複
-
-- per-9 ×5、bb_pct≡k_pct(維度②同源)
-- 三個 table builder(arsenal/outcomes/vs_pitch_types)骨架相同,僅 rate 欄位不同 → 可抽 build_pitch_type_table(pitches, columns_fn, ...)
-- 兩個 cache 模組三組相同 load/save/get(僅 fip 多「進行中賽季強制重抓」)→ 抽 cached_lookup(load, fetch, save, force_refresh, always_refetch)
-- api/stats.py 5 函式共 ~10 份相同 try/except/extend 樣板;api/tjstats.py 兩函式相同 requests→BeautifulSoup→select 流程
-- pre-count 邏輯兩份:extract.py:96-182(抽取時計算)與 core/pitches.py:99-135 ensure_pre_strikes(cache 回填)各實作一次、reset 策略略不同
-- type_name「有真名就升級」的小 pattern 散在 movement/plinko/usage_by_count 多處
-
-⑤ 重造輪子 / 可重用既有 function
-
-- batting/pitching counting 公式手寫 None-guard 除法,util.numbers.ratio() 早已存在(分母皆非負,not den 與 <=0 等價,可直接換)。注意:batted_ball 與 discipline 層已全面採用 ratio/mean_round,殘留主要在 batting/pitching。
-- api/tjstats.py 用 print("WARNING") 而非 logging、手寫 float()+except 而非 float_or_none
-- filters.jsonld 重複 dumps_json 的 compact separators(但需 Markup+HTML-safe,僅部分可重用)
-- db/season_stats.load_season_row 用泛型 loads_json(...,{}) 而非既有 loads_json_dict/list
-- 反例(做得對,值得肯定):sync/statcast.py 正確重用 compute_pitcher/batter_statcast,完全沒有重造逐球分類;graph/movement.py、graph/plinko.py 重用 core/pitches 的分類 helper;JSON 處理在 api/db 全走 util.json,無裸 json.loads。
-
-⑥ 檔名是否符合功能
-
-- pitching/strike_pct(counting,回字串)vs discipline/pitch_strike_pct(pitch-level,回 float):同名同顯示標籤「Strike%」但定義與型別皆不同 → 建議其一改名(如 strike_pct_counting)。
-- babip.py/go_ao.py/p_per_pa.py:docstring 寫 batter+pitcher 共用,卻放 batting/(pitcher 版從 ..batting.* import)→ 宜移到 stats/core/ 或 stats/shared/。
-- db/game_logs.py:名字像「game_logs 表存取層」,實際只有一個 pitch-cache 讀取函式;寫入散在 sync/players.py。db/players.py 同樣只讀、寫在 sync → 「db 層」持久化職責散落在 db/ 與 sync/ 兩處。
-- api/games.py::sport_obj_to_abbr 已移到 levels.py。
+最重要的資料正確性原則：跨球隊/層級合併率或百分位時，優先合併原始 counting
+stats/pitches 後重新計算；不要假設一個共同權重能正確合併所有比率。

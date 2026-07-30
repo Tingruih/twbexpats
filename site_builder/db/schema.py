@@ -85,6 +85,7 @@ def init_db(conn: sqlite3.Connection):
             sport_level TEXT NOT NULL,
             league_name TEXT NOT NULL DEFAULT '',
             fip_constant REAL NOT NULL,
+            lg_era REAL NOT NULL DEFAULT 0,
             UNIQUE(year, sport_level, league_name)
         );
 
@@ -128,6 +129,17 @@ def init_db(conn: sqlite3.Connection):
     try:
         conn.execute(
             "ALTER TABLE game_logs ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'"
+        )
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    # Forward-migration: add lg_era to league_fip_constants if it does not
+    # yet exist. Existing rows keep the DEFAULT 0, which
+    # league_constant.pitching._load() treats as a cache miss (its
+    # `lg_era > 0` filter), so they self-heal via one live refetch — no
+    # backfill script needed.
+    try:
+        conn.execute(
+            "ALTER TABLE league_fip_constants ADD COLUMN lg_era REAL NOT NULL DEFAULT 0"
         )
     except sqlite3.OperationalError:
         pass  # column already exists

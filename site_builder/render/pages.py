@@ -6,7 +6,7 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from ..constants import DEFAULT_ROSTER_FILE, MIN_WRC_YEAR, STATIC_DIR, WRC_LEVELS
+from ..constants import DEFAULT_ROSTER_FILE, STATIC_DIR
 from ..db.bundles import load_player_bundle
 from ..db.play_videos import load_video_map
 from ..db.players import warn_orphaned_players
@@ -17,6 +17,7 @@ from ..graph.season_trend import (
     build_batter_trend_by_year,
     build_pitcher_trend_by_year,
 )
+from ..league_constant.batting import BattingConstants, publishes_constants
 from ..levels import level_rank, resolve_tier
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
@@ -107,7 +108,7 @@ def _statcast_row_qualifies(player, s) -> bool:
     """
     if s.get("statcast"):
         return True
-    if player.is_pitcher or s.year < MIN_WRC_YEAR or s.sport_level not in WRC_LEVELS:
+    if player.is_pitcher or not publishes_constants(s.sport_level, s.year):
         return False
     field = "wrc_plus_calc" if s.sport_level == "MLB" else "wrc_plus"
     return s.get(field) is not None
@@ -136,7 +137,12 @@ def _merge_level_rows(rows):
       exactly "sum the numerator, IP-weight C" — identical to recomputing from
       pooled pitches when the clubs share a league, and off only by the spread
       in C when they don't;
-    - xWPCT is re-derived from the merged FIP rather than averaged;
+    - xWPCT is re-derived from the merged FIP rather than averaged, against
+      the group's lg_era.  lg_era is one number for the whole level, so every
+      row in the group carries the same value and it is simply picked up from
+      whichever row has it (same treatment as war/xfip below) — IP-weighting
+      a constant would be meaningless, and re-resolving it from
+      league_constant would be a second lookup for a number already stored;
     - whole-season values that only ever live on one row of the group (WAR,
       xwOBA, API wRC+) are picked up wherever they happen to sit.
     """
@@ -151,6 +157,9 @@ def _merge_level_rows(rows):
     merged["np"] = merged.get("pitches")
     annotate_row(merged)
 
+    lg_era = _first_not_none(rows, "lg_era")
+    merged["lg_era"] = lg_era
+
     fip_weighted = 0.0
     total_outs = 0
     for row in rows:
@@ -162,7 +171,7 @@ def _merge_level_rows(rows):
     if total_outs:
         fip = fip_weighted / total_outs
         merged["fip"] = round(fip, 2)
-        merged["xwpct"] = compute_xwpct(fip, rows[0].sport_level, rows[0].year)
+        merged["xwpct"] = compute_xwpct(fip, lg_era)
 
     for field in ("war", "xfip", "expected", "saber"):
         merged[field] = _first_not_none(rows, field)
@@ -326,7 +335,7 @@ def build_static_site(
 
     ``update_constants`` forces a fresh scrape of tjstats.ca for the wRC+
     park-factor/league-constant cache, overwriting any cached values for the
-    seasons involved (see ``db.tjstats_cache``).
+    seasons involved (see ``league_constant.batting``).
     """
     if roster_file is None:
         roster_file = str(DEFAULT_ROSTER_FILE)
@@ -391,7 +400,9 @@ def build_static_site(
     # Compute TJBat+ (wRC+) for qualifying batters before any page rendering
     # so both the active-player and retired-player detail pages (which both
     # read from `bundles`) see the annotated wrc_plus/wrc_plus_calc fields.
-    annotate_wrc_plus(bundles, conn, force_refresh=update_constants)
+    annotate_wrc_plus(
+        bundles, BattingConstants(conn, force_refresh=update_constants).for_level
+    )
 
     # ── Split active vs. retired ──
     # Active = has a season_stats row for `year` OR a transaction dated this
