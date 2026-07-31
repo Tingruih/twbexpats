@@ -15,8 +15,10 @@ from ...constants import (
     FB_TRAJECTORIES,
     GB_TRAJECTORIES,
     LD_TRAJECTORIES,
+    NON_PITCH_TYPE_CODES,
     PU_TRAJECTORIES,
     SWING_CODES,
+    UNKNOWN_PITCH_TOKENS,
     WHIFF_CODES,
 )
 
@@ -52,14 +54,22 @@ def is_out_of_zone(p: dict) -> bool:
 def is_unknown_pitch_type(
     pitch_type: Optional[str], pitch_name: Optional[str] = None
 ) -> bool:
-    """Return True when a pitch type is an unknown placeholder."""
+    """Return True for missing/placeholder pitch types, plus codes that don't
+    represent an actual delivered pitch (intentional ball, pitchout,
+    automatic ball/strike, no pitch — see ``NON_PITCH_TYPE_CODES``)."""
     type_token = str(pitch_type or "").strip().upper()
     name_token = str(pitch_name or "").strip().upper()
-    return type_token in {"", "UN", "UNKNOWN"} or name_token in {"UN", "UNKNOWN"}
+    if not type_token:
+        return True
+    return (
+        type_token in UNKNOWN_PITCH_TOKENS
+        or type_token in NON_PITCH_TYPE_CODES
+        or name_token in UNKNOWN_PITCH_TOKENS
+    )
 
 
 def filter_known_pitch_events(pitches: list[dict]) -> list[dict]:
-    """Drop unknown pitch-type events from pitch-type breakdowns."""
+    """Drop unknown/non-delivery pitch-type events from pitch-type breakdowns."""
     return [
         p for p in pitches
         if not is_unknown_pitch_type(p.get("pitch_type"), p.get("pitch_name"))

@@ -6,18 +6,13 @@ fastball/breaking/offspeed tables, see ``PITCH_TYPE_GROUPS``).
 """
 
 from ...constants import (
-    BATTER_PLINKO_SKIP_TYPES,
     COUNT_USAGE_BUCKETS,
-    PITCH_TYPE_GROUPS,
+    PITCH_GROUP_LABELS,
+    PITCH_GROUP_ORDER,
     PITCH_TYPE_TO_GROUP,
 )
 from ...util.numbers import ratio
 from ..core.pitches import filter_known_pitch_events, pre_count_tuple
-
-PITCH_GROUP_LABELS: dict[str, str] = {
-    key: label for key, label, _codes in PITCH_TYPE_GROUPS
-}
-PITCH_GROUP_ORDER: list[str] = [key for key, _label, _codes in PITCH_TYPE_GROUPS]
 
 
 def _compute_usage_by_count(pitches: list[dict], key_fn, ordered_keys=None) -> dict:
@@ -97,8 +92,6 @@ def compute_pitch_group_usage_by_count(pitches: list[dict]) -> dict:
 
     def key_fn(p):
         ptype = p.get("pitch_type") or "UN"
-        if ptype in BATTER_PLINKO_SKIP_TYPES:
-            return None
         group = PITCH_TYPE_TO_GROUP.get(ptype)
         if group is None:
             return None

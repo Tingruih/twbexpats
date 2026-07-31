@@ -272,9 +272,9 @@
                     <tr>
                         <th>年度</th><th>層級</th>
                         {{ macros.th('BBE', '擊球事件數','\\mathrm{BBE=GB+LD+FB+PU}') }}
-                        {{ macros.th('GB%', '滾地球率') }}{{ macros.th('LD%', '平飛球率') }}{{ macros.th('FB%', '飛球率') }}{{ macros.th('PU%', '高飛球率\\n此與飛球定義無重疊\\n高飛球為仰角過高無威脅的飛球') }}{{ macros.th('Air%', '空中球率：平飛球加飛球佔進場擊球的比例，代表非滾地球的擊球傾向', '\\frac{LD+FB}{BBE}') }}
-                        {{ macros.th('Pull%', '拉打率：擊球方向偏向打者慣用手同側（右打者的左外野／左打者的右外野）的比例', '\\frac{\\mathrm{Pull}}{\\mathrm{BBE}_{dir}}') }}{{ macros.th('Straight%', '中間方向率：擊球方向偏向場地中間的比例', '\\frac{\\mathrm{Straight}}{\\mathrm{BBE}_{dir}}') }}{{ macros.th('Oppo%', '反方向率：擊球方向偏向打者慣用手異側（右打者的右外野／左打者的左外野）的比例', '\\frac{\\mathrm{Oppo}}{\\mathrm{BBE}_{dir}}') }}
-                        {% if not is_pitcher %}{{ macros.th('PullAir%', '拉打空中球率：同時符合「拉打方向」與「平飛球或飛球」兩個條件的擊球比例，是最容易產生全壘打的擊球型態', '\\frac{\\mathrm{PullAir}}{BBE}') }}{% endif %}
+                        {{ macros.th('GB%', '滾地球率') }}{{ macros.th('LD%', '平飛球率') }}{{ macros.th('FB%', '飛球率') }}{{ macros.th('PU%', '高飛球率\\n此與飛球定義無重疊\\n高飛球為仰角過高無威脅的飛球') }}{{ macros.th('Air%', '有效飛球率', '\\mathrm{Air\\%=LD\\%+FB\\%}') }}
+                        {{ macros.th('Pull%', '拉打率') }}{{ macros.th('Straight%', '中出率\\n這怎麼翻譯') }}{{ macros.th('Oppo%', '推打率') }}
+                        {% if not is_pitcher %}{{ macros.th('PullAir%', '拉打飛球率\\nPullAir定義： \\n同時符合Pull與LD,FB的擊球') }}{% endif %}
                     </tr>
                 </thead>
                 <tbody>
@@ -378,9 +378,9 @@
                                 <table class="data-table">
                                     <thead>
                                         <tr>
-                                            {{ macros.th('球種', '球種名稱') }}{{ macros.th('Pitch%', '使用率：此球種佔全部球種的投球比例', '\\frac{\\mathrm{Pitches}_{type}}{\\mathrm{Pitches}_{all}}') }}{{ macros.th('Velo', '平均球速（英里/小時）', '\\frac{\\sum Velo}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('iVB', '誘導垂直位移：扣除重力自然下墜後，純粹由轉動造成的垂直位移，數值越大代表球看起來越「不掉」（俗稱「上飄」）', '\\frac{\\sum iVB}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('HB', '水平位移：球從投出到進壘左右偏移的距離，數值大小反映該球種的橫向break幅度', '\\frac{\\sum HB}{\\mathrm{Pitches}_{type}}') }}
-                                            {{ macros.th('Spin', '平均轉速（轉/分鐘，RPM）：轉速越高通常代表球的位移效果越明顯', '\\frac{\\sum Spin}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('Ext.', '出手延伸：投手放球點離投手板前緣的距離，延伸越長代表打者實際反應時間越短', '\\frac{\\sum Extension}{\\mathrm{Pitches}_{type}}') }}{{ macros.th('vRel', '垂直出手點高度（離地高度，英尺）。API 給的 z_0 是球飛到本壘板前 50 呎時的高度，此時球已離手約 3–4 呎，故沿其提供的軌跡回推到真正的出手平面 y=60.5-Extension 再平均。2017 年前的球季沒有 Extension，無法回推，仍為 50 呎平面的值', '\\overline{z_0 + v_{z0}t + \\tfrac{1}{2}a_z t^2},\\quad t:\\ y(t)=60.5-\\mathrm{Ext}') }}{{ macros.th('hRel', '水平出手點位置（相對本壘板中心的左右偏移，英尺；右投為負、左投為正）。與 vRel 相同，由 x_0 沿軌跡回推到 y=60.5-Extension 平面再平均。2017 年前的球季無法回推，仍為 50 呎平面的值', '\\overline{x_0 + v_{x0}t + \\tfrac{1}{2}a_x t^2},\\quad t:\\ y(t)=60.5-\\mathrm{Ext}') }}
-                                            {{ macros.th('Zone%', '進壘好球帶率：此球種落在好球帶內的比例', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}{{ macros.th('Chase%', '追打率：此球種落在好球帶外時，打者仍出棒追打的比例', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('Whiff%', '揮空率：對此球種出棒中，完全揮空未擊中球的比例', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}
+                                            {{ macros.th('球種', '球種名稱', legend=pitch_legend(arsenal)) }}{{ macros.th('Pitch%', '球種使用率') }}{{ macros.th('Velo', '平均球速') }}{{ macros.th('iVB', '誘導垂直位移') }}{{ macros.th('HB', '水平位移') }}
+                                            {{ macros.th('Spin', '平均轉速') }}{{ macros.th('Ext.', '平均出手延伸距離') }}{{ macros.th('vRel', '垂直出手點高度（離地高度）', '\\overline{z_0 + v_{z0}t + \\tfrac{1}{2}a_z t^2},\\quad t:\\ y(t)=60.5-\\mathrm{Ext}') }}{{ macros.th('hRel', '水平出手點位置（相對本壘板中心的左右偏移；右投為負、左投為正）', '\\overline{x_0 + v_{x0}t + \\tfrac{1}{2}a_x t^2},\\quad t:\\ y(t)=60.5-\\mathrm{Ext}') }}
+                                            {{ macros.th('Zone%', '好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}{{ macros.th('Chase%', '追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('Whiff%', '出棒揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -412,10 +412,10 @@
                             <div class="table-scroll">
                                 <table class="data-table">
                                     <thead>
-                                        <tr>
-                                            {{ macros.th('球種', '球種名稱') }}{{ macros.th('Pitches', '投此球種的總球數') }}{{ macros.th('Pitch%', '使用率：此球種佔全部球種的投球比例', '\\frac{\\mathrm{Pitches}_{type}}{\\mathrm{Pitches}_{all}}') }}{{ macros.th('Strike%', '好球率\\n界外球或場內擊球不論安打或出局也算Strikes', '\\mathrm{\\frac{Strikes}{Pitches}}') }}
-                                            {{ macros.th('Z-Whiff%', '好球帶揮空率：此球種落在好球帶內且被出棒的球中，完全揮空的比例', '\\frac{\\mathrm{InZoneWhiffs}}{\\mathrm{InZoneSwings}}') }}{{ macros.th('O-Swing%', '追打率：此球種落在好球帶外時，打者仍出棒追打的比例', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('SwStr%', '揮空好球率：此球種總球數中，因揮空而形成好球的比例', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('CSW%', '看揮好球率：此球種總球數中，站著看被判好球加上揮空好球的比例，常用來衡量該球種的壓制力', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
-                                            {{ macros.th('PutAway%', '解決打者率：兩好球後用這個球種完成三振的比例', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ macros.th('AVG', '對此球種的被打擊率', '\\frac{H}{AB}') }}{{ macros.th('wOBA', '對此球種的被加權上壘率：依實際得分價值加權各種上壘結果，比被 OBP 更準確反映此球種的失分風險', '\\frac{\\sum w_i\\,\\mathrm{Event}_i}{\\mathrm{PA}_{\\mathrm{valid}}}') }}{{ macros.th('Barrel%', 'Barrel 定義：\\nEV 98mph時，LA 須落在26°–30°\\n每增加1 mph，角度下限降1°（下限8°）、上限升1.5°（上限50°）', '\\mathrm{\\frac{Barrels}{BBE_{ev}\\text{(打進場內球數)}}}') }}{{ macros.th('Hard-Hit%', 'Hard-Hit定義：\\n EV≥95 mph', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{ev}\\text{(打進場內球數)}}') }}
+                                        <tr>    
+                                            {{ macros.th('球種', '球種名稱', legend=pitch_legend(outcomes)) }}{{ macros.th('Pitches', '球種的總球數') }}{{ macros.th('Pitch%', '球種使用率', '\\frac{\\mathrm{Pitches}_{type}}{\\mathrm{Pitches}_{all}}') }}{{ macros.th('Strike%', '好球率\\n界外球或場內擊球不論安打或出局也算Strikes', '\\mathrm{\\frac{Strikes}{Pitches}}') }}
+                                            {{ macros.th('Z-Whiff%', '好球帶揮空率', '\\frac{\\mathrm{InZoneWhiffs}}{\\mathrm{InZoneSwings}}') }}{{ macros.th('O-Swing%', '壞球追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZone}}') }}{{ macros.th('SwStr%', '投球揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ macros.th('CSW%', '看球與揮空率', '\\frac{\\mathrm{CalledStrikes}+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
+                                            {{ macros.th('PutAway%', '兩好球後三振率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ macros.th('AVG', '此球種被打擊率', '\\mathrm{\\frac{H}{AB}}') }}{{ macros.th('wOBA', '被加權上壘率', '\\mathrm{\\frac{w_{BB}\\times (BB-IBB)+w_{HBP}\\times HBP+w_{1B}\\times 1B+w_{2B}\\times 2B+w_{3B}\\times 3B+w_{HR}\\times HR}{AB+BB-IBB+SF+HBP}}') }}{{ macros.th('Barrel%', 'Barrel 定義：\\nEV 98mph時，LA 須落在26°–30°\\n每增加1 mph，角度下限降1°（下限8°）、上限升1.5°（上限50°）', '\\mathrm{\\frac{Barrels}{BBE_{ev}\\text{(打進場內球數)}}}') }}{{ macros.th('Hard-Hit%', 'Hard-Hit定義：\\n EV≥95 mph', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{ev}\\text{(打進場內球數)}}') }}
                                         </tr>
                                     </thead>
                                     <tbody>

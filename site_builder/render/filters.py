@@ -5,6 +5,31 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from markupsafe import Markup
 
+from ..constants import PITCH_TYPE_ZH
+
+
+def pitch_legend(rows):
+    """球種欄表頭 tooltip 的中英對照，序列化成 ``data-legend`` 的 JSON 字串。
+
+    輸入是球種表格自己的資料列（每列有 ``type`` 代碼與 ``name`` 英文名），輸出
+    ``[[英文名, 中文], ...]``：只列出該表實際出現過的球種，順序沿用資料列既有
+    的球數降冪，與逐球紀錄 Result 欄的 legend 慣例一致。
+
+    查不到中文的代碼（IN/PO/AB/AS/NP 等非球種事件）直接略過，回傳空清單時給
+    ``None``，讓呼叫端省掉 ``data-legend`` 屬性。
+    """
+    pairs = []
+    seen = set()
+    for row in rows or []:
+        code = str((row.get("type") or "")).upper()
+        zh = PITCH_TYPE_ZH.get(code)
+        name = row.get("name") or code
+        if not zh or name in seen:
+            continue
+        seen.add(name)
+        pairs.append([name, zh])
+    return json.dumps(pairs, ensure_ascii=False) if pairs else None
+
 
 def floatformat(value, digits=2):
     """Format a numeric value with fixed decimal places, or '-' for None."""

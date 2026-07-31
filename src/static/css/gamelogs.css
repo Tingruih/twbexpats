@@ -205,29 +205,17 @@
     border-radius: 3px;                 /* 輕微圓角 */
     font-size: 0.7rem;                  /* 小文字 */
     font-weight: 600;                   /* 半粗體 */
-    background: rgba(100,116,139,0.2);  /* 預設灰色背景（無對應球種時） */
-    color: #e2e8f0;                     /* 預設淡白文字 */
+    /* 刻意不給預設底色／文字色：每個球種代碼的底色／文字色規則由
+       base.j2 的 #pitch-tag-colors 在 build 時生成（單一真相來源＝
+       constants.py 的 PITCH_TYPES / PITCH_FAMILY_META），漏掉的代碼會以
+       純文字呈現而不是退回一片辨識不出的灰。 */
 }
 
-/* 控制【逐場紀錄 Tab / 各球種顏色標籤】
-   每種球種有自己的背景色和文字色，快速識別球種類型
-   FF/FA=四縫速球（紅） | SI=伸卡球（橙） | FC=切球（黃）
-   SL=滑球（藍） | ST=掃球（靛） | CU/CS/KC=曲球（紫）
-   CH/FS=變速（綠） | KN=蝴蝶球（粉紅） */
-.pitch-ff, .pitch-fa { background: rgb(var(--red-rgb) / 0.2);   color: #fca5a5; } /* 紅色：四縫速球 */
-.pitch-si            { background: rgba(249,115,22,0.2);  color: #fdba74; } /* 橙色：伸卡球 */
-.pitch-fc            { background: rgba(234,179,8,0.2);   color: #fde047; } /* 黃色：切球 */
-.pitch-sl            { background: rgb(var(--blue-rgb) / 0.2);  color: #93c5fd; } /* 藍色：滑球 */
-.pitch-st            { background: rgba(99,102,241,0.2);  color: #a5b4fc; } /* 靛藍：掃球 */
-.pitch-cu, .pitch-cs, .pitch-kc { background: rgba(139,92,246,0.2); color: #c4b5fd; } /* 紫色：曲球 */
-.pitch-ch, .pitch-fs { background: rgba(34,197,94,0.2);   color: #86efac; } /* 綠色：變速 */
-.pitch-kn            { background: rgba(236,72,153,0.2);  color: #f9a8d4; } /* 粉紅：蝴蝶球 */
-
-/* 控制【進階數據 Tab / 球種分類（快速球／變化球／變速球）標籤顏色】
-   沿用逐球種標籤的配色邏輯：快速球=紅、變化球=藍、變速球=綠 */
-.pitch-fastball { background: rgb(var(--red-rgb) / 0.2);  color: #fca5a5; } /* 紅色：快速球 */
-.pitch-breaking { background: rgb(var(--blue-rgb) / 0.2); color: #93c5fd; } /* 藍色：變化球 */
-.pitch-offspeed { background: rgba(34,197,94,0.2);        color: #86efac; } /* 綠色：變速球 */
+/* 控制【逐場紀錄／進階數據 Tab / 各球種顏色標籤】、
+   【進階數據 Tab / 球種分類（快速球／變化球／變速球）標籤顏色】
+   ── 這兩組規則不再手寫在這裡：由 base.j2 的 <style id="pitch-tag-colors">
+   在 build 時從 constants.py 生成注入，避免跟 Python/JS 三處分開維護。
+   要改配色請改 constants.py 的 PITCH_FAMILY_META，不要在這裡加規則。 */
 
 /* 控制【逐場紀錄 Tab / 可展開逐球資料的逐場列（hover 效果）】 */
 .game-row-expandable:hover {

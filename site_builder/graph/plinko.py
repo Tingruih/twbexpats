@@ -1,7 +1,5 @@
 """Pitch Plinko — pitch-type usage across the ball-strike count graph."""
 
-from typing import Optional
-
 from ..constants import PLINKO_COUNT_LABELS, PLINKO_COUNTS, PLINKO_EDGES
 from ..stats.core.pitches import (
     count_label,
@@ -31,7 +29,6 @@ def compute_pitch_plinko(
     *,
     split_field: str,
     split_specs: tuple[tuple[str, str], ...],
-    skip_types: Optional[set[str]] = None,
 ) -> dict:
     """Build Pitch Plinko data split by pitcher/batter handedness."""
     valid_counts = set(PLINKO_COUNTS)
@@ -43,8 +40,6 @@ def compute_pitch_plinko(
             continue
         ptype = p.get("pitch_type") or "UN"
         if is_unknown_pitch_type(ptype, p.get("pitch_name")):
-            continue
-        if skip_types and ptype in skip_types:
             continue
         if pre_count_tuple(p) not in valid_counts:
             continue

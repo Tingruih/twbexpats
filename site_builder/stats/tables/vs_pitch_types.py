@@ -1,7 +1,6 @@
 """Vs-pitch-types table — how a batter fares against each pitch type."""
 
 from ...constants import (
-    BATTER_PLINKO_SKIP_TYPES,
     PITCH_HAND_SPLITS,
     PITCH_TYPE_GROUPS,
     PITCH_TYPE_TO_GROUP,
@@ -62,15 +61,9 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
     """Per-pitch-type breakdown for a batter."""
     pitches = filter_known_pitch_events(pitches)
 
-    # EP (Eephus) and FA (generic Fastball) almost exclusively appear in
-    # position-player-pitching situations (e.g. catcher or shortstop mops up
-    # in a blowout).  Exclude them so they don't pollute the breakdown or
-    # show as spurious pitch types (matching TJStats / Baseball Savant behaviour).
     by_type: dict[str, list[dict]] = {}
     for p in pitches:
         t = p.get("pitch_type") or "UN"
-        if t in BATTER_PLINKO_SKIP_TYPES:
-            continue
         by_type.setdefault(t, []).append(p)
 
     out = [
@@ -91,8 +84,6 @@ def compute_vs_pitch_groups(pitches: list[dict]) -> list[dict]:
     by_group: dict[str, list[dict]] = {}
     for p in pitches:
         t = p.get("pitch_type") or "UN"
-        if t in BATTER_PLINKO_SKIP_TYPES:
-            continue
         group = PITCH_TYPE_TO_GROUP.get(t)
         if group is None:
             continue

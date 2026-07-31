@@ -29,6 +29,11 @@
     {% if structured_data %}
     <script type="application/ld+json">{{ structured_data|jsonld }}</script>
     {% endif %}
+    {# 球種色票／中英文名的單一真相來源＝site_builder/constants.py，
+       build 時生成，前端 JS 不再各自手抄一份（見 pitch-plinko.js /
+       pitcher-charts.js 的 window.TW.pitchTypeInfo）。 #}
+    <style id="pitch-tag-colors">{{ pitch_tag_css|safe }}</style>
+    <script id="pitch-type-data" type="application/json">{{ pitch_type_display|tojson_safe }}</script>
     {% block extra_head %}{% endblock %}
 </head>
 <body>

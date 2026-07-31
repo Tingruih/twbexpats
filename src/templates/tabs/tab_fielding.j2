@@ -11,10 +11,10 @@
                 <thead>
                     <tr>
                         <th>年度</th><th>層級</th><th>球隊</th>{{ macros.th('POS', '守備位置') }}
-                        {{ macros.th('GP', '該位置守備出賽場次') }}{{ macros.th('GS', '該位置守備先發場次') }}{{ macros.th('INN', '守備局數：小數點後代表額外的出局數（.1／.2），而非十進位小數', '\\mathrm{INN}=\\frac{\\mathrm{Outs}}{3}') }}
-                        {{ macros.th('TC', '守備機會總數：刺殺、助殺、失誤三者的總和', 'TC=PO+A+E') }}{{ macros.th('PO', '刺殺數：直接造成打者或跑者出局的次數（如接殺飛球、踩壘刺殺）') }}{{ macros.th('A', '助殺數：傳球協助隊友完成出局的次數') }}{{ macros.th('E', '失誤數') }}
-                        {{ macros.th('FLD%', '守備率：守備機會中，成功完成刺殺或助殺（未失誤）的比例，是最基本的守備成功率指標', '\\mathrm{FLD\\%}=\\frac{PO+A}{TC}') }}{{ macros.th('DP', '參與雙殺的次數') }}{{ macros.th('TP', '參與三殺的次數') }}
-                        {{ macros.th('RF/G', '每場守備範圍因子：平均每場比賽完成幾次刺殺加助殺，用來估計守備範圍大小；會受球隊投球型態（如滾地球投手多寡）影響，跨隊比較時需留意', '\\mathrm{RF/G}=\\frac{PO+A}{GP}') }}{{ macros.th('RF/9', '每9局守備範圍因子：換算成每 9 局的刺殺加助殺次數，用於守備局數差異較大時的比較', '\\mathrm{RF/9}=\\frac{(PO+A)\\times 9}{INN}') }}{{ macros.th('TE', '傳球失誤數：傳球出界或傳偏導致的失誤次數，是失誤（E）的其中一種類型') }}
+                        {{ macros.th('GP', '該位置守備出賽場次') }}{{ macros.th('GS', '該位置守備先發場次') }}{{ macros.th('INN', '守備局數') }}
+                        {{ macros.th('TC', '守備機會總數', 'TC=PO+A+E') }}{{ macros.th('PO', '刺殺數') }}{{ macros.th('A', '助殺數\\n傳球協助隊友完成出局的次數') }}{{ macros.th('E', '失誤數') }}
+                        {{ macros.th('FLD%', '守備率', '\\mathrm{FLD\\%=\\frac{PO+A}{TC}}') }}{{ macros.th('DP', '參與雙殺的次數') }}{{ macros.th('TP', '參與三殺的次數') }}
+                        {{ macros.th('RF/G', '每場守備範圍因子', '\\mathrm{RF/G}=\\frac{PO+A}{GP}') }}{{ macros.th('RF/9', '每9局守備範圍因子', '\\mathrm{RF/9}=\\frac{(PO+A)\\times 9}{INN}') }}{{ macros.th('TE', '傳球失誤數') }}
                     </tr>
                 </thead>
                 <tbody>

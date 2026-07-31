@@ -1,16 +1,20 @@
 {# 共用 <th> 欄位標頭 macro，集中欄位說明（tooltip）的標記方式 #}
 
-{% macro th(label, tooltip=None, formula=None) -%}
-<th{% if tooltip %} data-tooltip="{{ tooltip|e }}"{% endif %}{% if formula %} data-formula="{{ formula|e }}"{% endif %}>{{ label }}</th>
+{# legend：``[["英文","中文"], ...]`` 的 JSON 字串，由 stats-tooltip.js 的
+   buildLegend() 在 tooltip 內渲染成兩欄對照表（球種欄用，見 pitch_legend()）#}
+{% macro th(label, tooltip=None, formula=None, legend=None) -%}
+<th{% if tooltip %} data-tooltip="{{ tooltip|e }}"{% endif %}{% if formula %} data-formula="{{ formula|e }}"{% endif %}{% if legend %} data-legend="{{ legend|e }}"{% endif %}>{{ label }}</th>
 {%- endmacro %}
 
 {# 打者「對戰球種」表格（逐球種 / 三大類皆共用同一組欄位） #}
 {% macro vs_pitch_table(rows, tags, type_header='球種', type_tooltip=None) %}
 {% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
+{# 分類表只有三列固定的大類，沿用原本的代碼清單 tooltip；逐球種表才掛中英對照 #}
+{% set _type_legend = none if type_header == '分類' else pitch_legend(rows) %}
 <table class="data-table">
     <thead>
         <tr>
-            {{ th(type_header, _type_tip) }}{{ th('Pitches', '該球種/分類總球數') }}{{ th('Strike%', '好球率\\n界外球或場內擊球不論安打或出局也算Strikes', '\\mathrm{\\frac{Strikes}{Pitches}}') }}{{ th('Zone%', '好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
+            {{ th(type_header, _type_tip, legend=_type_legend) }}{{ th('Pitches', '該球種/分類總球數') }}{{ th('Strike%', '好球率\\n界外球或場內擊球不論安打或出局也算Strikes', '\\mathrm{\\frac{Strikes}{Pitches}}') }}{{ th('Zone%', '好球帶率', '\\frac{\\mathrm{InZone}}{\\mathrm{InZone}+\\mathrm{OutZone}}') }}
             {{ th('Z-Swing%', '好球帶內揮棒率', '\\frac{\\mathrm{InZoneSwings}}{\\mathrm{InZonePitches}}') }}{{ th('O-Swing%', '壞球追打率', '\\frac{\\mathrm{OutZoneSwings}}{\\mathrm{OutZonePitches}}') }}{{ th('Whiff%', '出棒揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Swings}}') }}{{ th('SwStr%', '投球揮空率', '\\frac{\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}
             {{ th('CSW%', '看球與揮空率','\\frac{\\mathrm{CalledStrikes}\\text(看球好球數)+\\mathrm{Whiffs}}{\\mathrm{Pitches}}') }}{{ th('Put Away%', '兩好球後三振率', '\\frac{\\mathrm{TwoStrikeK}}{\\mathrm{TwoStrikePitches}}') }}{{ th('AVG', '打擊率', '\\frac{H}{AB}') }}{{ th('wOBA', '加權上壘率\\n此數據權重與TJStats相同', '\\mathrm{\\frac{w_{BB}\\times (BB-IBB)+w_{HBP}\\times HBP+w_{1B}\\times 1B+w_{2B}\\times 2B+w_{3B}\\times 3B+w_{HR}\\times HR}{AB+BB-IBB+SF+HBP}}') }}
             {{ th('Barrel%', 'Barrel 定義：\\nEV 98mph時，LA 須落在26°–30°\\n每增加1 mph，角度下限降1°（下限8°）、上限升1.5°（上限50°）','\\mathrm{\\frac{Barrels}{BBE_{ev}\\text{(打進場內球數)}}}') }}{{ th('Hard-Hit%', 'Hard-Hit定義：\\n EV≥95 mph', '\\frac{\\mathrm{HardHit}}{\\mathrm{BBE}_{ev}\\text{(打進場內球數)}}') }}
@@ -45,11 +49,12 @@
 {% macro usage_by_count_table(usage_types, usage_rows, tags, type_header='球種', type_tooltip=None) %}
 {% if usage_types and usage_rows %}
 {% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
+{% set _type_legend = none if type_header == '分類' else pitch_legend(usage_types) %}
 <div class="table-scroll">
     <table class="data-table pitch-usage-table">
         <thead>
             <tr>
-                {{ th(type_header, _type_tip) }}
+                {{ th(type_header, _type_tip, legend=_type_legend) }}
                 {% for row in usage_rows %}
                 {% if row.key != 'all' %}
                 <th>{{ row.label }}<br><span class="pitch-usage-subhead">{{ row.counts_label }}</span></th>

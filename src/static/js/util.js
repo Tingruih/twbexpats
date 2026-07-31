@@ -20,9 +20,16 @@
  *                                              導致文字顏色跑掉的問題
  *  - TW.trendTooltipLabelPointStyle(item)    ：tooltip callbacks.labelPointStyle，把
  *                                              色塊畫成跟圖例一致的線段樣式（實線/虛線）
+ *  - TW.pitchTypeInfo(code)                  ：查球種代碼的中英文名／配色
+ *                                              （{zh,en,family,group,bg,text}），
+ *                                              讀 base.j2 注入的 #pitch-type-data，
+ *                                              查無資料回傳 null
  *
  * 過去 escapeHtml 在 pitcher-charts.js / pitch-plinko.js 各有一份、
  * level-select 填充邏輯散落 6 個檔案；集中於此後「改一處即全站生效」。
+ * 球種中英文名／配色同理：過去兩份圖表腳本各自手抄一份 PITCH_COLORS /
+ * PITCH_NAMES，跟 constants.py 的中文譯名分開維護，容易分歧（見
+ * constants.py 頂部 PITCH_TYPES 的說明）。
  */
 window.TW = (function () {
     "use strict";
@@ -35,6 +42,18 @@ window.TW = (function () {
             .replace(/>/g, "&gt;")
             .replace(/"/g, "&quot;")
             .replace(/'/g, "&#39;");
+    }
+
+    // 惰性讀取＋快取 #pitch-type-data（base.j2 注入的 JSON），查無該代碼
+    // 或找不到 script tag 時回傳 null，呼叫端各自決定 fallback。
+    var _pitchTypeData = null;
+    function pitchTypeInfo(code) {
+        if (_pitchTypeData === null) {
+            var script = document.getElementById("pitch-type-data");
+            try { _pitchTypeData = script ? JSON.parse(script.textContent || "{}") : {}; }
+            catch (err) { _pitchTypeData = {}; }
+        }
+        return _pitchTypeData[String(code || "").toUpperCase()] || null;
     }
 
     /**
@@ -218,5 +237,6 @@ window.TW = (function () {
         formatTrendValue: formatTrendValue,
         renderTrendLegend: renderTrendLegend,
         trendTooltipLabelPointStyle: trendTooltipLabelPointStyle,
+        pitchTypeInfo: pitchTypeInfo,
     };
 })();

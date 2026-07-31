@@ -10,6 +10,9 @@
  *  - 篩選：支援依左打/右打/全部切換（對應 arsenal-filters.js 的 batSel）
  *
  * 位置：圖表 Tab 的「Pitch Plinko」區塊（#plinko-root）
+ *
+ * 球種顏色／英文名經 window.TW.pitchTypeInfo() 讀 base.j2 注入的
+ * #pitch-type-data（單一真相來源＝constants.py 的 PITCH_TYPES）。
  */
 (function() {
     // 節點 ID 對應表（球數組合，從 0-0 到 3-2）
@@ -39,36 +42,6 @@
         ["3-0", "3-1"],
         ["2-2", "3-2"], ["3-1", "3-2"],
     ];
-    var PITCH_COLORS = {
-        FF: "#ff0a78", FA: "#ff0a78",
-        SI: "#94165d", FT: "#94165d",
-        FC: "#c45aa0",
-        ST: "#2fc5a7",
-        SL: "#68d986",
-        CH: "#ff9568",
-        CU: "#3326d6", KC: "#3326d6", CS: "#3326d6",
-        FS: "#ff6b00", FO: "#ff6b00",
-        SV: "#7c3aed", SC: "#d946ef", GY: "#0ea5e9",
-        KN: "#a3a3a3", EP: "#eab308",
-        UN: "#9ca3af",
-        IN: "#6b7280", PO: "#6b7280", AB: "#6b7280", AS: "#6b7280", NP: "#6b7280",
-    };
-    var FALLBACK_COLORS = ["#ff0a78", "#94165d", "#c45aa0", "#2fc5a7", "#ff9568", "#68d986", "#3326d6", "#ff6b00"];
-    var PITCH_NAMES = {
-        FF: "4-SEAM", FA: "4-SEAM",
-        SI: "SINKER", FT: "2-SEAM",
-        FC: "CUTTER",
-        ST: "SWEEPER",
-        SL: "SLIDER",
-        CH: "CHANGEUP",
-        CU: "CURVEBALL", KC: "CURVEBALL", CS: "CURVEBALL",
-        FS: "SPLITTER", FO: "SPLITTER",
-        SV: "SLURVE", SC: "SCREWBALL", GY: "GYROBALL",
-        KN: "KNUCKLEBALL", EP: "EEPHUS",
-        UN: "UNKNOWN",
-        IN: "INTENTIONAL BALL", PO: "PITCHOUT", AB: "AUTOMATIC BALL", AS: "AUTOMATIC STRIKE", NP: "NO PITCH",
-    };
-
     var NODE_LAYOUT = NODE_IDS.map(function(id) {
         var parts = String(id).split("-");
         var balls = Number(parts[0] || 0);
@@ -96,13 +69,19 @@
 
     function pitchName(pt) {
         var type = pt && pt.type ? String(pt.type).toUpperCase() : "UN";
-        if (PITCH_NAMES[type]) return PITCH_NAMES[type];
-        return String((pt && pt.name) || type).replace(/ Fastball$/i, "").toUpperCase();
+        var info = window.TW.pitchTypeInfo(type);
+        if (info && info.en) return info.en;
+        return String((pt && pt.name) || type).replace(/ Fastball$/i, "");
     }
 
-    function pitchColor(type, colorIndex) {
-        var key = String(type || "UN").toUpperCase();
-        return PITCH_COLORS[key] || FALLBACK_COLORS[colorIndex % FALLBACK_COLORS.length];
+    // #pitch-type-data（base.j2 注入，來源 constants.py）涵蓋所有會走到這裡
+    // 的球種代碼（非球種代碼已在 Python 端由 filter_known_pitch_events 濾
+    // 掉），所以 fallback 照理不會觸發。真的漏了就回傳純白 —— 刻意選一個明
+    // 顯到不可能被當成正常球種色的值，讓缺漏當場現形，而不是像舊的循環色
+    // 盤那樣悄悄借用別的球種色。
+    function pitchColor(type) {
+        var info = window.TW.pitchTypeInfo(type);
+        return (info && info.bg) || "#ffffff";
     }
 
     function mapById(items, idField) {

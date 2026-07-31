@@ -493,6 +493,7 @@
     min-width: 0;           /* 防止溢出 */
     gap: 0.28rem;           /* 色塊與文字的間距 */
     white-space: nowrap;    /* 不換行 */
+    text-transform: uppercase; /* 球種名全大寫（純顯示，資料端維持 Title Case） */
 }
 
 /* 控制【圖表 Tab / Plinko 圖例的方形色塊】 */
@@ -587,6 +588,7 @@
     overflow: hidden;       /* 隱藏溢出 */
     text-overflow: ellipsis; /* 截斷時顯示「...」 */
     white-space: nowrap;    /* 不換行 */
+    text-transform: uppercase; /* 球種名全大寫（純顯示，資料端維持 Title Case） */
 }
 
 /* 控制【圖表 Tab / Plinko Tooltip 數值（球數與比例靠右對齊）】 */

@@ -178,20 +178,197 @@ PITCH_HAND_SPLITS = (
     ("R", "右投"),
 )
 
+# 球種代碼的單一真相來源。過去中文名（PITCH_TYPE_ZH）跟配色
+# （PITCH_TYPE_FAMILIES）是兩張各自維護、僅靠人工對齊代碼集合的表，前端
+# pitch-plinko.js / pitcher-charts.js 又各自手抄一份英文名 + 配色，四份資料
+# 互相同步全靠人眼——結果是 KC/CS/SC 在 JS 手抄表裡被誤併成跟 CU 同一個
+# "Curveball"，圖例因此出現看似重複、實則是不同代碼的兩行。
+#
+# 現在改成兩層表：先定義「家族」（球速 × 位移方向切出的一層，色相依附於
+# 此），再定義每個 API 代碼屬於哪個家族＋中英文名稱。PITCH_TYPE_ZH、
+# PITCH_TYPE_COLORS、PITCH_TYPE_TO_FAMILY、PITCH_TYPE_GROUPS、
+# PITCH_TYPE_TO_GROUP、PITCH_GROUP_LABELS、PITCH_GROUP_ORDER、
+# PITCH_TYPE_DISPLAY 全部從這兩張表算出來，不再各自維護一份原始資料；
+# render/env.py 把 PITCH_TYPE_DISPLAY 序列化成 JSON 注入 base.j2，
+# PITCH_TAG_CSS 是生成好的 CSS 規則字串，前端 JS/CSS 從此不再手抄任何一份。
+#
+# 三大分類的顯示標籤與固定列序（分類表永遠照 Fastball → Breaking → Offspeed
+# 排，不隨球數多寡浮動）。
+GROUP_ORDER: tuple[str, ...] = ("FASTBALL", "BREAKING", "OFFSPEED")
+GROUP_LABELS: dict[str, str] = {
+    "FASTBALL": "Fastball",
+    "BREAKING": "Breaking",
+    "OFFSPEED": "Offspeed",
+}
+
+# 球種配色的家族表：色相 = 家族，同家族成員共用同一組底色／文字色（文字色
+# 是底色在 OKLCH 拉到 L≈0.84 手動調出來的值，直接存值而非即時運算，
+# 對比皆 >= 9.9:1）。
+#
+# 規則
+# ────
+# 1. 家族是三大分類底下、依「球速 × 位移方向」再切的一層，永不跨分類邊界：
+#    FASTBALL 拿暖色段（紅／橙／金），BREAKING 拿藍／紫，OFFSPEED 拿綠／粉。
+# 2. 同家族成員共用同一色票——這是硬性限制不是偏好，見下。
+# 3. 沒有 fallback 灰：每個會進到圖表或標籤的代碼都在 PITCH_TYPES 有一筆。
+#    非球種代碼（NON_PITCH_TYPE_CODES）早在 filter_known_pitch_events() 就
+#    被濾掉，不會走到配色這一步。
+#
+# 為什麼是 7 個色票（原本 8 個，SWEEPER 併入 SLIDER）
+# ────────────────────────────
+# 位移散點圖任兩個球種都可能相鄰，屬於 all-pairs 情境。在本站深色表面
+# （#09090b）、OKLCH 明度帶 0.48–0.67、彩度 >= 0.10、對比 >= 3:1 的條件下實測
+# 各色數的最佳可達分離度（Machado 2009 protan/deutan 模擬，OKLab ΔE×100）：
+#
+#     色數   最差 CVD ΔE   最差常視 ΔE   （門檻 8.0 / 15.0）
+#      6        11.0          19.1        通過
+#      7         9.1          16.6        通過
+#      8         8.0          15.0        通過
+#      9         7.4          13.9        不通過
+#     12         5.9          10.6        不通過
+#
+# 8 是天花板；SWEEPER（掃球／滑曲球）併入 SLIDER 家族後只用 7 色，落在已驗證
+# 安全的範圍內，掃球／滑曲球從此與滑球／子彈球共用同一組藍色。
+#
+# 代價：同家族球種同時出現時色彩不可分（實測 95 組（球員 × 年度）球種組合中
+# SL+ST 佔 20 組、曲球家族內部撞色 13 組）。這些情境靠次要編碼辨識——圖例、
+# 標籤文字、hover tooltip 都會寫出球種全名，識別從不只靠顏色。
+PITCH_FAMILY_META: dict[str, dict] = {
+    "FOUR_SEAM": {"label": "速球", "group": "FASTBALL", "bg": "#fc3766", "text": "#ff9fae"},
+    "SINKER":    {"label": "伸卡", "group": "FASTBALL", "bg": "#bd3b05", "text": "#ffa680"},
+    "CUTTER":    {"label": "卡特", "group": "FASTBALL", "bg": "#c58104", "text": "#ffbc5b"},
+    "SLIDER":    {"label": "滑球", "group": "BREAKING", "bg": "#4b88fd", "text": "#93cbff"},
+    "CURVE":     {"label": "曲球", "group": "BREAKING", "bg": "#9618d0", "text": "#ecaeff"},
+    "CHANGEUP":  {"label": "變速", "group": "OFFSPEED", "bg": "#18761e", "text": "#8de58b"},
+    "KNUCKLE":   {"label": "特殊", "group": "OFFSPEED", "bg": "#bf0b82", "text": "#ffa0dd"},
+}
+
+# 三大分類標籤（.pitch-fastball 等）借用哪個家族的顏色代表：取各分類中球數
+# 最多的家族色，與改版前的分類配色一致（紅／藍／綠）。
+GROUP_REPRESENTATIVE_FAMILY: dict[str, str] = {
+    "FASTBALL": "FOUR_SEAM",
+    "BREAKING": "SLIDER",
+    "OFFSPEED": "CHANGEUP",
+}
+
+# 球種代碼主表：每個會進到圖表或標籤的代碼一筆，含中英文顯示名與所屬家族。
+#
+# 中文譯名來源：官方 ``/api/v1/pitchTypes`` 端點的 description（Four-seam
+# FB、Knuckleball、Eephus Pitch）與 playByPlay 實際回傳的 pitch_name
+# （Four-Seam Fastball、Knuckle Ball、Eephus）並不一致，故以「代碼」為鍵。
+# 英文顯示名同理不採 API 原始字串，各代碼獨立給一個顯示名（過去只存在於
+# 前端 JS 手抄表，未跟中文譯名的區分邏輯對齊）。
+#
+# 刻意不收錄的代碼：IN（Intentional Ball）、PO（Pitchout）、AB（Automatic
+# Ball）、AS（Automatic Strike）、NP（No Pitch）都不是球種而是投球事件；
+# UN（Unknown）則會被 filter_known_pitch_events() 濾掉。查無資料者一律不進
+# legend，因此這些代碼即使出現在表格列裡也不會出現在 tooltip 中。
+#
+# CU/CB 中英文顯示名刻意相同：CB 是舊版 API 對曲球的代碼，語意上就是同一種
+# 球路，不是兩種球，只是不同年代留下的字串；兩者在此仍各自成列（各自統計，
+# 圖例可能同時各出現一行），不做代碼合併。
+PITCH_TYPES: dict[str, dict] = {
+    # 速球系
+    "FF": {"zh": "四縫線速球", "en": "Four-Seam", "family": "FOUR_SEAM"},
+    "FA": {"zh": "速球", "en": "Fastball", "family": "FOUR_SEAM"},
+    "FT": {"zh": "二縫線速球", "en": "Two-Seam", "family": "SINKER"},
+    "SI": {"zh": "伸卡球", "en": "Sinker", "family": "SINKER"},
+    "FC": {"zh": "卡特球", "en": "Cutter", "family": "CUTTER"},
+    # 變化球系
+    "SL": {"zh": "滑球", "en": "Slider", "family": "SLIDER"},
+    "GY": {"zh": "子彈球", "en": "Gyroball", "family": "SLIDER"},
+    "ST": {"zh": "橫掃球", "en": "Sweeper", "family": "SLIDER"},
+    "SV": {"zh": "滑曲球", "en": "Slurve", "family": "SLIDER"},
+    "CU": {"zh": "曲球", "en": "Curveball", "family": "CURVE"},
+    "CB": {"zh": "曲球", "en": "Curveball", "family": "CURVE"},
+    "KC": {"zh": "彈指曲球", "en": "Knuckle Curve", "family": "CURVE"},
+    "CS": {"zh": "慢速曲球", "en": "Slow Curve", "family": "CURVE"},
+    "SC": {"zh": "螺旋球", "en": "Screwball", "family": "CURVE"},
+    # 變速球系
+    "CH": {"zh": "變速球", "en": "Changeup", "family": "CHANGEUP"},
+    # Splitter 本質是速度更快、位移更小的 Forkball，用「快速」二字區隔兩者，
+    # 避免中文都落在「指叉球」而在 tooltip 裡並列成兩行相同的字。
+    "FS": {"zh": "快速指叉球", "en": "Splitter", "family": "CHANGEUP"},
+    "FO": {"zh": "指叉球", "en": "Forkball", "family": "CHANGEUP"},
+    "KN": {"zh": "蝴蝶球", "en": "Knuckleball", "family": "KNUCKLE"},
+    "EP": {"zh": "小便球", "en": "Eephus", "family": "KNUCKLE"},
+}
+
+# ── 以下皆從 PITCH_TYPES / PITCH_FAMILY_META 推導，不手動維護 ──
+
+PITCH_TYPE_ZH: dict[str, str] = {code: info["zh"] for code, info in PITCH_TYPES.items()}
+
+PITCH_TYPE_COLORS: dict[str, str] = {
+    code: PITCH_FAMILY_META[info["family"]]["bg"] for code, info in PITCH_TYPES.items()
+}
+
+PITCH_TYPE_TO_FAMILY: dict[str, str] = {code: info["family"] for code, info in PITCH_TYPES.items()}
+
+PITCH_TYPE_TO_GROUP: dict[str, str] = {
+    code: PITCH_FAMILY_META[info["family"]]["group"] for code, info in PITCH_TYPES.items()
+}
+
 # Pitch-type → super-category classification: the standard three-way
 # Statcast / sabermetric split into fastballs (velocity + backspin carry),
 # breaking balls (spin-driven lateral/vertical break), and offspeed pitches
 # (defining trait is reduced velocity relative to the pitcher's fastball).
 # Sources: FanGraphs "Pitch Type Abbreviations & Classifications" library
 # page and Baseball Savant's pitch-type groupings.
-PITCH_TYPE_GROUPS = (
-    ("FASTBALL", "Fastball", ("FF", "SI", "FC", "FA", "FT")),
-    ("BREAKING", "Breaking", ("SL", "ST", "SV", "CU", "CB", "KC", "CS", "SC")),
-    ("OFFSPEED", "Offspeed", ("CH", "FS", "FO", "KN", "EP")),
+PITCH_TYPE_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = tuple(
+    (
+        group,
+        GROUP_LABELS[group],
+        tuple(
+            code for code, info in PITCH_TYPES.items()
+            if PITCH_FAMILY_META[info["family"]]["group"] == group
+        ),
+    )
+    for group in GROUP_ORDER
 )
-PITCH_TYPE_TO_GROUP: dict[str, str] = {
-    code: key for key, _label, codes in PITCH_TYPE_GROUPS for code in codes
+PITCH_GROUP_LABELS: dict[str, str] = GROUP_LABELS
+PITCH_GROUP_ORDER: tuple[str, ...] = GROUP_ORDER
+
+# 前端用的攤平表：build 時序列化成 JSON 注入頁面（見 render/env.py 的
+# ``pitch_type_display`` global、base.j2 的 ``#pitch-type-data``），取代過去
+# pitch-plinko.js / pitcher-charts.js 各自手抄一份 PITCH_COLORS / PITCH_NAMES
+# 的做法。
+PITCH_TYPE_DISPLAY: dict[str, dict] = {
+    code: {
+        "zh": info["zh"],
+        "en": info["en"],
+        "family": info["family"],
+        "group": PITCH_FAMILY_META[info["family"]]["group"],
+        "bg": PITCH_FAMILY_META[info["family"]]["bg"],
+        "text": PITCH_FAMILY_META[info["family"]]["text"],
+    }
+    for code, info in PITCH_TYPES.items()
 }
+
+
+def _build_pitch_tag_css() -> str:
+    """Generate the ``.pitch-{code}`` / ``.pitch-{group}`` CSS rules that used
+    to be hand-copied into gamelogs.css. One rule per family (all member
+    codes share a selector) plus one per super-category group."""
+    family_codes: dict[str, list[str]] = {}
+    for code, info in PITCH_TYPES.items():
+        family_codes.setdefault(info["family"], []).append(code)
+
+    def _rule(selector: str, meta: dict) -> str:
+        r, g, b = (int(meta["bg"][i:i + 2], 16) for i in (1, 3, 5))
+        return f"{selector} {{ background: rgb({r} {g} {b} / 0.22); color: {meta['text']}; }}"
+
+    lines = [
+        _rule(", ".join(f".pitch-{c.lower()}" for c in codes), PITCH_FAMILY_META[family])
+        for family, codes in family_codes.items()
+    ]
+    lines += [
+        _rule(f".pitch-{group.lower()}", PITCH_FAMILY_META[family])
+        for group, family in GROUP_REPRESENTATIVE_FAMILY.items()
+    ]
+    return "\n".join(lines)
+
+
+PITCH_TAG_CSS: str = _build_pitch_tag_css()
 
 # Ball-strike count buckets shared by per-level computation and cross-level
 # combination. Labels are stored inside the statcast JSON payload.
@@ -259,10 +436,17 @@ PITCHER_PLINKO_SPLITS = (
     ("R", "vs RHB"),
 )
 
-# EP (Eephus) and FA (generic Fastball) almost exclusively appear in
-# position-player-pitching situations; excluded from batter breakdowns to
-# match TJStats / Baseball Savant behaviour.
-BATTER_PLINKO_SKIP_TYPES = {"EP", "FA"}
+# Pitch-type codes that don't represent an actual delivered pitch with real
+# "stuff": IN (intentional-walk lob), PO (pitchout), AB/AS (pitch-clock
+# automatic ball/strike — no pitch thrown at all), NP (no pitch), UN
+# (unknown). Combined with the blank/placeholder check in
+# ``is_unknown_pitch_type()`` so every pitch-type breakdown table (pitcher
+# and batter alike) excludes them from a single source of truth.
+NON_PITCH_TYPE_CODES = {"UN", "IN", "PO", "AB", "AS", "NP"}
+
+# 佔位字串：API 沒有給出球種時，pitch_type / pitch_name 會落在這幾個值上
+# （MiLB 舊賽季大量如此）。比對前一律 strip + upper。
+UNKNOWN_PITCH_TOKENS = frozenset({"UN", "UNKNOWN"})
 
 # ── 逐球軌跡幾何 ──
 # 來源：MLB Stats API 的 ``pitchData``。API 給的是一組九參數等加速度軌跡擬合

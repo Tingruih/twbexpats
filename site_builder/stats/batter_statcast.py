@@ -1,6 +1,6 @@
 """Season-level batter Statcast aggregation entry point."""
 
-from ..constants import BATTER_PLINKO_SKIP_TYPES, BATTER_PLINKO_SPLITS
+from ..constants import BATTER_PLINKO_SPLITS
 from ..graph.plinko import compute_pitch_plinko
 from .advanced.woba import compute_pitch_woba
 from .batted_ball import batted_ball_metrics
@@ -51,7 +51,6 @@ def compute_batter_statcast(pitches: list[dict]) -> dict:
             pitches,
             split_field="pitch_hand",
             split_specs=BATTER_PLINKO_SPLITS,
-            skip_types=BATTER_PLINKO_SKIP_TYPES,
         ),
     }
     result.update(discipline_metrics(agg))
