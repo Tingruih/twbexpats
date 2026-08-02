@@ -232,15 +232,10 @@
             '</div>';
     }
 
-    function moveTooltip(root, tooltip, event) {
-        var rect = root.getBoundingClientRect();
-        var left = event.clientX - rect.left + 14;
-        var top = event.clientY - rect.top - tooltip.offsetHeight / 2;
-        left = Math.min(left, root.clientWidth - tooltip.offsetWidth - 8);
-        top = Math.max(8, Math.min(top, root.clientHeight - tooltip.offsetHeight - 8));
-        tooltip.style.left = left + "px";
-        tooltip.style.top = top + "px";
-    }
+    // Tooltip 定位邏輯共用於 pitcher-charts.js（球種位移圖），見 util.js 的
+    // TW.positionTooltipNearPointer。舊版永遠貼在指標右側，游標右邊的節點/邊線
+    // 會被 tooltip 蓋住；共用版依指標所在左右半邊決定貼左或貼右，避免擋道。
+    var moveTooltip = window.TW.positionTooltipNearPointer;
 
     function bindTooltips(root, data, colorIndexByType) {
         var tooltip = root.querySelector(".pitch-plinko-tooltip");

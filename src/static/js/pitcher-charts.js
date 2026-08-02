@@ -179,28 +179,9 @@
         return out;
     }
 
-    function moveTooltip(root, tooltip, event) {
-        var rect = root.getBoundingClientRect();
-        var edge = 8;
-        var gap = 18;
-        var pointerX = event.clientX - rect.left;
-        var pointerY = event.clientY - rect.top;
-        var placeOnLeft = pointerX >= root.clientWidth / 2;
-        var left = placeOnLeft
-            ? pointerX - tooltip.offsetWidth - gap
-            : pointerX + gap;
-        var top = pointerY - tooltip.offsetHeight / 2;
-        left = Math.max(edge, Math.min(
-            left,
-            root.clientWidth - tooltip.offsetWidth - edge
-        ));
-        top = Math.max(edge, Math.min(
-            top,
-            root.clientHeight - tooltip.offsetHeight - edge
-        ));
-        tooltip.style.left = left + "px";
-        tooltip.style.top = top + "px";
-    }
+    // Tooltip 定位邏輯共用於 pitch-plinko.js，見 util.js 的
+    // TW.positionTooltipNearPointer
+    var moveTooltip = window.TW.positionTooltipNearPointer;
 
     function movementTooltipHtml(el) {
         return '<div class="pitch-chart-tooltip-title">' + escapeHtml(el.dataset.name || el.dataset.type || "Pitch") + '</div>' +

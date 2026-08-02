@@ -1,9 +1,9 @@
 # Taiwan MLB Tracker 函式索引
 
-> 最後核對：2026-07-30
+> 最後核對：2026-07-31
 >
 > 範圍：`site_builder/` 全部 119 個 Python 檔案，以及 CLI `build.py`。
-> 第 1～8 章共盤點 254 個 function/method，包含公開函式、底線開頭的內部 helper、
+> 第 1～8 章共盤點 257 個 function/method，包含公開函式、底線開頭的內部 helper、
 > class method 與函式內 closure。清單以目前原始碼 AST 為準。
 
 這份文件是實作時的「先去哪個檔案、該呼叫哪個函式」導覽。每個表格都同時回答：
@@ -182,8 +182,8 @@ wRC+ 所需的聯盟環境皆由 `league_constant/` 解析後以參數傳入。
 |  | `compute_year_groups(all_stats)` | 組成最近年度優先的 `{year, summary, rows, multi}`，供模板顯示年度總列與逐隊列。 |
 | `core/pitches.py` | `is_swing(p)` / `is_whiff(p)` / `is_called_strike(p)` | 依 MLB result code 判斷揮棒、揮空、主審好球。 |
 |  | `is_in_zone(p)` / `is_out_of_zone(p)` | 依 zone 1–9 / 11–14 分類；缺 zone 兩者皆 False。 |
-|  | `is_unknown_pitch_type(pitch_type, pitch_name=None)` | 判斷空值、UN、UNKNOWN placeholder。 |
-|  | `filter_known_pitch_events(pitches)` | 球種細分表的共同前處理：剔除未知球種事件。 |
+|  | `is_unknown_pitch_type(pitch_type, pitch_name=None)` | 判斷空值、UN/UNKNOWN placeholder，以及故意壞球、pitchout、自動好壞球、no-pitch 等沒有實際投球內容的事件代碼。 |
+|  | `filter_known_pitch_events(pitches)` | 球種細分表的共同前處理：剔除未知球種與非實際投球事件。 |
 |  | `pre_count_tuple(p)` / `post_count_tuple(p)` | 安全取得投球前/後 `(balls, strikes)`；不完整或無法轉 int 時回 `None`。 |
 |  | `count_label(count)` | `(balls, strikes)` 轉 `"B-S"`。 |
 |  | `ensure_pre_strikes(pitches)` | 為舊快取逐球回填 `pre_balls/pre_strikes`；依 game/PA 邊界重置，會原地修改 pitch dict。 |
@@ -303,10 +303,10 @@ EV90 等百分位不會被錯誤加權。
 |  | `compute_pitch_usage_by_count(pitches)` | 逐球種在各 count bucket 的數量與使用率。 |
 |  | `compute_pitch_usage_by_count.key_fn(p)` | closure；把 pitch 映射為 `(pitch_type,pitch_name)`。 |
 |  | `compute_pitch_group_usage_by_count(pitches)` | 將球種捲成 fastball/breaking/offspeed 後計算 count usage。 |
-|  | `compute_pitch_group_usage_by_count.key_fn(p)` | closure；排除雜訊球種並映射至固定球種群組。 |
+|  | `compute_pitch_group_usage_by_count.key_fn(p)` | closure；只將主表收錄的球種映射至固定球種群組，無對應者回 `None`。 |
 | `tables/vs_pitch_types.py` | `_compute_pitch_bucket_row(key, name, ps)` | 球種與球種群組共用的打者表單列計算，避免欄位定義漂移。 |
-|  | `compute_vs_pitch_types(pitches)` | 打者對逐球種的 discipline、AVG/wOBA 與 contact-quality 表。 |
-|  | `compute_vs_pitch_groups(pitches)` | 同一組指標捲成 fastball/breaking/offspeed。 |
+|  | `compute_vs_pitch_types(pitches)` | 打者對逐球種的 discipline、AVG/wOBA 與 contact-quality 表；統一剔除未知/非投球事件，但保留有正式代碼的稀有球種。 |
+|  | `compute_vs_pitch_groups(pitches)` | 同一組指標依球種主表捲成 fastball/breaking/offspeed；無群組對應者略過。 |
 |  | `compute_batter_pitch_hand_splits(pitches)` | 建立打者對 all/L/R 投手的球種、球種群組與 count usage 表。 |
 
 ### 3.8 Statcast 彙整入口
@@ -371,8 +371,9 @@ EV90 等百分位不會被錯誤加權。
 | 檔案 | 所有函式 | 功能與定位 |
 |---|---|---|
 | `render/__init__.py` | 無新函式 | Re-export `build_static_site`。 |
-| `render/env.py` | `create_jinja_env(template_dir=None, base_url="/", site_origin="https://tingruih.github.io")` | 建立 Jinja environment，註冊顯示 filters、level helper、相對/絕對 URL、headshot 與站台 globals。 |
-| `render/filters.py` | `floatformat(value, digits=2)` | 固定位數格式，`None` 顯示 `-`。 |
+| `render/env.py` | `create_jinja_env(template_dir=None, base_url="/", site_origin="https://tingruih.github.io")` | 建立 Jinja environment，註冊顯示 filters、level helper、相對/絕對 URL、headshot，以及後端生成的球種顯示資料與標籤 CSS globals。 |
+| `render/filters.py` | `pitch_legend(rows)` | 將表格實際出現的球種依既有列序整理成中英對照 JSON；略過無中文對照與重複名稱，空結果回 `None`，供 tooltip 的 `data-legend`。 |
+|  | `floatformat(value, digits=2)` | 固定位數格式，`None` 顯示 `-`。 |
 |  | `default_if_none(value, fallback="-")` | 只在 `None` 時套 fallback，不把合法的 0 當空。 |
 |  | `num_dash(value)` | 數值直接顯示，`None`/空字串顯示 `-`。 |
 |  | `_json_html_safe(s)` | 轉義 `</`，避免 JSON 提前關閉 `<script>`。 |
@@ -428,7 +429,7 @@ EV90 等百分位不會被錯誤加權。
 | `graph/movement.py` | `compute_pitch_movement_chart(pitches, max_points=COMPUTE_MAX_POINTS)` | 產生投手逐球 HB/IVB、球種及可用的球速/轉速點位，並按上限降採樣；單層級與跨層級都直接從原始 pitches 計算。 |
 | `graph/plinko.py` | `_empty_plinko_nodes()` | 建立固定 count nodes 的零值 payload。 |
 |  | `_empty_plinko_edges()` | 建立固定 count transitions 的零值 payload。 |
-|  | `compute_pitch_plinko(pitches, *, split_field, split_specs, skip_types=None)` | 依打者/投手慣用手 split，累計 count node 與 transition edge，輸出前端 Pitch Plinko 結構。 |
+|  | `compute_pitch_plinko(pitches, *, split_field, split_specs)` | 依打者/投手慣用手 split，先統一排除未知/非投球事件，再累計 count node 與 transition edge，輸出前端 Pitch Plinko 結構。 |
 | `graph/season_trend.py` | `_neumaier_add(total, compensation, x)` | 串流 Neumaier 補償加總一步，讓遞增 EV 等浮點結果與整批 `sum()` 一致。 |
 |  | `_compute_pitcher_cumulative_metrics(games)` | 按日期逐場累積投手 ERA/K%/BB%/discipline/contact 等；每場 pitches 只掃一次。 |
 |  | `_compute_batter_cumulative_metrics(games)` | 按日期逐場累積打者 AVG/K%/BB%/wOBA/discipline/contact 等。 |
@@ -476,9 +477,11 @@ EV90 等百分位不會被錯誤加權。
 | 函式 | 功能與定位 |
 |---|---|
 | `_auto_season_year()` | 3 月起使用當年，1–2 月仍視為上一球季；用來初始化 `SEASON_YEAR`。 |
+| `_build_pitch_tag_css()` | 從球種主表與家族色票產生 `.pitch-{code}` / `.pitch-{group}` 標籤規則，避免 CSS 另行手抄球種配色。 |
+| `_build_pitch_tag_css._rule(selector, meta)` | closure；將單一家族或群組的 selector 與色票轉成一條 CSS rule。 |
 
 此檔其餘內容是路徑、timeouts/retry/workers、`SEASON_YEAR`、固定 wOBA weights、
-pitch code、count/split/plinko、pitch-type groups、batted-ball 與
+pitch code、球種家族/中英名稱/配色、count/split/plinko、pitch-type groups、batted-ball 與
 `COUNTING_FIELDS`。已不再維護年度 RA/9、FIP 或 TJStats 對照表；季別/聯盟環境
 由 `league_constant/` 取得，TJStats 網站拼法放在 `api/tjstats.py`，層級與 roster
 規則分別留在 `levels.py`、`roster.py`。
@@ -535,11 +538,11 @@ method 和 closure 也計入。第 1～8 章目前應有：
 | `league_constant/` | 4 | 18 |
 | `stats/` | 73 | 108 |
 | `sync/` | 5 | 21 |
-| `render/` | 7 | 33 |
+| `render/` | 7 | 34 |
 | `graph/` | 4 | 11 |
 | `util/` | 6 | 15 |
-| 頂層 `__init__/constants/levels/roster` | 4 | 14 |
-| **合計** | **119** | **254** |
+| 頂層 `__init__/constants/levels/roster` | 4 | 16 |
+| **合計** | **119** | **257** |
 
 修改程式後可用下列唯讀檢查快速找出漏列：
 

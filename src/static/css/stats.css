@@ -72,10 +72,11 @@
     border: 1px solid var(--border);                    /* 外框邊線 */
     border-radius: calc(var(--radius) - 1px);           /* 圓角（比外層小 1px，避免雙重圓角） */
     background: var(--card-surface);                    /* 表格底色 */
-    scrollbar-color: var(--scroll-thumb) var(--scroll-track); /* 捲軸顏色（Firefox） */
 }
 
-/* 控制【賽季數據 Tab / 表格捲軸高度（Chrome/Safari）】 */
+/* 控制【賽季數據 Tab / 表格捲軸高度（Chrome/Safari）】
+   一旦自訂 ::-webkit-scrollbar，瀏覽器就會改用常駐顯示的 classic 捲軸
+   （不會像系統預設的 overlay 捲軸那樣自動隱藏），不需要額外 JS 介入。 */
 .table-scroll::-webkit-scrollbar {
     height: 6px; /* 橫向捲軸的高度（較細）*/
 }
@@ -215,4 +216,3 @@
 .year-detail-row td:nth-child(3) {
     padding-left: 1.5rem; /* 左側縮排，視覺上表示「屬於上層年份的子項目」 */
 }
-

@@ -9,6 +9,7 @@ from ..advanced.woba import compute_pitch_woba
 from ..batted_ball.barrel import compute_barrel_pct
 from ..batted_ball.hard_hit import compute_hard_hit_pct
 from ..batting.avg import compute_avg
+from ..core.atypical import Reason, exclude_atypical
 from ..core.pa_outcomes import compute_pa_outcome_totals
 from ..core.pitches import aggregate_pitches, filter_known_pitch_events
 from ..discipline.csw_pct import compute_csw_pct
@@ -21,6 +22,20 @@ from ..discipline.z_swing_pct import compute_z_swing_pct
 from ..discipline.zone_pct import compute_zone_pct
 from .splits import compute_pitch_splits
 from .usage_by_count import compute_pitch_group_usage_by_count
+
+
+# Reasons excluded from the per-pitch-type / per-pitch-group breakdowns.
+# compute_pitch_group_usage_by_count deliberately does NOT use this set:
+# a pitcher's pitch selection is decided before the batter shows bunt
+# intent, so excluding bunt pitches there would only shrink the
+# pitch-selection sample without correcting anything.
+#
+# To exclude a future atypical.Reason from these two tables too (e.g. if
+# Reason.POSITION_PLAYER_PITCHING ships later — see the extension
+# walkthrough in core/atypical.py's module docstring), just add it here;
+# neither compute_vs_pitch_types nor compute_vs_pitch_groups needs to
+# change, since both already call exclude_atypical(pitches, _ATYPICAL_REASONS).
+_ATYPICAL_REASONS = {Reason.BUNT_PA, Reason.BUNT_PITCH}
 
 
 VS_PITCH_RATE_FIELDS = [
@@ -60,6 +75,7 @@ def _compute_pitch_bucket_row(key: str, name: str, ps: list[dict]) -> dict:
 def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
     """Per-pitch-type breakdown for a batter."""
     pitches = filter_known_pitch_events(pitches)
+    pitches = exclude_atypical(pitches, _ATYPICAL_REASONS)
 
     by_type: dict[str, list[dict]] = {}
     for p in pitches:
@@ -81,6 +97,8 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
 def compute_vs_pitch_groups(pitches: list[dict]) -> list[dict]:
     """Same breakdown as compute_vs_pitch_types, rolled up into the
     fastball / breaking / offspeed super-categories (PITCH_TYPE_GROUPS)."""
+    pitches = exclude_atypical(pitches, _ATYPICAL_REASONS)
+
     by_group: dict[str, list[dict]] = {}
     for p in pitches:
         t = p.get("pitch_type") or "UN"

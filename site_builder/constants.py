@@ -119,6 +119,10 @@ WHIFF_CODES = {
 
 CALLED_STRIKE_CODES = {"C"}  # Strike - Called (excludes automatic strikes: A/AB/AC/K)
 
+# Bunt-attempt subset of SWING_CODES — used by stats.core.atypical to flag
+# individual pitches for BUNT_PITCH exclusion regardless of PA outcome.
+BUNT_SWING_CODES = {"M", "L", "O"}
+
 # ── wOBA linear weights (TJStats fixed set, shared across all levels and seasons) ──
 # Source: https://tjstats.ca/glossary/
 # TJStats uses one fixed set of weights and handles run-environment variation
@@ -268,13 +272,13 @@ GROUP_REPRESENTATIVE_FAMILY: dict[str, str] = {
 # 球路，不是兩種球，只是不同年代留下的字串；兩者在此仍各自成列（各自統計，
 # 圖例可能同時各出現一行），不做代碼合併。
 PITCH_TYPES: dict[str, dict] = {
-    # 速球系
+    # Fastball
     "FF": {"zh": "四縫線速球", "en": "Four-Seam", "family": "FOUR_SEAM"},
     "FA": {"zh": "速球", "en": "Fastball", "family": "FOUR_SEAM"},
     "FT": {"zh": "二縫線速球", "en": "Two-Seam", "family": "SINKER"},
     "SI": {"zh": "伸卡球", "en": "Sinker", "family": "SINKER"},
     "FC": {"zh": "卡特球", "en": "Cutter", "family": "CUTTER"},
-    # 變化球系
+    # Breaking
     "SL": {"zh": "滑球", "en": "Slider", "family": "SLIDER"},
     "GY": {"zh": "子彈球", "en": "Gyroball", "family": "SLIDER"},
     "ST": {"zh": "橫掃球", "en": "Sweeper", "family": "SLIDER"},
@@ -284,10 +288,8 @@ PITCH_TYPES: dict[str, dict] = {
     "KC": {"zh": "彈指曲球", "en": "Knuckle Curve", "family": "CURVE"},
     "CS": {"zh": "慢速曲球", "en": "Slow Curve", "family": "CURVE"},
     "SC": {"zh": "螺旋球", "en": "Screwball", "family": "CURVE"},
-    # 變速球系
+    # OffSpeed
     "CH": {"zh": "變速球", "en": "Changeup", "family": "CHANGEUP"},
-    # Splitter 本質是速度更快、位移更小的 Forkball，用「快速」二字區隔兩者，
-    # 避免中文都落在「指叉球」而在 tooltip 裡並列成兩行相同的字。
     "FS": {"zh": "快速指叉球", "en": "Splitter", "family": "CHANGEUP"},
     "FO": {"zh": "指叉球", "en": "Forkball", "family": "CHANGEUP"},
     "KN": {"zh": "蝴蝶球", "en": "Knuckleball", "family": "KNUCKLE"},
@@ -490,6 +492,11 @@ GB_TRAJECTORIES = {"ground_ball", "bunt_grounder"}
 LD_TRAJECTORIES = {"line_drive", "bunt_line_drive"}
 FB_TRAJECTORIES = {"fly_ball"}
 PU_TRAJECTORIES = {"popup", "bunt_popup"}
+
+# Bunt-attempt subset of {GB,LD,PU}_TRAJECTORIES — a PA whose final in-play
+# ball lands in one of these is a completed bunt attempt
+# (stats.core.atypical Reason.BUNT_PA).
+BUNT_TRAJECTORIES = {"bunt_grounder", "bunt_line_drive", "bunt_popup"}
 AIR_TRAJECTORIES = LD_TRAJECTORIES | FB_TRAJECTORIES
 
 BATTED_BALL_RATE_DIGITS = 6

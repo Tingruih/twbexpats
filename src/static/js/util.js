@@ -24,6 +24,10 @@
  *                                              （{zh,en,family,group,bg,text}），
  *                                              讀 base.j2 注入的 #pitch-type-data，
  *                                              查無資料回傳 null
+ *  - TW.positionTooltipNearPointer(root, tooltip, event)
+ *                                             ：把 tooltip 定位在滑鼠附近，依指標
+ *                                              所在左右半邊決定貼左或貼右（避免蓋住
+ *                                              游標旁的節點/圓點），並夾在 root 邊界內
  *
  * 過去 escapeHtml 在 pitcher-charts.js / pitch-plinko.js 各有一份、
  * level-select 填充邏輯散落 6 個檔案；集中於此後「改一處即全站生效」。
@@ -227,6 +231,32 @@ window.TW = (function () {
         };
     }
 
+    /**
+     * 把 tooltip 定位在滑鼠附近：指標在 root 右半邊時貼在指標左側、左半邊時貼在
+     * 右側（避免 tooltip 蓋住指標旁的節點/圓點），並把結果夾在 root 邊界內避免
+     * 溢出。供 pitcher-charts.js（球種位移圖）、pitch-plinko.js（Pitch Plinko
+     * 節點/邊線）共用，取代兩邊各自維護一份、且只往同一側偏移的舊版本。
+     * @param {HTMLElement} root     圖表容器（tooltip 定位的基準座標系）
+     * @param {HTMLElement} tooltip  tooltip 元素（需已 append 進 root）
+     * @param {PointerEvent} event   pointerenter/pointermove 事件
+     */
+    function positionTooltipNearPointer(root, tooltip, event) {
+        var rect = root.getBoundingClientRect();
+        var edge = 8;
+        var gap = 18;
+        var pointerX = event.clientX - rect.left;
+        var pointerY = event.clientY - rect.top;
+        var placeOnLeft = pointerX >= root.clientWidth / 2;
+        var left = placeOnLeft
+            ? pointerX - tooltip.offsetWidth - gap
+            : pointerX + gap;
+        var top = pointerY - tooltip.offsetHeight / 2;
+        left = Math.max(edge, Math.min(left, root.clientWidth - tooltip.offsetWidth - edge));
+        top = Math.max(edge, Math.min(top, root.clientHeight - tooltip.offsetHeight - edge));
+        tooltip.style.left = left + "px";
+        tooltip.style.top = top + "px";
+    }
+
     return {
         escapeHtml: escapeHtml,
         populateLevelSelect: populateLevelSelect,
@@ -238,5 +268,6 @@ window.TW = (function () {
         renderTrendLegend: renderTrendLegend,
         trendTooltipLabelPointStyle: trendTooltipLabelPointStyle,
         pitchTypeInfo: pitchTypeInfo,
+        positionTooltipNearPointer: positionTooltipNearPointer,
     };
 })();

@@ -7,6 +7,7 @@ from .batted_ball import batted_ball_metrics
 from .batted_ball.exit_velocity import compute_ev90, compute_max_ev
 from .batted_ball.launch_angle import compute_avg_la
 from .batted_ball.sweet_spot import compute_sweet_spot_pct
+from .core.atypical import annotate_atypical
 from .core.pa_outcomes import compute_pa_outcome_totals
 from .core.pitches import aggregate_pitches, ensure_pre_strikes
 from .discipline import discipline_metrics
@@ -27,6 +28,10 @@ def compute_batter_statcast(pitches: list[dict]) -> dict:
     # Ensure every pitch has a pre_strikes field (backfills cached data
     # that predates the field being added to extract_pitch_logs).
     ensure_pre_strikes(pitches)
+    # Cross-pitch context (currently: PA-level bunt-attempt membership)
+    # for the atypical-pitch exclusion framework. Must run before any
+    # pitch_hand split divides the list (core/atypical.py docstring).
+    annotate_atypical(pitches)
 
     agg = aggregate_pitches(pitches)
     totals = compute_pa_outcome_totals(agg["pa_final"])
