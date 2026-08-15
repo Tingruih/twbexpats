@@ -186,12 +186,7 @@
 - 影響：目前依賴上游已按 level 排序；若 builder 改排序，前端「層級」排序會靜默錯。
 - 建議修法：builder 預先放 `item.level_order = level_rank(player.level)`，模板輸出該值。
 
-### 30. 首頁/退役頁頭像仍缺原生 lazy 與尺寸
-
-- 目前位置：`src/templates/index.j2`、`src/templates/retired.j2`
-- 證據：`<img data-src=... class="avatar-img">` 沒有 `width`、`height`、`loading="lazy"`、`decoding="async"`。
-- 影響：可能造成 CLS，且 lazy loading 完全依賴自製 JS。
-- 建議修法：補尺寸與原生 lazy/decoding；保留 fallback JS 也可以。
+### 30. （已修，見附錄 A）
 
 ### 31. Mobile pitch-log 預載仍用 inline style 字串 selector
 
@@ -200,12 +195,7 @@
 - 影響：顯示邏輯若改 class 或 inline style 多一個屬性，預載會失效。
 - 建議修法：用 `.is-active` class，或用 JS 判斷 `el.style.display !== "none"`。
 
-### 32. 圖表 JSON 仍在桌機/手機模板各輸出一份
-
-- 目前位置：`src/templates/tabs/tab_plot.j2`、`src/templates/mobile/sections/m_plot.j2`
-- 證據：兩個模板都輸出 `pitch-usage-hand-data`、`pitch-movement-data`、`pitch-plinko-data` 的 `<script type="application/json">`。
-- 影響：投手頁 Statcast/Plinko/Movement JSON 在同一 HTML 重複，增加傳輸與解析成本。
-- 建議修法：每個 player/year/level 的圖表資料只輸出一份，桌機和手機共用；或 build 時外部化 JSON 並 lazy fetch。
+### 32. （已修，見附錄 A）
 
 ### 33. Chart.js 仍依賴第三方 CDN
 
@@ -309,6 +299,8 @@
 
 ## 附錄 A — 已確認已修 / 不再列入未修 bug
 
+**#30** 首頁/退役頁頭像仍缺原生 lazy：`index.j2`/`retired.j2` 的 `<img data-src=...>` 改為 `<img src=... loading="lazy">`；原本靠 `avatar-fallback.js` 手刻「先載可視內、Promise.all 等全部完成才載可視外」的批次邏輯已刪除（該邏輯會讓第二批延遲近 1 秒），改交給瀏覽器原生 lazy-loading 排程。球員頁（`player_detail.j2`/`m_hero.j2`）的 hero 大頭照相反：因為一定在首屏可見、常是 LCP 元素，`loading="lazy"` 反而會被瀏覽器降低請求優先權（實測 initialPriority Low vs Medium、請求晚發 ~130ms），故改為 `fetchpriority="high"` 維持 eager 載入。`width`/`height` 尺寸屬性防 CLS 仍未補，不在本次範圍內。
+
 **2026-07-28 跨層級「合計」改為池化重算**（設計見 `docs/superpowers/specs/2026-07-28-statcast-level-tables-and-cross-level-totals-design.md`）。`stats/combine.py`、`stats/tables/weighted.py` 及各模組的 `combine_*()` 已整批刪除，「合計」不再是獨立演算法，而是把該年度所有層級的原始 pitches 池化後呼叫與單層級完全相同的 `compute_pitcher_statcast()` / `compute_batter_statcast()`：
 
 - **#7** WAR / FIP / xWPCT 的 `0.0` 顯示成「—」：`fip` / `xwpct` / `war` 已改 `is not none`。`expected.xwoba` 刻意維持 truthy —— MiLB expected stats 全為 `0.0` 是 API 缺陷產生的假值，truthy 判斷正好把它們擋成「—」。
@@ -319,6 +311,7 @@
 - **#44** 合計 Pitch Plinko 節點 pct 可能為 None：`combine_pitch_plinko()` 已刪除。
 - **#37** xWPCT docstring 誤稱 Pythagenpat，且 `LEAGUE_RA9` 只有 2024 年資料：已改為純函式 `compute_xwpct(fip, lg_era)`，`lg_era` 與 FIP constant 共用同一次 `league_constant.pitching` 查詢（`compute_league_fip_constant()` 回傳 `LeagueFipConstant(fip_constant, lg_era)`、同一列快取），逐年逐層級即時算出，不再是手寫表格。同時修正比對基準：原本拿校準到 lgERA 尺度的 FIP，去除以含非自責分的 `LEAGUE_RA9`，造成系統性正偏差；現在除以同尺度的 `lg_era`，且無法解析時回傳 None 而非 fallback 到 4.5。docstring 也已改標為 fixed-exponent Pythagorean-style。
 - **層級命名不匹配**（兩份文件皆未記錄，本次發現）：`game_logs.sport_level` 存現代縮寫（`A`、`A+`），`season_stats.sport_level` 對舊球季存舊制名稱（`A(Full)`、`A(Adv)`、`A(Short)`），`sync/statcast.py` 的字串相等比對永遠不成立，導致 **110 組 (球員, 年度, 層級)、57,955 顆球**的 statcast 被靜默丟棄。已改用 `resolve_tier()` 比對，重跑 statcast 後降至 0。
+- **#32** 圖表 JSON 仍在桌機/手機模板各輸出一份：`pitch-usage-hand-data`、`pitch-movement-data`、`pitch-plinko-data` 三份 JSON 改成只在新的 `src/templates/partials/chart_data.j2` 渲染一次（`id="chart-data-{kind}-{year}-{index}"`），`tab_plot.j2`/`m_plot.j2` 的容器改用 `data-chart-key="{year}-{index}"` 對應查表；`pitcher-charts.js`/`pitch-plinko.js` 改用 `document.getElementById` 讀取。順帶把散落在 `pitcher-charts.js`/`pitch-plinko.js`/`m-charts.js`/`charts.js`/`util.js` 自己的 `pitchTypeInfo()` 共 5 份「讀取 JSON `<script>` by id」邏輯收斂成 `util.js` 的 `TW.readJsonScript()`。
 
 - MiLB `yearByYear` 缺 try/except：已修到 `site_builder/api/stats.py`。
 - FIP 使用棒球小數 IP：已修到 `site_builder/stats/advanced/fip.py`，使用 `ip_to_outs()`。
@@ -336,4 +329,4 @@
 - UTC+8 timezone 重複硬編碼：已抽成 `site_builder/util/dates.py::TW_TZ`；但 `get_next_game()` 查詢起點仍用本機 date，另列於第 20 條。
 - 桌機/手機 arsenal filter 互踩：已重構為 `src/static/js/filters.js` + 各平台 config。
 - `sortCards()` inline JS：已抽成 `src/static/js/index-sort.js`，但模板仍有 inline `onclick` 屬性。
-- 球員頁大型 inline JS：目前主要已拆到 `src/static/js/*.js`；圖表 JSON 重複/內嵌另列於第 32 條。
+- 球員頁大型 inline JS：目前主要已拆到 `src/static/js/*.js`；圖表 JSON 重複/內嵌已修，見上方 #32。

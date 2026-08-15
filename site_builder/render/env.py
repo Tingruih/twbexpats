@@ -6,7 +6,7 @@ For GitHub Pages sub-path deployment, pass base_url="/repo/".
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from ..constants import PITCH_TAG_CSS, PITCH_TYPE_DISPLAY, TEMPLATE_DIR
+from ..constants import PITCH_GROUP_TOOLTIP, PITCH_TAG_CSS, PITCH_TYPE_DISPLAY, TEMPLATE_DIR
 from ..levels import is_mlb, level_display
 from .filters import (
     default_if_none,
@@ -64,5 +64,6 @@ def create_jinja_env(
     env.globals["site_origin"] = site_origin.rstrip("/")
     env.globals["pitch_type_display"] = PITCH_TYPE_DISPLAY
     env.globals["pitch_tag_css"] = PITCH_TAG_CSS
+    env.globals["pitch_group_tooltip"] = PITCH_GROUP_TOOLTIP
 
     return env

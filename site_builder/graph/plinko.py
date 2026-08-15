@@ -45,14 +45,9 @@ def compute_pitch_plinko(
             continue
         candidates.append(p)
 
-    type_names: dict[str, str] = {}
     total_type_counts: dict[str, int] = {}
     for p in candidates:
         ptype = p.get("pitch_type") or "UN"
-        if p.get("pitch_name") and type_names.get(ptype, ptype) == ptype:
-            type_names[ptype] = p.get("pitch_name") or ptype
-        else:
-            type_names.setdefault(ptype, ptype)
         total_type_counts[ptype] = total_type_counts.get(ptype, 0) + 1
 
     ordered_types = sorted(total_type_counts, key=lambda t: total_type_counts[t], reverse=True)
@@ -60,7 +55,6 @@ def compute_pitch_plinko(
     pitch_types = [
         {
             "type": t,
-            "name": type_names.get(t, t),
             "count": total_type_counts[t],
             "pct": ratio(total_type_counts[t], total, digits=4),
         }
@@ -103,7 +97,6 @@ def compute_pitch_plinko(
             node_pitch_types = [
                 {
                     "type": t,
-                    "name": type_names.get(t, t),
                     "count": bucket["type_counts"].get(t, 0),
                     "pct": ratio(bucket["type_counts"].get(t, 0), node_total, digits=4),
                 }

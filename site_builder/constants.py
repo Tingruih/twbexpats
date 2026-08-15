@@ -330,6 +330,14 @@ PITCH_TYPE_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = tuple(
 PITCH_GROUP_LABELS: dict[str, str] = GROUP_LABELS
 PITCH_GROUP_ORDER: tuple[str, ...] = GROUP_ORDER
 
+# 「分類」欄表頭的 tooltip 文字（'Fastball : FF, FA, ...'），從 PITCH_TYPE_GROUPS
+# 生成，取代過去在 macros/table.j2 手打兩份、隨 PITCH_TYPES 增修球種就會脫節
+# 的字串。前端 stats-tooltip.js 用 ``\\n``（兩個字元）當換行標記，故此處故意
+# 用 ``"\\\\n"`` 拼接而非真的換行符。
+PITCH_GROUP_TOOLTIP: str = "\\n".join(
+    f"{label} : {', '.join(codes)}" for _group, label, codes in PITCH_TYPE_GROUPS
+)
+
 # 前端用的攤平表：build 時序列化成 JSON 注入頁面（見 render/env.py 的
 # ``pitch_type_display`` global、base.j2 的 ``#pitch-type-data``），取代過去
 # pitch-plinko.js / pitcher-charts.js 各自手抄一份 PITCH_COLORS / PITCH_NAMES

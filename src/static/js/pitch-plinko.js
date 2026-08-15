@@ -11,6 +11,10 @@
  *
  * 位置：圖表 Tab 的「Pitch Plinko」區塊（#plinko-root）
  *
+ * 資料來源：partials/chart_data.j2 只渲染一次的 <script type="application/json"
+ * id="chart-data-plinko-{year}-{index}">，經 window.TW.readJsonScript() 讀取
+ * （單一真相來源，desktop/mobile 共用同一份，見 util.js）。
+ *
  * 球種顏色／英文名經 window.TW.pitchTypeInfo() 讀 base.j2 注入的
  * #pitch-type-data（單一真相來源＝constants.py 的 PITCH_TYPES）。
  */
@@ -70,8 +74,7 @@
     function pitchName(pt) {
         var type = pt && pt.type ? String(pt.type).toUpperCase() : "UN";
         var info = window.TW.pitchTypeInfo(type);
-        if (info && info.en) return info.en;
-        return String((pt && pt.name) || type).replace(/ Fastball$/i, "");
+        return (info && info.en) || type;
     }
 
     // #pitch-type-data（base.j2 注入，來源 constants.py）涵蓋所有會走到這裡
@@ -93,10 +96,10 @@
     }
 
     // 渲染球種圖例列（彩色圓點 + 名稱 + 投球數/比例）
-    function renderLegend(data, colorIndexByType) {
+    function renderLegend(data) {
         return (data.pitch_types || []).map(function(pt) {
             var type = pt.type || "UN";
-            var color = pitchColor(type, colorIndexByType[type] || 0);
+            var color = pitchColor(type);
             return '<div class="pitch-plinko-legend-item">' +
                 '<span class="pitch-plinko-swatch" style="background:' + color + '"></span>' +
                 '<span>' + escapeHtml(pitchName(pt)) + ' (' + escapeHtml(pt.count || 0) + ', ' + pct(pt.pct, 1) + ')</span>' +
@@ -151,7 +154,7 @@
     }
 
     // 渲染單一節點：園形大小=到達次數，外圈彩弧=球種比例
-    function renderNode(nodeDef, node, colorIndexByType, splitKey) {
+    function renderNode(nodeDef, node, splitKey) {
         var count = Number(node.pitches || 0);
         var fraction = Number(node.pct || 0);
         var radius = count ? Math.max(15, Math.min(35, 12 + Math.sqrt(fraction) * 46)) : 12;
@@ -165,7 +168,7 @@
             var dashOffset = -offset;
             offset += dash;
             return '<circle cx="' + nodeDef.x + '" cy="' + nodeDef.y + '" r="' + radius.toFixed(2) + '" ' +
-                'fill="none" stroke="' + pitchColor(pt.type, colorIndexByType[pt.type] || 0) + '" ' +
+                'fill="none" stroke="' + pitchColor(pt.type) + '" ' +
                 'stroke-width="' + ringWidth.toFixed(2) + '" stroke-dasharray="' + dash.toFixed(2) + ' ' + (circumference - dash).toFixed(2) + '" ' +
                 'stroke-dashoffset="' + dashOffset.toFixed(2) + '" transform="rotate(-90 ' + nodeDef.x + ' ' + nodeDef.y + ')" />';
         }).join("");
@@ -182,11 +185,11 @@
     }
 
     // 渲染單一分組（左打/右打/全部）的完整 SVG
-    function renderSplit(split, colorIndexByType, maxEdge) {
+    function renderSplit(split, maxEdge) {
         var nodes = mapById(split.nodes || [], "count");
         var nodeLayoutById = mapById(NODE_LAYOUT, "id");
         var nodeSvg = NODE_LAYOUT.map(function(nodeDef) {
-            return renderNode(nodeDef, nodes[nodeDef.id] || { count: nodeDef.id, pitches: 0, pct: null, pitch_types: [] }, colorIndexByType, split.key || "");
+            return renderNode(nodeDef, nodes[nodeDef.id] || { count: nodeDef.id, pitches: 0, pct: null, pitch_types: [] }, split.key || "");
         }).join("");
         return '<section class="pitch-plinko-split">' +
             '<h4>' + escapeHtml(split.label || "") + ' <span>(' + escapeHtml(split.pitches || 0) + ' pitches, ' + pct(split.pct, 1) + ')</span></h4>' +
@@ -210,10 +213,10 @@
         }) || null;
     }
 
-    function tooltipHtml(node, colorIndexByType) {
+    function tooltipHtml(node) {
         var rows = sortPitchTypes(node.pitch_types || []).map(function(pt) {
             return '<div class="pitch-plinko-tooltip-row">' +
-                '<span class="pitch-plinko-tooltip-dot" style="background:' + pitchColor(pt.type, colorIndexByType[pt.type] || 0) + '"></span>' +
+                '<span class="pitch-plinko-tooltip-dot" style="background:' + pitchColor(pt.type) + '"></span>' +
                 '<span class="pitch-plinko-tooltip-name">' + escapeHtml(pitchName(pt)) + '</span>' +
                 '<strong>' + escapeHtml(pt.count || 0) + '</strong>' +
                 '<span>' + pct(pt.pct, 1) + '</span>' +
@@ -237,14 +240,14 @@
     // 會被 tooltip 蓋住；共用版依指標所在左右半邊決定貼左或貼右，避免擋道。
     var moveTooltip = window.TW.positionTooltipNearPointer;
 
-    function bindTooltips(root, data, colorIndexByType) {
+    function bindTooltips(root, data) {
         var tooltip = root.querySelector(".pitch-plinko-tooltip");
         if (!tooltip) return;
         root.querySelectorAll(".pitch-plinko-node-hit").forEach(function(hit) {
             hit.addEventListener("pointerenter", function(event) {
                 var node = findNode(data, hit.dataset.splitKey, hit.dataset.count);
                 if (!node || !node.pitches) return;
-                tooltip.innerHTML = tooltipHtml(node, colorIndexByType);
+                tooltip.innerHTML = tooltipHtml(node);
                 tooltip.classList.add("pitch-plinko-tooltip--visible");
                 moveTooltip(root, tooltip, event);
             });
@@ -282,10 +285,6 @@
             root.innerHTML = '<div class="pitch-plinko-empty">尚無逐球數資料</div>';
             return;
         }
-        var colorIndexByType = Object.create(null);
-        (data.pitch_types || []).forEach(function(pt, index) {
-            colorIndexByType[pt.type || "UN"] = index;
-        });
         var maxEdge = 1;
         (data.splits || []).forEach(function(split) {
             (split.edges || []).forEach(function(edge) {
@@ -295,23 +294,18 @@
         root.innerHTML = '<div class="pitch-plinko-card">' +
             '<div class="pitch-plinko-heading"><h3>球種逐球數分布圖</h3></div>' +
             '<div class="pitch-plinko-grid">' +
-                (data.splits || []).map(function(split) { return renderSplit(split, colorIndexByType, maxEdge); }).join("") +
+                (data.splits || []).map(function(split) { return renderSplit(split, maxEdge); }).join("") +
             '</div>' +
-            '<div class="pitch-plinko-legend">' + renderLegend(data, colorIndexByType) + '</div>' +
+            '<div class="pitch-plinko-legend">' + renderLegend(data) + '</div>' +
             '<div class="pitch-plinko-tooltip"></div>' +
             '</div>';
-        bindTooltips(root, data, colorIndexByType);
+        bindTooltips(root, data);
     }
 
     function initPitchPlinkoCharts() {
         document.querySelectorAll(".pitch-plinko-level-container").forEach(function(container) {
-            var script = container.querySelector(".pitch-plinko-data");
             var root = container.querySelector(".pitch-plinko-root");
-            var data = {};
-            if (script) {
-                try { data = JSON.parse(script.textContent || "{}"); }
-                catch (err) { data = {}; }
-            }
+            var data = window.TW.readJsonScript("chart-data-plinko-" + container.dataset.chartKey, {});
             renderPitchPlinko(root, data);
         });
     }

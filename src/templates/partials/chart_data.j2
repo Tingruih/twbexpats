@@ -1,0 +1,21 @@
+{# 圖表用 JSON 資料：desktop（tabs/tab_plot.j2）與 mobile（mobile/sections/m_plot.j2）
+   共用同一份，只在這裡渲染一次，避免同一份資料被印兩份。兩邊的
+   .pitch-plinko-level-container 用 data-chart-key="{year}-{index}" 對應回這裡的 id。
+   迭代順序必須跟 tab_plot.j2 / m_plot.j2 完全一致（都直接走
+   statcast_by_year[yr] 不做篩選/排序），loop.index0 才能對得上。 #}
+{% if statcast_available %}
+{% for yr in available_statcast_years %}
+{% set _entries = statcast_by_year[yr] %}
+{% for _e in _entries %}
+{% set sc = _e.sc %}
+{% set _plinko = sc.pitch_plinko if sc and sc.pitch_plinko else {} %}
+<script type="application/json" id="chart-data-plinko-{{ yr }}-{{ loop.index0 }}">{{ _plinko|tojson_safe }}</script>
+{% if is_pitcher %}
+{% set _splits = sc.pitcher_bat_side_splits if sc and sc.pitcher_bat_side_splits else {} %}
+{% set _movement = sc.pitch_movement if sc and sc.pitch_movement else {} %}
+<script type="application/json" id="chart-data-usage-{{ yr }}-{{ loop.index0 }}">{{ _splits|tojson_safe }}</script>
+<script type="application/json" id="chart-data-movement-{{ yr }}-{{ loop.index0 }}">{{ _movement|tojson_safe }}</script>
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% endif %}

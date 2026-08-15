@@ -1,13 +1,6 @@
 (function() {
     var mobileChart = null;
 
-    function readJson(id, fallback) {
-        var el = document.getElementById(id);
-        if (!el) return fallback;
-        try { return JSON.parse(el.textContent || 'null'); }
-        catch (err) { return fallback; }
-    }
-
     // 觸控時把手指觸碰到的資料點當成 hover 顯示 tooltip；讀取的是外層 mobileChart
     // 變數（非綁定值），所以圖表重繪/換成另一種圖表後仍然指向目前的實例。用
     // 'nearest' + intersect:true，只顯示手指實際碰到的那條線自己的數值（賽季平均
@@ -28,7 +21,7 @@
         var canvas = document.getElementById('mPerformanceChart');
         if (!canvas || typeof Chart === 'undefined' || mobileChart) return;
 
-        var trendData = readJson('player-trend-data', null);
+        var trendData = window.TW.readJsonScript('player-trend-data', null);
         if (trendData) {
             initMobileTrendChart(canvas, trendData);
             return;

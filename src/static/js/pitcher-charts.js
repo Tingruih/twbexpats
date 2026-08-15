@@ -11,21 +11,15 @@
  *     球種位移散點圖（水平/垂直位移的 x-y scatter plot）
  *     位置：圖表 Tab 的「球種位移」區塊，滑鼠移入圓點顯示 tooltip
  *
- * 依賴：頁面中以 <script type="application/json"> 嵌入的 arsenal 數據；
+ * 依賴：partials/chart_data.j2 只渲染一次的 <script type="application/json"
+ * id="chart-data-{kind}-{year}-{index}"> 資料，經 window.TW.readJsonScript() 讀取
+ * （單一真相來源，desktop/mobile 共用同一份，見 util.js）；
  * 球種顏色／英文名經 window.TW.pitchTypeInfo() 讀 base.j2 注入的
  * #pitch-type-data（單一真相來源＝constants.py 的 PITCH_TYPES）。
  */
 (function() {
     // XSS 防護：將字串中的 HTML 特殊字元做 escape
     var escapeHtml = window.TW.escapeHtml;  // 共用於 util.js（單一真相來源）
-
-    // 從 DOM 中讀取 <script type="application/json"> 的 JSON 資料
-    function readJson(container, selector) {
-        var script = container.querySelector(selector);
-        if (!script) return {};
-        try { return JSON.parse(script.textContent || "{}"); }
-        catch (err) { return {}; }
-    }
 
     function num(value) {
         if (value == null || value === "") return null;
@@ -49,8 +43,7 @@
     function pitchName(item) {
         var type = item && item.type ? String(item.type).toUpperCase() : "UN";
         var info = window.TW.pitchTypeInfo(type);
-        if (info && info.en) return info.en;
-        return String((item && item.name) || type).replace(/ Fastball$/i, "");
+        return (info && info.en) || type;
     }
 
     // #pitch-type-data（base.j2 注入，來源 constants.py）涵蓋所有會走到這裡
@@ -138,7 +131,7 @@
             var rightPct = Math.max(0, Math.min(1, num(rightRow && rightRow.pct) || 0));
             var y = top + index * rowStep + rowStep / 2;
             var barHeight = Math.min(34, Math.max(24, rowStep - 18));
-            var color = pitchColor(type, index);
+            var color = pitchColor(type);
             var labelItem = leftRow || rightRow || { type: type };
             var leftWidth = leftPct * half;
             var rightWidth = rightPct * half;
@@ -214,7 +207,11 @@
     // \u6e32\u67d3\u300c\u7403\u7a2e\u4f4d\u79fb\u6563\u9ede\u5716\u300d SVG\uff08\u6c34\u5e73\u4f4d\u79fb HB vs. \u5782\u76f4\u4f4d\u79fb iVB\uff09
     function renderMovement(root, data) {
         if (!root) return;
-        var points = ((data && data.points) || []).filter(function(point) {
+        // 每點是 Python 端輸出的 [type, hb, ivb, velo, spin] 定長陣列（省 payload），
+        // 這裡先還原成物件，下面的繪點/tooltip 才能照舊用具名欄位。
+        var points = ((data && data.points) || []).map(function(p) {
+            return { type: p[0], hb: p[1], ivb: p[2], velo: p[3], spin: p[4] };
+        }).filter(function(point) {
             return num(point.hb) != null && num(point.ivb) != null;
         });
         if (!points.length) {
@@ -245,9 +242,6 @@
         var yStep = (yMax - yMin) > 30 ? 10 : 5;
         var xTicks = ticks(-maxAbsX, maxAbsX, xStep);
         var yTicks = ticks(yMin, yMax, yStep);
-        var orderedTypes = ((data && data.pitch_types) || []).map(function(pt) { return pt.type || "UN"; });
-        var colorIndexByType = Object.create(null);
-        orderedTypes.forEach(function(type, index) { colorIndexByType[type] = index; });
 
         function xScale(value) {
             return left + ((value + maxAbsX) / (maxAbsX * 2)) * plotWidth;
@@ -269,17 +263,16 @@
                 '<text class="pitch-chart-y-tick-label" x="' + (left - 12) + '" y="' + y.toFixed(1) + '">' + tick + '</text>';
         }).join("");
 
-        var pointSvg = points.map(function(point, index) {
+        var pointSvg = points.map(function(point) {
             var type = point.type || "UN";
-            var typeIndex = colorIndexByType[type] == null ? index : colorIndexByType[type];
-            var color = pitchColor(type, typeIndex);
+            var color = pitchColor(type);
             return '<circle class="pitch-movement-point" cx="' + xScale(num(point.hb)).toFixed(1) + '" cy="' + yScale(num(point.ivb)).toFixed(1) + '" r="4.6" fill="' + color + '" ' +
                 'data-type="' + escapeHtml(type) + '" data-name="' + escapeHtml(pitchName(point)) + '" data-velo="' + escapeHtml(point.velo == null ? "" : point.velo) + '" ' +
                 'data-spin="' + escapeHtml(point.spin == null ? "" : point.spin) + '" data-hb="' + escapeHtml(point.hb) + '" data-ivb="' + escapeHtml(point.ivb) + '" />';
         }).join("");
 
-        var legend = '<div class="pitch-chart-legend">' + ((data && data.pitch_types) || []).map(function(pt, index) {
-            return '<span class="pitch-chart-legend-item"><i style="background:' + pitchColor(pt.type, index) + '"></i>' + escapeHtml(pitchName(pt)) + '</span>';
+        var legend = '<div class="pitch-chart-legend">' + ((data && data.pitch_types) || []).map(function(pt) {
+            return '<span class="pitch-chart-legend-item"><i style="background:' + pitchColor(pt.type) + '"></i>' + escapeHtml(pitchName(pt)) + '</span>';
         }).join("") + '</div>';
 
         root.innerHTML = '<div class="pitch-chart-heading"><h3>球種位移</h3></div>' +
@@ -293,10 +286,11 @@
 
     function initPitcherCharts() {
         document.querySelectorAll(".pitch-plinko-level-container").forEach(function(container) {
+            var key = container.dataset.chartKey;
             var usageRoot = container.querySelector(".pitch-usage-hand-root");
-            if (usageRoot) renderUsageByHand(usageRoot, readJson(container, ".pitch-usage-hand-data"));
+            if (usageRoot) renderUsageByHand(usageRoot, window.TW.readJsonScript("chart-data-usage-" + key, {}));
             var movementRoot = container.querySelector(".pitch-movement-root");
-            if (movementRoot) renderMovement(movementRoot, readJson(container, ".pitch-movement-data"));
+            if (movementRoot) renderMovement(movementRoot, window.TW.readJsonScript("chart-data-movement-" + key, {}));
         });
     }
 

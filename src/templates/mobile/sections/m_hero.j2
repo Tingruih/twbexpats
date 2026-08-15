@@ -3,7 +3,7 @@
         <div class="m-hero-avatar">
             {# 頭像：先試 CDN primary，fallback 至 secondary，最後顯示文字縮寫（見 avatar-fallback.js）#}
             {% set cdn_primary, cdn_secondary = headshot_cdn_urls(player.mlb_id, player.latest_level_is_mlb) %}
-            <img src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" class="avatar-img">
+            <img src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" class="avatar-img" fetchpriority="high">
             <div class="avatar-initials avatar-fallback" aria-hidden="true">{{ player.name_en[:1] }}</div>
         </div>
     </div>

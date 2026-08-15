@@ -87,6 +87,40 @@ function _pitchTypeClass(value) {
     return /^[a-z0-9_-]{1,32}$/.test(token) ? token : 'unknown';
 }
 
+// 蒐集該場實際出現過的球種，依出現次數由多到少排序（次數相同維持首次出現
+// 順序），序列化後掛在 Type 表頭上，供 tooltip 顯示中英對照。比照「進階數據」
+// 逐球種表格的 pitch_legend() 邏輯：中英文名經 window.TW.pitchTypeInfo() 讀
+// #pitch-type-data（單一真相來源＝constants.py 的 PITCH_TYPES），查無中文譯名
+// 的非球種代碼（IN/PO 等）直接略過，顯示名重複時只留一行。
+function _typeLegend(pitches) {
+    var counts = Object.create(null);
+    var order = [];
+    var nameByCode = Object.create(null);
+    for (var i = 0; i < pitches.length; i++) {
+        var code = String(pitches[i].pitch_type || '').toUpperCase();
+        if (!code) continue;
+        if (counts[code] == null) {
+            counts[code] = 0;
+            order.push(code);
+            nameByCode[code] = pitches[i].pitch_name || code;
+        }
+        counts[code]++;
+    }
+    order.sort(function (a, b) { return counts[b] - counts[a]; });
+
+    var pairs = [];
+    var seen = Object.create(null);
+    for (var j = 0; j < order.length; j++) {
+        var info = window.TW.pitchTypeInfo(order[j]);
+        if (!info || !info.zh) continue;
+        var name = nameByCode[order[j]];
+        if (seen[name]) continue;
+        seen[name] = true;
+        pairs.push([name, info.zh]);
+    }
+    return pairs;
+}
+
 // 將逐球 JSON 數據轉成 HTML 表格字串（編號/球數/局倒/球種/車速/區帶等欄位）
 function _buildPitchTable(pitches) {
     var hasVideo = pitches.some(function (p) { return p.video || p.play_id; });
@@ -94,8 +128,12 @@ function _buildPitchTable(pitches) {
     var legendAttr = legend.length
         ? ' data-legend="' + escapePitchLogHtml(JSON.stringify(legend)) + '"'
         : '';
+    var typeLegend = _typeLegend(pitches);
+    var typeLegendAttr = typeLegend.length
+        ? ' data-legend="' + escapePitchLogHtml(JSON.stringify(typeLegend)) + '"'
+        : '';
     var h = '<table class="pitch-log-table"><thead><tr>' +
-        '<th data-tooltip="投球序號">#</th><th data-tooltip="投球前球數\\nBall-Strike">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種"">Type</th><th data-tooltip="球速">Speed</th>' +
+        '<th data-tooltip="投球序號">#</th><th data-tooltip="投球前球數\\nBall-Strike">Count</th><th data-tooltip="局數">INN</th><th data-tooltip="球種"' + typeLegendAttr + '>Type</th><th data-tooltip="球速">Speed</th>' +
         '<th data-tooltip="進壘區域" data-diagram="zone">Zone</th><th data-tooltip="單球結果"' + legendAttr + '>Result</th><th data-tooltip="擊球初速">EV</th><th data-tooltip="擊球仰角">LA</th>' +
         '<th data-tooltip="誘導垂直位移">iVB</th><th data-tooltip="水平位移">HB</th><th data-tooltip="轉速">Spin</th><th data-tooltip="出手延伸距離">Ext</th>' +
         '<th class="num pa-event-cell" data-tooltip="打席結果">PA Event</th>' +

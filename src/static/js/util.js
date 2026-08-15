@@ -28,6 +28,9 @@
  *                                             ：把 tooltip 定位在滑鼠附近，依指標
  *                                              所在左右半邊決定貼左或貼右（避免蓋住
  *                                              游標旁的節點/圓點），並夾在 root 邊界內
+ *  - TW.readJsonScript(id, fallback)         ：讀取 <script type="application/json"
+ *                                              id="..."> 內容並 JSON.parse，找不到或
+ *                                              parse 失敗時回傳 fallback（預設 null）
  *
  * 過去 escapeHtml 在 pitcher-charts.js / pitch-plinko.js 各有一份、
  * level-select 填充邏輯散落 6 個檔案；集中於此後「改一處即全站生效」。
@@ -48,14 +51,24 @@ window.TW = (function () {
             .replace(/'/g, "&#39;");
     }
 
+    // 讀取 <script type="application/json" id="..."> 內容並 JSON.parse；
+    // 找不到 script 或 parse 失敗時回傳 fallback（預設 null）。單一真相來源，
+    // 取代 pitcher-charts.js / pitch-plinko.js / m-charts.js / charts.js / 這個
+    // 檔案自己的 pitchTypeInfo() 過去各自維護的同類邏輯。
+    function readJsonScript(id, fallback) {
+        if (fallback === undefined) fallback = null;
+        var el = document.getElementById(id);
+        if (!el) return fallback;
+        try { return JSON.parse(el.textContent || "null"); }
+        catch (err) { return fallback; }
+    }
+
     // 惰性讀取＋快取 #pitch-type-data（base.j2 注入的 JSON），查無該代碼
     // 或找不到 script tag 時回傳 null，呼叫端各自決定 fallback。
     var _pitchTypeData = null;
     function pitchTypeInfo(code) {
         if (_pitchTypeData === null) {
-            var script = document.getElementById("pitch-type-data");
-            try { _pitchTypeData = script ? JSON.parse(script.textContent || "{}") : {}; }
-            catch (err) { _pitchTypeData = {}; }
+            _pitchTypeData = readJsonScript("pitch-type-data", {});
         }
         return _pitchTypeData[String(code || "").toUpperCase()] || null;
     }
@@ -269,5 +282,6 @@ window.TW = (function () {
         trendTooltipLabelPointStyle: trendTooltipLabelPointStyle,
         pitchTypeInfo: pitchTypeInfo,
         positionTooltipNearPointer: positionTooltipNearPointer,
+        readJsonScript: readJsonScript,
     };
 })();

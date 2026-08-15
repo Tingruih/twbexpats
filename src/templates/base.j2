@@ -21,8 +21,12 @@
     <meta name="google-site-verification" content="E4BiMPJjMMJhQRbNItGI0T2WfvqxYQRZPO4z7kNUDQ4" />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    {# media="print" 讓瀏覽器把這個請求當非阻塞資源抓取，onload 觸發後
+       再切回 media="all" 套用樣式，避免跨網域字型請求卡住首次繪製 #}
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"></noscript>
+    {# KaTeX 不在此全站載入：只有球員詳細頁需要公式，
+       改由 player_detail.j2 的 katex-lazy.js 在瀏覽器閒置時背景載入 #}
     <link rel="stylesheet" href="{{ static_url('css/style.css') }}">
     <link rel="icon" href="{{ static_url('favicon.png') }}" type="image/png">
     <link rel="icon" href="{{ static_url('logo.svg') }}" type="image/svg+xml">
@@ -101,7 +105,6 @@
 
 <script defer src="{{ static_url('js/nav.js') }}"></script>
 <script defer src="{{ static_url('js/table-align.js') }}"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 
 {# Shared image fallback handler — tries CDN URL first, then shows initials #}
 <script defer src="{{ static_url('js/avatar-fallback.js') }}"></script>

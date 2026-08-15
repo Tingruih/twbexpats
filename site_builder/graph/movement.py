@@ -12,9 +12,14 @@ COMPUTE_MAX_POINTS = 700
 def compute_pitch_movement_chart(
     pitches: list[dict], max_points: Optional[int] = COMPUTE_MAX_POINTS
 ) -> dict:
-    """Return lightweight per-pitch movement points for pitcher charts."""
+    """Return lightweight per-pitch movement points for pitcher charts.
+
+    Each point is a fixed-order ``[type, hb, ivb, velo, spin]`` array rather
+    than a dict: up to ``COMPUTE_MAX_POINTS`` of them ship inside every page,
+    so dropping the repeated keys is a real payload win. Missing velo/spin stay
+    as ``None`` placeholders to keep the positions stable.
+    """
     points = []
-    type_names: dict[str, str] = {}
     type_counts: dict[str, int] = {}
 
     for p in filter_known_pitch_events(pitches):
@@ -24,25 +29,17 @@ def compute_pitch_movement_chart(
             continue
 
         ptype = p.get("pitch_type") or "UN"
-        name = p.get("pitch_name") or ptype
-        type_names.setdefault(ptype, name)
-        if p.get("pitch_name") and type_names.get(ptype, ptype) == ptype:
-            type_names[ptype] = p.get("pitch_name") or ptype
         type_counts[ptype] = type_counts.get(ptype, 0) + 1
 
-        point = {
-            "type": ptype,
-            "name": type_names.get(ptype, name),
-            "hb": round(hb, 1),
-            "ivb": round(ivb, 1),
-        }
         velo = float_or_none(p.get("start_speed"))
         spin = float_or_none(p.get("spin_rate"))
-        if velo is not None:
-            point["velo"] = round(velo, 1)
-        if spin is not None:
-            point["spin"] = int(round(spin))
-        points.append(point)
+        points.append([
+            ptype,
+            round(hb, 1),
+            round(ivb, 1),
+            round(velo, 1) if velo is not None else None,
+            int(round(spin)) if spin is not None else None,
+        ])
 
     total = len(points)
     if max_points and total > max_points:
@@ -53,7 +50,6 @@ def compute_pitch_movement_chart(
     pitch_types = [
         {
             "type": t,
-            "name": type_names.get(t, t),
             "count": type_counts[t],
             "pct": ratio(type_counts[t], total, digits=4),
         }

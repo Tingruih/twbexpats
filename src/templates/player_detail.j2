@@ -13,7 +13,7 @@
         <div class="hero-avatar" id="avatar-{{ player.mlb_id }}">
             {# 頭像：先試 CDN primary，fallback 至 secondary，最後顯示文字縮寫（見 avatar-fallback.js）#}
             {% set cdn_primary, cdn_secondary = headshot_cdn_urls(player.mlb_id, player.latest_level_is_mlb) %}
-            <img src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" id="headshot-{{ player.mlb_id }}" class="avatar-img">
+            <img src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" id="headshot-{{ player.mlb_id }}" class="avatar-img" fetchpriority="high">
             <div class="avatar-initials avatar-fallback" id="initials-{{ player.mlb_id }}" aria-hidden="true">{{ player.name_en[:1] }}</div>
         </div>
     </div>
@@ -79,6 +79,8 @@
 <script defer src="{{ static_url('js/filters.js') }}"></script>
 <script defer src="{{ static_url('js/stats-table.js') }}"></script>
 <script defer src="{{ static_url('js/stats-tooltip.js') }}"></script>
+{# KaTeX：頁面 load 後於瀏覽器閒置時背景預抓，不阻塞渲染（只有本頁需要公式） #}
+<script defer src="{{ static_url('js/katex-lazy.js') }}"></script>
 <script defer src="{{ static_url('js/pitch-log.js') }}"></script>
 <script defer src="{{ static_url('js/gamelogs.js') }}"></script>
 <script defer src="{{ static_url('js/mobile/m-tabs.js') }}"></script>
@@ -88,6 +90,7 @@
 <script defer src="{{ static_url('js/mobile/m-gamelogs.js') }}"></script>
 <script defer src="{{ static_url('js/arsenal-filters.js') }}"></script>
 <script defer src="{{ static_url('js/mobile/m-advanced.js') }}"></script>
+{% include 'partials/chart_data.j2' %}
 <script defer src="{{ static_url('js/pitcher-charts.js') }}"></script>
 <script defer src="{{ static_url('js/pitch-plinko.js') }}"></script>
 {% if player_trend_by_year %}

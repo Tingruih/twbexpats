@@ -11,9 +11,9 @@ document.addEventListener("DOMContentLoaded", function () {
     var canvas = document.getElementById("performanceChart");
     if (!canvas || typeof Chart === "undefined") return;
 
-    var trendEl = document.getElementById("player-trend-data");
-    if (trendEl) {
-        initTrendChart(canvas, JSON.parse(trendEl.textContent));
+    var trendByYear = window.TW.readJsonScript("player-trend-data");
+    if (trendByYear) {
+        initTrendChart(canvas, trendByYear);
     }
 });
 

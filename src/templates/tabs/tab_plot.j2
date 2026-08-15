@@ -41,19 +41,16 @@
         {% for yr in available_statcast_years %}
         {% set _entries = statcast_by_year[yr] %}
         <div class="pitch-plinko-year-container" id="plinko-{{ yr }}" {% if not loop.first %}style="display: none;"{% endif %}>
+            {# data-chart-key matches the #chart-data-{kind}-{{ yr }}-{{ loop.index0 }}
+               ids rendered once by partials/chart_data.j2. #}
             {% for _e in _entries %}
-            {% set sc = _e.sc %}
             {% set _level = _e.sport_level %}
-            {% set _plinko = sc.pitch_plinko if sc and sc.pitch_plinko else {} %}
             <div class="pitch-plinko-level-container"
                  data-level="{{ _level | level_display(yr) }}"
                  data-level-label="{% if _level == '_combined' %}All Levels{% else %}{{ _level | level_display(yr) }}{% endif %}"
+                 data-chart-key="{{ yr }}-{{ loop.index0 }}"
                  {% if not loop.first %}style="display: none;"{% endif %}>
                 {% if is_pitcher %}
-                {% set _splits = sc.pitcher_bat_side_splits if sc and sc.pitcher_bat_side_splits else {} %}
-                {% set _movement = sc.pitch_movement if sc and sc.pitch_movement else {} %}
-                <script type="application/json" class="pitch-usage-hand-data">{{ _splits|tojson_safe }}</script>
-                <script type="application/json" class="pitch-movement-data">{{ _movement|tojson_safe }}</script>
                 <div class="pitch-chart-grid">
                     <section class="pitch-chart-section">
                         <div class="pitch-usage-hand-root"></div>
@@ -63,7 +60,6 @@
                     </section>
                 </div>
                 {% endif %}
-                <script type="application/json" class="pitch-plinko-data">{{ _plinko|tojson_safe }}</script>
                 <div class="pitch-plinko-root"></div>
             </div>
             {% endfor %}

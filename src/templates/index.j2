@@ -23,9 +23,9 @@
        data-last-game="{{ item.last_game_date.isoformat() if item.last_game_date else '0000-00-00' }}">
         <div class="player-header">
             <div class="avatar">
-                {# 頭像：data-src 交給 avatar-fallback.js 分批 lazy 載入 #}
+                {# 頭像：原生 loading="lazy"，失敗 fallback 見 avatar-fallback.js #}
                 {% set cdn_primary, cdn_secondary = headshot_cdn_urls(player.mlb_id, player.latest_level_is_mlb) %}
-                <img data-src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" class="avatar-img">
+                <img src="{{ cdn_primary }}" data-cdn-src="{{ cdn_secondary }}" alt="{{ player_name }}" class="avatar-img" loading="lazy">
                 <div class="avatar-initials avatar-fallback" aria-hidden="true">{{ player.name_en[:1] }}</div>
             </div>
             <div class="player-info">

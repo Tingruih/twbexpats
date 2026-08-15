@@ -8,7 +8,7 @@
 
 {# 打者「對戰球種」表格（逐球種 / 三大類皆共用同一組欄位） #}
 {% macro vs_pitch_table(rows, tags, type_header='球種', type_tooltip=None) %}
-{% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
+{% set _type_tip = type_tooltip if type_tooltip else (pitch_group_tooltip if type_header == '分類' else '球種名稱') %}
 {# 分類表只有三列固定的大類，沿用原本的代碼清單 tooltip；逐球種表才掛中英對照 #}
 {% set _type_legend = none if type_header == '分類' else pitch_legend(rows) %}
 <table class="data-table">
@@ -48,7 +48,7 @@
 {# 「各球數配球比例」表格（逐球種 / 三大類皆共用同一組欄位） #}
 {% macro usage_by_count_table(usage_types, usage_rows, tags, type_header='球種', type_tooltip=None) %}
 {% if usage_types and usage_rows %}
-{% set _type_tip = type_tooltip if type_tooltip else ('Fastball : FF, SI, FC, FA, FT\\nBreaking : SL, ST, SV, CU, CB, KC, CS, SC\\nOffSpeed : CH, FS, FO, KN, EP' if type_header == '分類' else '球種名稱') %}
+{% set _type_tip = type_tooltip if type_tooltip else (pitch_group_tooltip if type_header == '分類' else '球種名稱') %}
 {% set _type_legend = none if type_header == '分類' else pitch_legend(usage_types) %}
 <div class="table-scroll">
     <table class="data-table pitch-usage-table">
