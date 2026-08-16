@@ -188,8 +188,9 @@ PITCH_HAND_SPLITS = (
 # 互相同步全靠人眼——結果是 KC/CS/SC 在 JS 手抄表裡被誤併成跟 CU 同一個
 # "Curveball"，圖例因此出現看似重複、實則是不同代碼的兩行。
 #
-# 現在改成兩層表：先定義「家族」（球速 × 位移方向切出的一層，色相依附於
-# 此），再定義每個 API 代碼屬於哪個家族＋中英文名稱。PITCH_TYPE_ZH、
+# 現在改成兩層表：PITCH_FAMILY_META 定義「家族」（球速 × 位移方向切出的一
+# 層）屬於哪個三大分類，PITCH_TYPES 定義每個 API 代碼的中英文名、所屬家族與
+# 顏色。顏色只存在 PITCH_TYPES 一處——家族本身不再持有色碼。PITCH_TYPE_ZH、
 # PITCH_TYPE_COLORS、PITCH_TYPE_TO_FAMILY、PITCH_TYPE_GROUPS、
 # PITCH_TYPE_TO_GROUP、PITCH_GROUP_LABELS、PITCH_GROUP_ORDER、
 # PITCH_TYPE_DISPLAY 全部從這兩張表算出來，不再各自維護一份原始資料；
@@ -205,54 +206,24 @@ GROUP_LABELS: dict[str, str] = {
     "OFFSPEED": "Offspeed",
 }
 
-# 球種配色的家族表：色相 = 家族，同家族成員共用同一組底色／文字色（文字色
-# 是底色在 OKLCH 拉到 L≈0.84 手動調出來的值，直接存值而非即時運算，
-# 對比皆 >= 9.9:1）。
-#
-# 規則
-# ────
-# 1. 家族是三大分類底下、依「球速 × 位移方向」再切的一層，永不跨分類邊界：
-#    FASTBALL 拿暖色段（紅／橙／金），BREAKING 拿藍／紫，OFFSPEED 拿綠／粉。
-# 2. 同家族成員共用同一色票——這是硬性限制不是偏好，見下。
-# 3. 沒有 fallback 灰：每個會進到圖表或標籤的代碼都在 PITCH_TYPES 有一筆。
-#    非球種代碼（NON_PITCH_TYPE_CODES）早在 filter_known_pitch_events() 就
-#    被濾掉，不會走到配色這一步。
-#
-# 為什麼是 7 個色票（原本 8 個，SWEEPER 併入 SLIDER）
-# ────────────────────────────
-# 位移散點圖任兩個球種都可能相鄰，屬於 all-pairs 情境。在本站深色表面
-# （#09090b）、OKLCH 明度帶 0.48–0.67、彩度 >= 0.10、對比 >= 3:1 的條件下實測
-# 各色數的最佳可達分離度（Machado 2009 protan/deutan 模擬，OKLab ΔE×100）：
-#
-#     色數   最差 CVD ΔE   最差常視 ΔE   （門檻 8.0 / 15.0）
-#      6        11.0          19.1        通過
-#      7         9.1          16.6        通過
-#      8         8.0          15.0        通過
-#      9         7.4          13.9        不通過
-#     12         5.9          10.6        不通過
-#
-# 8 是天花板；SWEEPER（掃球／滑曲球）併入 SLIDER 家族後只用 7 色，落在已驗證
-# 安全的範圍內，掃球／滑曲球從此與滑球／子彈球共用同一組藍色。
-#
-# 代價：同家族球種同時出現時色彩不可分（實測 95 組（球員 × 年度）球種組合中
-# SL+ST 佔 20 組、曲球家族內部撞色 13 組）。這些情境靠次要編碼辨識——圖例、
-# 標籤文字、hover tooltip 都會寫出球種全名，識別從不只靠顏色。
+# 球種家族表：家族只負責「屬於哪個三大分類」與中文短標籤，不再持有顏色。
+# 顏色改為每個代碼各一組，直接寫在 PITCH_TYPES（見下方配色說明）。
 PITCH_FAMILY_META: dict[str, dict] = {
-    "FOUR_SEAM": {"label": "速球", "group": "FASTBALL", "bg": "#fc3766", "text": "#ff9fae"},
-    "SINKER":    {"label": "伸卡", "group": "FASTBALL", "bg": "#bd3b05", "text": "#ffa680"},
-    "CUTTER":    {"label": "卡特", "group": "FASTBALL", "bg": "#c58104", "text": "#ffbc5b"},
-    "SLIDER":    {"label": "滑球", "group": "BREAKING", "bg": "#4b88fd", "text": "#93cbff"},
-    "CURVE":     {"label": "曲球", "group": "BREAKING", "bg": "#9618d0", "text": "#ecaeff"},
-    "CHANGEUP":  {"label": "變速", "group": "OFFSPEED", "bg": "#18761e", "text": "#8de58b"},
-    "KNUCKLE":   {"label": "特殊", "group": "OFFSPEED", "bg": "#bf0b82", "text": "#ffa0dd"},
+    "FOUR_SEAM": {"label": "速球", "group": "FASTBALL"},
+    "SINKER":    {"label": "伸卡", "group": "FASTBALL"},
+    "CUTTER":    {"label": "卡特", "group": "FASTBALL"},
+    "SLIDER":    {"label": "滑球", "group": "BREAKING"},
+    "CURVE":     {"label": "曲球", "group": "BREAKING"},
+    "CHANGEUP":  {"label": "變速", "group": "OFFSPEED"},
+    "KNUCKLE":   {"label": "特殊", "group": "OFFSPEED"},
 }
 
-# 三大分類標籤（.pitch-fastball 等）借用哪個家族的顏色代表：取各分類中球數
-# 最多的家族色，與改版前的分類配色一致（紅／藍／綠）。
-GROUP_REPRESENTATIVE_FAMILY: dict[str, str] = {
-    "FASTBALL": "FOUR_SEAM",
-    "BREAKING": "SLIDER",
-    "OFFSPEED": "CHANGEUP",
+# 三大分類標籤（.pitch-fastball 等）借用哪個代碼的顏色：取各分類中球數最多的
+# 家族的代表球種，與改版前的分類配色一致（紅／藍／綠）。
+GROUP_REPRESENTATIVE_CODE: dict[str, str] = {
+    "FASTBALL": "FF",
+    "BREAKING": "SL",
+    "OFFSPEED": "CH",
 }
 
 # 球種代碼主表：每個會進到圖表或標籤的代碼一筆，含中英文顯示名與所屬家族。
@@ -270,39 +241,73 @@ GROUP_REPRESENTATIVE_FAMILY: dict[str, str] = {
 #
 # CU/CB 中英文顯示名刻意相同：CB 是舊版 API 對曲球的代碼，語意上就是同一種
 # 球路，不是兩種球，只是不同年代留下的字串；兩者在此仍各自成列（各自統計，
-# 圖例可能同時各出現一行），不做代碼合併。
+# 圖例可能同時各出現一行），不做代碼合併，但共用同一組顏色。
+#
+# 配色（bg／text）
+# ═══════════════
+# 這張表是全站顏色的唯一來源。前端 JS／CSS 不手抄任何一份：render/env.py 把
+# PITCH_TYPE_DISPLAY 序列化成 JSON 注入 base.j2，PITCH_TAG_CSS 是生成好的
+# CSS 規則字串。改色只改這裡。
+#
+# 配置規則
+# ────────
+# 1. 家族 = 色相段，永不跨三大分類邊界：FASTBALL 拿暖色（紅／橙／金），
+#    BREAKING 拿藍與紫，OFFSPEED 拿綠與洋紅。
+# 2. 每個家族最常見的球種直接用該家族的基色（FF／SI／FC／SL／CU／CH／KN，
+#    值沿用只有 7 色時代的家族色，未曾變動）；同家族其餘成員沿相近色相調
+#    明度與彩度，形成一條色階。
+# 3. 衍生色的彩度不得超過家族基色——最常見的球種必須是家族裡最飽和的那個，
+#    罕見球種較淡但不刻意灰化。
+# 4. 滑球系與曲球系的色相區間刻意不重疊（滑球 233–262°、曲球 311–330°），
+#    因為 BREAKING 有 8 個色票，若共用藍紫過渡帶會整片糊在一起。
+# 5. text 是同一個 bg 在 OKLCH 拉到 L=0.84 的值（標籤文字色，對比皆 >= 11.5:1）。
+#    直接存值而非即時運算——改 bg 時必須一併改 text。
+# 6. 沒有 fallback 灰：每個會進到圖表或標籤的代碼都在這張表有一筆。非球種
+#    代碼（NON_PITCH_TYPE_CODES）早在 filter_known_pitch_events() 就被濾掉。
+#
+# 實測分離度（深色表面 #09090b，Machado 2009 protan/deutan 模擬，OKLab ΔE×100）
+# ────────────────────────────────────────────────
+#     常視 all-pairs 最差 ΔE   9.6   （門檻 8.0，通過）
+#     最低對比                 3.16  （門檻 3.0，通過；由 CU 決定）
+#     protan／deutan 最差 ΔE   3.6   （門檻 8.0，未通過）
+#     滑球系 vs 曲球系 最小 ΔE 20.7
+#
+# 色盲情境不合格是這版的已知取捨。舊版只有 7 色時 CVD 最差為 6.4，但同家族
+# 成員共用一色（ΔE 0.0），SL 與 ST 之類的組合根本無法區分；改成 17 色後常視
+# 下全部分得開，代價是色盲下跨家族的距離被壓縮。所有情境都靠次要編碼補
+# ——圖例、標籤文字、hover tooltip 都會寫出球種全名，識別從不只靠顏色。
+#
+# 家族內的宣告順序 = 常見度（第一個拿基色），也決定圖例與 tooltip 的列序。
 PITCH_TYPES: dict[str, dict] = {
     # Fastball
-    "FF": {"zh": "四縫線速球", "en": "Four-Seam", "family": "FOUR_SEAM"},
-    "FA": {"zh": "速球", "en": "Fastball", "family": "FOUR_SEAM"},
-    "FT": {"zh": "二縫線速球", "en": "Two-Seam", "family": "SINKER"},
-    "SI": {"zh": "伸卡球", "en": "Sinker", "family": "SINKER"},
-    "FC": {"zh": "卡特球", "en": "Cutter", "family": "CUTTER"},
+    "FF": {"zh": "四縫線速球", "en": "Four-Seam", "family": "FOUR_SEAM", "bg": "#fc3766", "text": "#ffb3b9"},
+    "FA": {"zh": "速球", "en": "Fastball", "family": "FOUR_SEAM", "bg": "#fc3766", "text": "#ffb3b9"},
+    "SI": {"zh": "伸卡球", "en": "Sinker", "family": "SINKER", "bg": "#bd3b05", "text": "#ffb6a0"},
+    "FT": {"zh": "二縫線速球", "en": "Two-Seam", "family": "SINKER", "bg": "#ff815b", "text": "#ffb6a0"},
+    "FC": {"zh": "卡特球", "en": "Cutter", "family": "CUTTER", "bg": "#c58104", "text": "#efc189"},
     # Breaking
-    "SL": {"zh": "滑球", "en": "Slider", "family": "SLIDER"},
-    "GY": {"zh": "子彈球", "en": "Gyroball", "family": "SLIDER"},
-    "ST": {"zh": "橫掃球", "en": "Sweeper", "family": "SLIDER"},
-    "SV": {"zh": "滑曲球", "en": "Slurve", "family": "SLIDER"},
-    "CU": {"zh": "曲球", "en": "Curveball", "family": "CURVE"},
-    "CB": {"zh": "曲球", "en": "Curveball", "family": "CURVE"},
-    "KC": {"zh": "彈指曲球", "en": "Knuckle Curve", "family": "CURVE"},
-    "CS": {"zh": "慢速曲球", "en": "Slow Curve", "family": "CURVE"},
-    "SC": {"zh": "螺旋球", "en": "Screwball", "family": "CURVE"},
+    "SL": {"zh": "滑球", "en": "Slider", "family": "SLIDER", "bg": "#4b88fd", "text": "#aecbff"},
+    "ST": {"zh": "橫掃球", "en": "Sweeper", "family": "SLIDER", "bg": "#7ab4ff", "text": "#a8ceff"},
+    "SV": {"zh": "滑曲球", "en": "Slurve", "family": "SLIDER", "bg": "#006d9c", "text": "#91d4fe"},
+    "GY": {"zh": "子彈球", "en": "Gyroball", "family": "SLIDER", "bg": "#00a4df", "text": "#8ed5fc"},
+    "CU": {"zh": "曲球", "en": "Curveball", "family": "CURVE", "bg": "#9618d0", "text": "#e1b7ff"},
+    "CB": {"zh": "曲球", "en": "Curveball", "family": "CURVE", "bg": "#9618d0", "text": "#e1b7ff"},
+    "KC": {"zh": "彈指曲球", "en": "Knuckle Curve", "family": "CURVE", "bg": "#d157ff", "text": "#e8b3ff"},
+    "CS": {"zh": "慢速曲球", "en": "Slow Curve", "family": "CURVE", "bg": "#ff77f8", "text": "#fca9f6"},
+    "SC": {"zh": "螺旋球", "en": "Screwball", "family": "CURVE", "bg": "#c93cc2", "text": "#fea8f6"},
     # OffSpeed
-    "CH": {"zh": "變速球", "en": "Changeup", "family": "CHANGEUP"},
-    "FS": {"zh": "快速指叉球", "en": "Splitter", "family": "CHANGEUP"},
-    "FO": {"zh": "指叉球", "en": "Forkball", "family": "CHANGEUP"},
-    "KN": {"zh": "蝴蝶球", "en": "Knuckleball", "family": "KNUCKLE"},
-    "EP": {"zh": "小便球", "en": "Eephus", "family": "KNUCKLE"},
+    "CH": {"zh": "變速球", "en": "Changeup", "family": "CHANGEUP", "bg": "#18761e", "text": "#a6dba4"},
+    "FS": {"zh": "快速指叉球", "en": "Splitter", "family": "CHANGEUP", "bg": "#57bf58", "text": "#a0dd9e"},
+    "FO": {"zh": "指叉球", "en": "Forkball", "family": "CHANGEUP", "bg": "#8ed28b", "text": "#a8daa5"},
+    "KN": {"zh": "蝴蝶球", "en": "Knuckleball", "family": "KNUCKLE", "bg": "#bf0b82", "text": "#ffaed6"},
+    "EP": {"zh": "小便球", "en": "Eephus", "family": "KNUCKLE", "bg": "#fa55b5", "text": "#ffaed6"},
 }
 
 # ── 以下皆從 PITCH_TYPES / PITCH_FAMILY_META 推導，不手動維護 ──
 
 PITCH_TYPE_ZH: dict[str, str] = {code: info["zh"] for code, info in PITCH_TYPES.items()}
 
-PITCH_TYPE_COLORS: dict[str, str] = {
-    code: PITCH_FAMILY_META[info["family"]]["bg"] for code, info in PITCH_TYPES.items()
-}
+PITCH_TYPE_COLORS: dict[str, str] = {code: info["bg"] for code, info in PITCH_TYPES.items()}
 
 PITCH_TYPE_TO_FAMILY: dict[str, str] = {code: info["family"] for code, info in PITCH_TYPES.items()}
 
@@ -348,8 +353,8 @@ PITCH_TYPE_DISPLAY: dict[str, dict] = {
         "en": info["en"],
         "family": info["family"],
         "group": PITCH_FAMILY_META[info["family"]]["group"],
-        "bg": PITCH_FAMILY_META[info["family"]]["bg"],
-        "text": PITCH_FAMILY_META[info["family"]]["text"],
+        "bg": info["bg"],
+        "text": info["text"],
     }
     for code, info in PITCH_TYPES.items()
 }
@@ -357,23 +362,24 @@ PITCH_TYPE_DISPLAY: dict[str, dict] = {
 
 def _build_pitch_tag_css() -> str:
     """Generate the ``.pitch-{code}`` / ``.pitch-{group}`` CSS rules that used
-    to be hand-copied into gamelogs.css. One rule per family (all member
-    codes share a selector) plus one per super-category group."""
-    family_codes: dict[str, list[str]] = {}
+    to be hand-copied into gamelogs.css. One rule per distinct colour (codes
+    sharing a colour — FF/FA, CU/CB — share a selector) plus one per
+    super-category group."""
+    by_color: dict[tuple[str, str], list[str]] = {}
     for code, info in PITCH_TYPES.items():
-        family_codes.setdefault(info["family"], []).append(code)
+        by_color.setdefault((info["bg"], info["text"]), []).append(code)
 
-    def _rule(selector: str, meta: dict) -> str:
-        r, g, b = (int(meta["bg"][i:i + 2], 16) for i in (1, 3, 5))
-        return f"{selector} {{ background: rgb({r} {g} {b} / 0.22); color: {meta['text']}; }}"
+    def _rule(selector: str, bg: str, text: str) -> str:
+        r, g, b = (int(bg[i:i + 2], 16) for i in (1, 3, 5))
+        return f"{selector} {{ background: rgb({r} {g} {b} / 0.22); color: {text}; }}"
 
     lines = [
-        _rule(", ".join(f".pitch-{c.lower()}" for c in codes), PITCH_FAMILY_META[family])
-        for family, codes in family_codes.items()
+        _rule(", ".join(f".pitch-{c.lower()}" for c in codes), bg, text)
+        for (bg, text), codes in by_color.items()
     ]
     lines += [
-        _rule(f".pitch-{group.lower()}", PITCH_FAMILY_META[family])
-        for group, family in GROUP_REPRESENTATIVE_FAMILY.items()
+        _rule(f".pitch-{group.lower()}", PITCH_TYPES[code]["bg"], PITCH_TYPES[code]["text"])
+        for group, code in GROUP_REPRESENTATIVE_CODE.items()
     ]
     return "\n".join(lines)
 
