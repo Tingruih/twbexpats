@@ -7,7 +7,8 @@
  *  - 節點：每個球數對應一個圓形節點，大小代表到達次數，外環彩色圓弧代表球種比例
  *  - 邊線：代表球數轉換路徑（好球 or 壞球），粗細代表通過頻率
  *  - Tooltip：點擊節點或邊線時顯示詳細數據
- *  - 篩選：支援依左打/右打/全部切換（對應 arsenal-filters.js 的 batSel）
+ *  - 篩選：年份 + 聯盟層級，共用自 filters.js::createTieredLevelFilter
+ *          （對稱：手機版見 mobile/m-charts.js::initMobilePlinkoFilters）
  *
  * 位置：圖表 Tab 的「Pitch Plinko」區塊（#plinko-root）
  *
@@ -311,38 +312,17 @@
     }
 
     function initPitchPlinkoFilters() {
-        var yrSel = document.getElementById("plinko-year-select");
-        var lvSel = document.getElementById("plinko-level-select");
-        if (!yrSel || !lvSel) return;
-
-        function updateLevelOptions() {
-            var yearContainer = document.getElementById("plinko-" + yrSel.value);
-            if (!yearContainer) return;
-            var containers = yearContainer.querySelectorAll(".pitch-plinko-level-container");
-            window.TW.populateLevelSelect(lvSel, window.TW.levelItemsFromContainers(containers));
-        }
-
-        function showLevel() {
-            var yearContainer = document.getElementById("plinko-" + yrSel.value);
-            if (!yearContainer) return;
-            yearContainer.querySelectorAll(".pitch-plinko-level-container").forEach(function(c) {
-                c.style.display = c.dataset.level === lvSel.value ? "block" : "none";
-            });
-        }
-
-        function showYear() {
-            document.querySelectorAll(".pitch-plinko-year-container").forEach(function(c) {
-                c.style.display = "none";
-            });
-            var active = document.getElementById("plinko-" + yrSel.value);
-            if (active) active.style.display = "block";
-            updateLevelOptions();
-            showLevel();
-        }
-
-        yrSel.addEventListener("change", showYear);
-        lvSel.addEventListener("change", showLevel);
-        showYear();
+        window.TWFilters.createTieredLevelFilter({
+            yearSelectId: "plinko-year-select",
+            levelSelectId: "plinko-level-select",
+            yearContainerPrefix: "plinko-",
+            levelContainerSelector: ".pitch-plinko-level-container",
+            hideYearContainers: function () {
+                document.querySelectorAll(".pitch-plinko-year-container").forEach(function (c) {
+                    c.style.display = "none";
+                });
+            },
+        });
     }
 
     document.addEventListener("DOMContentLoaded", function() {

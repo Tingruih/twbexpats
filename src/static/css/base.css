@@ -98,6 +98,60 @@ body {
     background: linear-gradient(180deg, var(--scroll-thumb-hover) 0%, #2d3641 100%); /* 滑鼠移入時變亮 */
 }
 
+/* 控制【橫向捲動表格的捲軸 — 賽季數據 / 逐場紀錄 / 手機版逐球紀錄共用】
+   .table-scroll（stats.css）、.pitch-log-scroll（gamelogs.css）、
+   .m-pitch-log-scroll（mobile/m-gamelogs.css）共用同一套規則，
+   單一位置維護，避免三處各自覆寫、彼此不同步。
+   預設滑塊透明（不顯示），hover 容器時才淡入 —— 模擬系統原生 overlay 捲軸
+   「點一下才浮現」的效果，取代上方全站永遠常駐顯示的捲軸樣式。 */
+.table-scroll,
+.pitch-log-scroll,
+.m-pitch-log-scroll {
+    scrollbar-color: transparent transparent; /* Firefox：預設完全透明 */
+}
+
+.table-scroll:hover,
+.pitch-log-scroll:hover,
+.m-pitch-log-scroll:hover {
+    scrollbar-color: var(--scroll-thumb) transparent; /* Firefox：hover 時滑塊淡入，軌道維持透明 */
+}
+
+.table-scroll::-webkit-scrollbar,
+.pitch-log-scroll::-webkit-scrollbar,
+.m-pitch-log-scroll::-webkit-scrollbar {
+    width: 6px;  /* 縱向捲軸寬度（較細，跟全站粗捲軸區分） */
+    height: 6px; /* 橫向捲軸高度 */
+}
+
+.table-scroll::-webkit-scrollbar-track,
+.pitch-log-scroll::-webkit-scrollbar-track,
+.m-pitch-log-scroll::-webkit-scrollbar-track,
+.table-scroll::-webkit-scrollbar-corner,
+.pitch-log-scroll::-webkit-scrollbar-corner,
+.m-pitch-log-scroll::-webkit-scrollbar-corner {
+    background: transparent; /* 軌道與角落一律不顯示，只留滑塊 */
+}
+
+.table-scroll::-webkit-scrollbar-thumb,
+.pitch-log-scroll::-webkit-scrollbar-thumb,
+.m-pitch-log-scroll::-webkit-scrollbar-thumb {
+    background: transparent;             /* 預設透明 */
+    border-radius: 999px;
+    transition: background 0.15s ease-in-out; /* 淡入淡出動畫 */
+}
+
+.table-scroll:hover::-webkit-scrollbar-thumb,
+.pitch-log-scroll:hover::-webkit-scrollbar-thumb,
+.m-pitch-log-scroll:hover::-webkit-scrollbar-thumb {
+    background: var(--scroll-thumb); /* hover 容器時滑塊淡入 */
+}
+
+.table-scroll::-webkit-scrollbar-thumb:hover,
+.pitch-log-scroll::-webkit-scrollbar-thumb:hover,
+.m-pitch-log-scroll::-webkit-scrollbar-thumb:hover {
+    background: var(--scroll-thumb-hover); /* 滑鼠移到滑塊本體上時再變亮 */
+}
+
 /* 控制【全站 / Range 滑桿本體】
    用於 Pitch Plinko 等互動篩選元素 */
 input[type="range"] {

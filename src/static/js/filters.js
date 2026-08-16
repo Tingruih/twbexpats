@@ -1,12 +1,17 @@
 /**
  * filters.js — 球員詳細頁「年份 / 聯盟 / 對戰打者」篩選的共用引擎
- * 載入於：player_detail.j2（於 gamelogs.js / arsenal-filters.js /
- *          m-gamelogs.js / m-advanced.js 之前，defer 保證順序）
+ * 載入於：player_detail.j2（於 gamelogs.js / arsenal-filters.js / pitch-plinko.js /
+ *          m-gamelogs.js / m-advanced.js / m-charts.js 之前，defer 保證順序）
  * 依賴：util.js（window.TW）
  *
- * 過去桌機版與手機版各自複製一份幾乎相同的篩選邏輯（gamelogs.js↔m-gamelogs.js、
- * arsenal-filters.js↔m-advanced.js）。此檔把核心邏輯集中為兩個工廠函式，
- * 桌機/手機只需傳入各自的「設定」即可，改一次行為兩邊同步。
+ * 過去桌機版與手機版各自複製一份幾乎相同的篩選邏輯，此檔把核心邏輯集中為
+ * 兩個工廠函式，桌機/手機只需傳入各自的「設定」即可，改一次行為兩邊同步：
+ *  - createLevelFilter       ：逐場紀錄「年份 + 聯盟」篩選
+ *                               （gamelogs.js↔m-gamelogs.js）
+ *  - createTieredLevelFilter ：「年份 → 聯盟層級（+ 選用的對戰打者）」篩選，
+ *                               供球種使用率表（arsenal-filters.js↔m-advanced.js，
+ *                               含對戰打者層）與 Pitch Plinko 圖表
+ *                               （pitch-plinko.js↔m-charts.js，無對戰打者層）共用
  *
  * 重要：桌機與手機的 DOM 同時存在於同一頁（.page-desktop / .page-mobile
  * 以 CSS 切換），且部分 class（如 .arsenal-table-container）兩邊共用，
@@ -100,16 +105,25 @@ window.TWFilters = (function () {
     }
 
     /**
-     * 建立「年份 + 聯盟 + 對戰打者」篩選器（球種使用率表：桌機 / 手機共用）。
+     * 建立「年份 + 聯盟層級（+ 選用的對戰打者）」兩/三層篩選器。
+     * 球種使用率表（桌機 arsenal-filters.js / 手機 m-advanced.js）與
+     * Pitch Plinko 圖表（桌機 pitch-plinko.js / 手機 m-charts.js）共用
+     * 同一套「年份容器 → 聯盟層級子容器」結構，僅前者多一層對戰打者篩選；
+     * batSideSelectId 省略時直接略過該層，兩者共用同一份邏輯。
      * @param {Object} cfg
-     *   yearSelectId, levelSelectId, batSideSelectId : <select> 的 id
-     *   yearContainerPrefix : 年份容器 id 前綴（如 "arsenal-"）
-     *   hideYearContainers() : 隱藏所有年份容器（逐平台）
+     *   yearSelectId, levelSelectId : <select> 的 id
+     *   batSideSelectId             : 對戰打者 <select> 的 id（選用；省略時
+     *                                  不套用左右打篩選，如 Pitch Plinko）
+     *   yearContainerPrefix         : 年份容器 id 前綴（如 "arsenal-"）
+     *   levelContainerSelector      : 年份容器內、聯盟層級子容器的選擇器
+     *                                  （預設 ".arsenal-level-container"）
+     *   hideYearContainers()        : 隱藏所有年份容器（逐平台）
      */
-    function createArsenalFilter(cfg) {
+    function createTieredLevelFilter(cfg) {
         var yrSel = byId(cfg.yearSelectId);
         var lvSel = byId(cfg.levelSelectId);
-        var batSel = byId(cfg.batSideSelectId);
+        var batSel = cfg.batSideSelectId ? byId(cfg.batSideSelectId) : null;
+        var levelContainerSelector = cfg.levelContainerSelector || ".arsenal-level-container";
 
         function yearContainer() {
             return yrSel ? byId(cfg.yearContainerPrefix + yrSel.value) : null;
@@ -120,10 +134,13 @@ window.TWFilters = (function () {
             if (!yc || !lvSel) return;
             window.TW.populateLevelSelect(
                 lvSel,
-                window.TW.levelItemsFromContainers(yc.querySelectorAll(".arsenal-level-container"))
+                window.TW.levelItemsFromContainers(yc.querySelectorAll(levelContainerSelector))
             );
         }
 
+        // .arsenal-split-container 未比照 levelContainerSelector 開放成 cfg 選項：
+        // 這層只在 batSel 存在（即呼叫端有傳 batSideSelectId）時才會執行，目前
+        // 只有球種使用率表在用，還沒有第二種對戰打者子容器 class 需要相容。
         function showBatSide(scope) {
             if (!batSel) return;
             var side = batSel.value || "all";
@@ -133,11 +150,15 @@ window.TWFilters = (function () {
             });
         }
 
+        // 顯示年份/層級容器一律用 "block"（未比照 createLevelFilter 開放
+        // activeDisplay 選項）：目前四個呼叫端（球種使用率表、Pitch Plinko
+        // 桌機/手機）版面都是區塊排版；若未來出現 flex/grid 版面的呼叫端，
+        // 在此加回 cfg.activeDisplay 選項，而不是另開一份篩選邏輯。
         function showLevel() {
             var yc = yearContainer();
             if (!yc || !lvSel) return;
             var active = null;
-            yc.querySelectorAll(".arsenal-level-container").forEach(function (c) {
+            yc.querySelectorAll(levelContainerSelector).forEach(function (c) {
                 var on = c.dataset.level === lvSel.value;
                 c.style.display = on ? "block" : "none";
                 if (on) active = c;
@@ -165,6 +186,6 @@ window.TWFilters = (function () {
     return {
         shouldShow: shouldShow,
         createLevelFilter: createLevelFilter,
-        createArsenalFilter: createArsenalFilter,
+        createTieredLevelFilter: createTieredLevelFilter,
     };
 })();

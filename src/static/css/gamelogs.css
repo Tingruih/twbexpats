@@ -92,36 +92,10 @@
     height: auto;                               /* 高度由內容決定 */
     max-height: 360px;                          /* 最大高度限制 */
     border-top: 1px solid var(--border);        /* 頂部分隔線 */
-    scrollbar-color: var(--scroll-thumb) var(--scroll-track); /* 捲軸顏色（Firefox） */
-    scrollbar-width: thin;                      /* 細捲軸（Firefox） */
 }
 
-/* 控制【逐場紀錄 Tab / Pitch Log 捲軸寬度（Chrome/Safari）】 */
-.pitch-log-scroll::-webkit-scrollbar {
-    width: 6px;     /* 縱向捲軸寬度 */
-    height: 6px;    /* 橫向捲軸高度 */
-}
-
-/* 控制【逐場紀錄 Tab / Pitch Log 捲軸軌道】 */
-.pitch-log-scroll::-webkit-scrollbar-track {
-    background: var(--scroll-track); /* 軌道背景色 */
-}
-
-/* 控制【逐場紀錄 Tab / Pitch Log 捲軸滑塊】 */
-.pitch-log-scroll::-webkit-scrollbar-thumb {
-    background: var(--scroll-thumb); /* 滑塊顏色 */
-    border-radius: 999px;            /* 圓弧 */
-}
-
-/* 控制【逐場紀錄 Tab / Pitch Log 捲軸滑塊 hover 狀態】 */
-.pitch-log-scroll::-webkit-scrollbar-thumb:hover {
-    background: var(--scroll-thumb-hover); /* hover 時稍亮 */
-}
-
-/* 控制【逐場紀錄 Tab / Pitch Log 捲軸角落（橫縱捲軸交叉點）】 */
-.pitch-log-scroll::-webkit-scrollbar-corner {
-    background: var(--scroll-track); /* 與軌道同色 */
-}
+/* 捲軸樣式（含 hover 才淡入的滑塊）統一定義在 base.css 的共用區塊，
+   跟 .table-scroll / .m-pitch-log-scroll 共用，這裡不再重複覆寫。 */
 
 /* 控制【逐場紀錄 Tab / 逐球紀錄表格本體】
    字體更小，表頭固定不捲動 */

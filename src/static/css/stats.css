@@ -74,29 +74,8 @@
     background: var(--card-surface);                    /* 表格底色 */
 }
 
-/* 控制【賽季數據 Tab / 表格捲軸高度（Chrome/Safari）】
-   一旦自訂 ::-webkit-scrollbar，瀏覽器就會改用常駐顯示的 classic 捲軸
-   （不會像系統預設的 overlay 捲軸那樣自動隱藏），不需要額外 JS 介入。 */
-.table-scroll::-webkit-scrollbar {
-    height: 6px; /* 橫向捲軸的高度（較細）*/
-}
-
-/* 控制【賽季數據 Tab / 表格捲軸軌道】 */
-.table-scroll::-webkit-scrollbar-track {
-    background: var(--scroll-track);    /* 軌道背景色 */
-    border-radius: 999px;               /* 圓弧兩端 */
-}
-
-/* 控制【賽季數據 Tab / 表格捲軸滑塊】 */
-.table-scroll::-webkit-scrollbar-thumb {
-    background: var(--scroll-thumb);    /* 滑塊顏色 */
-    border-radius: 999px;               /* 圓弧兩端 */
-}
-
-/* 控制【賽季數據 Tab / 表格捲軸滑塊 hover 狀態】 */
-.table-scroll::-webkit-scrollbar-thumb:hover {
-    background: var(--scroll-thumb-hover); /* hover 時稍亮 */
-}
+/* 捲軸樣式（含 hover 才淡入的滑塊）統一定義在 base.css 的共用區塊，
+   跟 .pitch-log-scroll / .m-pitch-log-scroll 共用，這裡不再重複覆寫。 */
 
 /* 控制【賽季數據 Tab / 數據表格本體 <table>】 */
 .data-table {

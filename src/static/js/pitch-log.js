@@ -272,15 +272,15 @@ function prefetchFilteredPitchLogs() {
 }
 
 // 展開/收合比賽列的 pitch log 區域；首次展開時做懶性渲染
+// 開合判斷與箭頭旋轉共用 util.js::TW.toggleCollapseGroup
+// （對稱：手機版見 mobile/m-pitch-log.js::toggleMobilePitchLog）
 function togglePitchLog(id) {
     var row = document.getElementById(id);
     if (!row) return;
-    var open = row.style.display !== 'none';
-    row.style.display = open ? 'none' : '';
     var arrow = document.getElementById('arrow-' + id);
-    if (arrow) arrow.style.transform = open ? '' : 'rotate(90deg)';
+    var nowOpen = window.TW.toggleCollapseGroup(row, arrow);
     // Lazy-render: build table on first open
-    if (!open) {
+    if (nowOpen) {
         var container = document.getElementById(id.replace('pitchlog-', 'pitchlog-content-'));
         if (container && !container.dataset.rendered) {
             var src = row.dataset.src;

@@ -8,7 +8,8 @@
  * toggleYearGroup(tableId, yr)
  *   tableId : 對應 stats-table-{tableId} 的表格 id
  *   yr      : 年份字串，控制 data-grp="{yr}" 的列
- *             同時旋轉 #arrow-{tableId}-{yr} 的展開箭頭
+ *             開合判斷與箭頭旋轉共用 util.js::TW.toggleCollapseGroup
+ *             （對稱：手機版見 mobile/m-tabs.js::toggleMobileYearGroup）
  */
 function toggleYearGroup(tableId, yr) {
     // Find all detail rows for this table + year
@@ -16,9 +17,5 @@ function toggleYearGroup(tableId, yr) {
     if (!table) return;
     const rows = table.querySelectorAll('tr[data-tbl="' + tableId + '"][data-grp="' + yr + '"]');
     const arrow = document.getElementById('arrow-' + tableId + '-' + yr);
-    const open = rows.length > 0 && rows[0].style.display !== 'none';
-    // 切換顯示/隱藏細節列
-    rows.forEach(r => r.style.display = open ? 'none' : '');
-    // 旋轉箭頭圖示（展開時轉 90 度）
-    if (arrow) arrow.style.transform = open ? '' : 'rotate(90deg)';
+    window.TW.toggleCollapseGroup(rows, arrow);
 }

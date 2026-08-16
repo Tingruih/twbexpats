@@ -220,47 +220,20 @@
         attachTouchTooltip(canvas);
     }
 
+    // 篩選（年份 + 聯盟層級）共用自 filters.js::createTieredLevelFilter
+    // （對稱：桌機版見 pitch-plinko.js::initPitchPlinkoFilters）
     function initMobilePlinkoFilters() {
-        var yearSel = document.getElementById('m-plinko-year-select');
-        var levelSel = document.getElementById('m-plinko-level-select');
-        if (!yearSel || !levelSel) return;
-
-        function activeYearContainer() {
-            return document.getElementById('m-plinko-' + yearSel.value);
-        }
-
-        function updateLevelOptions() {
-            var yearContainer = activeYearContainer();
-            if (!yearContainer) return;
-            window.TW.populateLevelSelect(
-                levelSel,
-                window.TW.levelItemsFromContainers(
-                    yearContainer.querySelectorAll('.m-pitch-plinko-level-container')
-                )
-            );
-        }
-
-        function showLevel() {
-            var yearContainer = activeYearContainer();
-            if (!yearContainer) return;
-            yearContainer.querySelectorAll('.m-pitch-plinko-level-container').forEach(function(container) {
-                container.style.display = container.dataset.level === levelSel.value ? 'block' : 'none';
-            });
-        }
-
-        function showYear() {
-            document.querySelectorAll('.m-pitch-plinko-year-container').forEach(function(container) {
-                container.style.display = 'none';
-            });
-            var active = activeYearContainer();
-            if (active) active.style.display = 'block';
-            updateLevelOptions();
-            showLevel();
-        }
-
-        yearSel.addEventListener('change', showYear);
-        levelSel.addEventListener('change', showLevel);
-        showYear();
+        window.TWFilters.createTieredLevelFilter({
+            yearSelectId: 'm-plinko-year-select',
+            levelSelectId: 'm-plinko-level-select',
+            yearContainerPrefix: 'm-plinko-',
+            levelContainerSelector: '.m-pitch-plinko-level-container',
+            hideYearContainers: function () {
+                document.querySelectorAll('.m-pitch-plinko-year-container').forEach(function (c) {
+                    c.style.display = 'none';
+                });
+            },
+        });
     }
 
     function init() {

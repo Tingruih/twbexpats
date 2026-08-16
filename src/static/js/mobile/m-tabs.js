@@ -26,14 +26,12 @@
         }));
     }
 
+    // 多球隊年度卡片：切換子卡片列表容器；開合判斷與箭頭旋轉共用
+    // util.js::TW.toggleCollapseGroup（對稱：桌機版見 stats-table.js::toggleYearGroup）
     function toggleMobileYearGroup(tableId, yr) {
         var arrow = document.getElementById('m-arrow-' + tableId + '-' + yr);
-        // 多球隊年度卡片：切換子卡片列表容器
         var sublist = document.getElementById('m-subdetail-' + tableId + '-' + yr);
-        if (!sublist) return;
-        var open = sublist.style.display !== 'none';
-        sublist.style.display = open ? 'none' : '';
-        if (arrow) arrow.style.transform = open ? '' : 'rotate(90deg)';
+        window.TW.toggleCollapseGroup(sublist, arrow);
     }
 
     function initBottomNavAutoHide() {

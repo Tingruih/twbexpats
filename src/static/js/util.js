@@ -31,12 +31,19 @@
  *  - TW.readJsonScript(id, fallback)         ：讀取 <script type="application/json"
  *                                              id="..."> 內容並 JSON.parse，找不到或
  *                                              parse 失敗時回傳 fallback（預設 null）
+ *  - TW.toggleCollapseGroup(els, arrowEl, openDisplay)
+ *                                             ：展開/收合一個或一組元素（依第一個
+ *                                              元素目前的 display 判斷開合狀態），
+ *                                              並同步旋轉箭頭圖示
  *
  * 過去 escapeHtml 在 pitcher-charts.js / pitch-plinko.js 各有一份、
  * level-select 填充邏輯散落 6 個檔案；集中於此後「改一處即全站生效」。
  * 球種中英文名／配色同理：過去兩份圖表腳本各自手抄一份 PITCH_COLORS /
  * PITCH_NAMES，跟 constants.py 的中文譯名分開維護，容易分歧（見
  * constants.py 頂部 PITCH_TYPES 的說明）。
+ * 展開/收合（切 display + 轉箭頭）過去在 stats-table.js↔m-tabs.js、
+ * pitch-log.js↔m-pitch-log.js 各自實作了幾乎相同的邏輯；集中於此後
+ * 桌機/手機共用同一份判斷。
  */
 window.TW = (function () {
     "use strict";
@@ -245,6 +252,31 @@ window.TW = (function () {
     }
 
     /**
+     * 展開/收合一個或一組元素：依第一個元素目前的 display 值判斷是否為開啟中，
+     * 反向套用到所有傳入元素，並（若提供）同步旋轉箭頭圖示。
+     * 供「年份分組展開」（stats-table.js / m-tabs.js）、「Pitch Log 展開」
+     * （pitch-log.js / m-pitch-log.js）共用，取代桌機/手機各自維護一份
+     * 幾乎相同的開合判斷。
+     * @param {Element|NodeList|Array<Element>} els  要切換的元素（單一或一組，
+     *        一組時以 els[0] 的目前狀態代表整組）；falsy 或空集合時安全略過
+     * @param {Element} [arrowEl]      要同步旋轉的箭頭圖示元素（可省略）
+     * @param {string} [openDisplay]   展開時的 display 值（預設 ''，交回 CSS
+     *        預設值；如 flex/table-row-group 版面需明確指定）
+     * @returns {boolean} 切換後是否為展開狀態（els 為空集合時回傳 false）
+     */
+    function toggleCollapseGroup(els, arrowEl, openDisplay) {
+        // 用 nodeType === 1 判斷「是不是單一元素」，而不是 typeof els.length
+        // === "number"——後者是鴨子定型，<select>/<form> 等元素本身也有
+        // .length（子選項/欄位數），會被誤判成集合而被 Array.slice 拆開。
+        var list = !els ? [] : (els.nodeType === 1 ? [els] : Array.prototype.slice.call(els));
+        if (!list.length) return false;
+        var wasOpen = list[0].style.display !== "none";
+        list.forEach(function (el) { el.style.display = wasOpen ? "none" : (openDisplay || ""); });
+        if (arrowEl) arrowEl.style.transform = wasOpen ? "" : "rotate(90deg)";
+        return !wasOpen;
+    }
+
+    /**
      * 把 tooltip 定位在滑鼠附近：指標在 root 右半邊時貼在指標左側、左半邊時貼在
      * 右側（避免 tooltip 蓋住指標旁的節點/圓點），並把結果夾在 root 邊界內避免
      * 溢出。供 pitcher-charts.js（球種位移圖）、pitch-plinko.js（Pitch Plinko
@@ -283,5 +315,6 @@ window.TW = (function () {
         pitchTypeInfo: pitchTypeInfo,
         positionTooltipNearPointer: positionTooltipNearPointer,
         readJsonScript: readJsonScript,
+        toggleCollapseGroup: toggleCollapseGroup,
     };
 })();
