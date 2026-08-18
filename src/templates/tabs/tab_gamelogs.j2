@@ -3,91 +3,93 @@
 {% import "macros/tags.j2" as tags %}
 <div class="tab-panel" id="panel-gamelogs">
 
-    {# Year + Level filter #}
-    <div class="log-filter-bar">
-        <label class="filter-label" for="gamelog-year-select">年度</label>
-        <select id="gamelog-year-select" class="filter-select">
-            {% for y in available_log_years %}
-            <option value="{{ y }}"{% if loop.first %} selected{% endif %}>{{ y }}</option>
-            {% else %}
-            <option value="{{ selected_year }}" selected>{{ selected_year }}</option>
-            {% endfor %}
-        </select>
-        <label class="filter-label" for="gamelog-level-select">層級</label>
-        <select id="gamelog-level-select" class="filter-select"></select>
-    </div>
+    {% if available_log_years %}
+    <div class="data-table-section glass-panel">
+        <h3>比賽紀錄</h3>
 
-    {% for y in available_log_years %}
-    {% set year_logs = logs_by_year[y] %}
-    <div class="gamelog-table-container data-table-section glass-panel" id="gamelogs-{{ y }}" {% if not loop.first %}style="display: none;"{% endif %}>
-        <h3>{{ y }} 逐場比賽紀錄</h3>
-        <div class="table-scroll">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>日期</th><th>主/客</th><th>對手</th>
-                        {% if is_pitcher %}
-                            {{ macros.th('IP', '單場投球局數', '\\mathrm{\\frac{Outs}{3}}') }}{{ macros.th('H', '單場被安打數') }}{{ macros.th('R', '單場失分') }}{{ macros.th('ER', '單場自責分') }}{{ macros.th('BB', '單場四壞球保送數') }}{{ macros.th('SO', '單場三振數') }}{{ macros.th('HR', '單場被全壘打數') }}{{ macros.th('HB', '單場觸身球數') }}{{ macros.th('ERA', '累積防禦率', '\\mathrm{\\frac{\\sum ER\\times 9}{\\sum IP}}') }}{{ macros.th('結果', 'W 勝投／L 敗投／S 救援成功／H 中繼成功／- 無紀錄') }}
-                        {% else %}
-                            {{ macros.th('AB', '單場打數', '\\mathrm{PA-BB-HBP-SF-SH-XI}') }}{{ macros.th('R', '單場得分') }}{{ macros.th('H', '單場安打數') }}{{ macros.th('2B', '單場二壘安打數') }}{{ macros.th('3B', '單場三壘安打數') }}{{ macros.th('HR', '單場全壘打數') }}{{ macros.th('RBI', '單場打點數') }}{{ macros.th('BB', '單場四壞球保送數') }}{{ macros.th('K', '單場三振數') }}{{ macros.th('SB', '單場盜壘成功次數') }}{{ macros.th('CS', '單場盜壘失敗次數') }}{{ macros.th('AVG', '累計打擊率') }}{{ macros.th('OPS', '累計攻擊指數', '\\mathrm{OBP+SLG}') }}
-                        {% endif %}
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for log in year_logs %}
-                    <tr class="gamelog-data-row{% if log.pitch_data_url %} game-row-expandable{% endif %}"
-                        data-level="{{ log.sport_level | level_display(y) }}"
-                        {% if log.pitch_data_url %}onclick="togglePitchLog('pitchlog-{{ y }}-{{ loop.index }}')" style="cursor:pointer;"{% endif %}>
-                        <td>
-                            {% if log.pitch_data_url %}<span class="toggle-arrow pitch-arrow" id="arrow-pitchlog-{{ y }}-{{ loop.index }}"></span>{% endif %}
-                            {{ log.date }}
-                        </td>
-                        <td>{{ tags.ha_tag(log.is_home) }}</td>
-                        <td>{{ log.opponent }}</td>
-                        {% set s = log.stats_json %}
-                        {% if is_pitcher %}
-                            <td class="num">{{ s.inningsPitched|num_dash }}</td>
-                            <td class="num">{{ s.hits|default_if_none("0") }}</td>
-                            <td class="num">{{ s.runs|default_if_none("0") }}</td>
-                            <td class="num">{{ s.earnedRuns|default_if_none("0") }}</td>
-                            <td class="num">{{ s.baseOnBalls|default_if_none("0") }}</td>
-                            <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
-                            <td class="num">{{ s.homeRuns|default_if_none("0") }}</td>
-                            <td class="num">{{ s.hitByPitch|default_if_none("0") }}</td>
-                            <td class="num">{{ s.era|num_dash }}</td>
-                            <td>{% if s.wins %}W{% elif s.losses %}L{% elif s.saves %}S{% elif s.holds %}H{% else %}-{% endif %}</td>
-                        {% else %}
-                            <td class="num">{{ s.atBats|default_if_none("0") }}</td>
-                            <td class="num">{{ s.runs|default_if_none("0") }}</td>
-                            <td class="num">{{ s.hits|default_if_none("0") }}</td>
-                            <td class="num">{{ s.doubles|default_if_none("0") }}</td>
-                            <td class="num">{{ s.triples|default_if_none("0") }}</td>
-                            <td class="num">{{ s.homeRuns|default_if_none("0") }}</td>
-                            <td class="num">{{ s.rbi|default_if_none("0") }}</td>
-                            <td class="num">{{ s.baseOnBalls|default_if_none("0") }}</td>
-                            <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
-                            <td class="num">{{ s.stolenBases|default_if_none("0") }}</td>
-                            <td class="num">{{ s.caughtStealing|default_if_none("0") }}</td>
-                            <td class="num">{{ s.avg|num_dash }}</td>
-                            <td class="num">{{ s.ops|num_dash }}</td>
-                        {% endif %}
-                    </tr>
-                    {% if log.pitch_data_url %}
-                    {# Pitch log: placeholder row; JSON is fetched on first expand. #}
-                    <tr class="pitch-log-row" id="pitchlog-{{ y }}-{{ loop.index }}" data-src="{{ log.pitch_data_url }}" data-level="{{ log.sport_level | level_display(y) }}" style="display:none;">
-                        <td colspan="{% if is_pitcher %}13{% else %}16{% endif %}" class="pitch-log-cell">
-                            <div class="pitch-log-scroll" id="pitchlog-content-{{ y }}-{{ loop.index }}"></div>
-                        </td>
-                    </tr>
-                    {% endif %}
-                    {% endfor %}
-                </tbody>
-            </table>
+        {# Year + Level filter #}
+        <div class="log-filter-bar arsenal-filter-bar">
+            <label class="filter-label" for="gamelog-year-select">年度</label>
+            <select id="gamelog-year-select" class="filter-select">
+                {% for y in available_log_years %}
+                <option value="{{ y }}"{% if loop.first %} selected{% endif %}>{{ y }}</option>
+                {% endfor %}
+            </select>
+            <label class="filter-label" for="gamelog-level-select">層級</label>
+            <select id="gamelog-level-select" class="filter-select"></select>
         </div>
+
+        {% for y in available_log_years %}
+        {% set year_logs = logs_by_year[y] %}
+        <div class="gamelog-table-container" id="gamelogs-{{ y }}" {% if not loop.first %}style="display: none;"{% endif %}>
+            <div class="table-scroll">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>日期</th><th>主/客</th><th>對手</th>
+                            {% if is_pitcher %}
+                                {{ macros.th('IP', '單場投球局數', '\\mathrm{\\frac{Outs}{3}}') }}{{ macros.th('H', '單場被安打數') }}{{ macros.th('R', '單場失分') }}{{ macros.th('ER', '單場自責分') }}{{ macros.th('BB', '單場四壞球保送數') }}{{ macros.th('SO', '單場三振數') }}{{ macros.th('HR', '單場被全壘打數') }}{{ macros.th('HB', '單場觸身球數') }}{{ macros.th('ERA', '累積防禦率', '\\mathrm{\\frac{\\sum ER\\times 9}{\\sum IP}}') }}{{ macros.th('結果', 'W 勝投／L 敗投／S 救援成功／H 中繼成功／- 無紀錄') }}
+                            {% else %}
+                                {{ macros.th('AB', '單場打數', '\\mathrm{PA-BB-HBP-SF-SH-XI}') }}{{ macros.th('R', '單場得分') }}{{ macros.th('H', '單場安打數') }}{{ macros.th('2B', '單場二壘安打數') }}{{ macros.th('3B', '單場三壘安打數') }}{{ macros.th('HR', '單場全壘打數') }}{{ macros.th('RBI', '單場打點數') }}{{ macros.th('BB', '單場四壞球保送數') }}{{ macros.th('K', '單場三振數') }}{{ macros.th('SB', '單場盜壘成功次數') }}{{ macros.th('CS', '單場盜壘失敗次數') }}{{ macros.th('AVG', '累計打擊率') }}{{ macros.th('OPS', '累計攻擊指數', '\\mathrm{OBP+SLG}') }}
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for log in year_logs %}
+                        <tr class="gamelog-data-row{% if log.pitch_data_url %} game-row-expandable{% endif %}"
+                            data-level="{{ log.sport_level | level_display(y) }}"
+                            {% if log.pitch_data_url %}onclick="togglePitchLog('pitchlog-{{ y }}-{{ loop.index }}')" style="cursor:pointer;"{% endif %}>
+                            <td>
+                                {% if log.pitch_data_url %}<span class="toggle-arrow pitch-arrow" id="arrow-pitchlog-{{ y }}-{{ loop.index }}"></span>{% endif %}
+                                {{ log.date }}
+                            </td>
+                            <td>{{ tags.ha_tag(log.is_home) }}</td>
+                            <td>{{ log.opponent }}</td>
+                            {% set s = log.stats_json %}
+                            {% if is_pitcher %}
+                                <td class="num">{{ s.inningsPitched|num_dash }}</td>
+                                <td class="num">{{ s.hits|default_if_none("0") }}</td>
+                                <td class="num">{{ s.runs|default_if_none("0") }}</td>
+                                <td class="num">{{ s.earnedRuns|default_if_none("0") }}</td>
+                                <td class="num">{{ s.baseOnBalls|default_if_none("0") }}</td>
+                                <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
+                                <td class="num">{{ s.homeRuns|default_if_none("0") }}</td>
+                                <td class="num">{{ s.hitByPitch|default_if_none("0") }}</td>
+                                <td class="num">{{ s.era|num_dash }}</td>
+                                <td>{% if s.wins %}W{% elif s.losses %}L{% elif s.saves %}S{% elif s.holds %}H{% else %}-{% endif %}</td>
+                            {% else %}
+                                <td class="num">{{ s.atBats|default_if_none("0") }}</td>
+                                <td class="num">{{ s.runs|default_if_none("0") }}</td>
+                                <td class="num">{{ s.hits|default_if_none("0") }}</td>
+                                <td class="num">{{ s.doubles|default_if_none("0") }}</td>
+                                <td class="num">{{ s.triples|default_if_none("0") }}</td>
+                                <td class="num">{{ s.homeRuns|default_if_none("0") }}</td>
+                                <td class="num">{{ s.rbi|default_if_none("0") }}</td>
+                                <td class="num">{{ s.baseOnBalls|default_if_none("0") }}</td>
+                                <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
+                                <td class="num">{{ s.stolenBases|default_if_none("0") }}</td>
+                                <td class="num">{{ s.caughtStealing|default_if_none("0") }}</td>
+                                <td class="num">{{ s.avg|num_dash }}</td>
+                                <td class="num">{{ s.ops|num_dash }}</td>
+                            {% endif %}
+                        </tr>
+                        {% if log.pitch_data_url %}
+                        {# Pitch log: placeholder row; JSON is fetched on first expand. #}
+                        <tr class="pitch-log-row" id="pitchlog-{{ y }}-{{ loop.index }}" data-src="{{ log.pitch_data_url }}" data-level="{{ log.sport_level | level_display(y) }}" style="display:none;">
+                            <td colspan="{% if is_pitcher %}13{% else %}16{% endif %}" class="pitch-log-cell">
+                                <div class="pitch-log-scroll" id="pitchlog-content-{{ y }}-{{ loop.index }}"></div>
+                            </td>
+                        </tr>
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
-    
-    {% if not available_log_years %}
+    {% else %}
+    {# 沒有任何出賽年度時，整個資料卡都不渲染，避免留下一個只有標題與空篩選列的空面板 #}
     <div class="glass-panel empty-season-msg">
         {{ selected_year }} 尚無出賽紀錄
     </div>

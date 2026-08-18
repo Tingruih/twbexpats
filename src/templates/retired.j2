@@ -1,14 +1,18 @@
 {% extends 'base.j2' %}
 {% import "macros/tags.j2" as tags %}
+{% import "macros/search_box.j2" as search %}
 
 {% block content %}
 
+{# 說明區塊右側直接放搜尋框（退休頁沒有排序列，不另開控制列面板） #}
 <div class="index-intro glass-panel">
-    <h2 class="index-intro-title">已離美職體系球員</h2>
-    <p class="index-intro-desc">
-        旅美生涯已結束的球員。卡片數據為生涯合計（所有年份、所有層級），
-        層級徽章顯示該球員生涯達到的最高層級。
-    </p>
+    <div class="index-intro-text">
+        <h2 class="index-intro-title">已離美職體系球員</h2>
+        <p class="index-intro-desc">
+            卡片數據為生涯合計，層級徽章顯示該球員生涯的最高層級
+        </p>
+    </div>
+    {{ search.player_search() }}
 </div>
 
 <div class="dashboard-grid" id="player-grid">
@@ -17,7 +21,8 @@
     {% set stat = item.stat %}
     {% set player_name = player.name_tw ~ ' ' ~ player.name_en if player.name_tw else player.name_en %}
     <a href="{{ retired_player_url(player.mlb_id) }}" class="player-card glass-panel"
-       data-level="{{ item.badge_level | level_display(item.badge_year) }}">
+       data-level="{{ item.badge_level | level_display(item.badge_year) }}"
+       data-name="{{ player_name }}">
         <div class="player-header">
             <div class="avatar">
                 {# 頭像：原生 loading="lazy"，失敗 fallback 見 avatar-fallback.js #}
@@ -87,4 +92,11 @@
     <p class="empty-msg">目前沒有已離隊球員。</p>
     {% endfor %}
 </div>
+
+{# 搜尋無結果提示：放在 Grid 之外，內容由 player-search.js 填入 #}
+<p class="empty-msg search-empty-msg" id="search-empty-msg" role="status" aria-live="polite" hidden></p>
+{% endblock %}
+
+{% block extra_scripts %}
+<script defer src="{{ static_url('js/player-search.js') }}"></script>
 {% endblock %}

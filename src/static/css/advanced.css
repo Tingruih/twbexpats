@@ -146,7 +146,7 @@
    （第一欄就是年度），所以要把 .year-summary-row 為箭頭欄預留的左縮排
    補回一般儲存格的邊距，並加一層極淡背景讓合計列一眼可辨。 */
 .sc-total-row td {
-    background: rgba(255, 255, 255, 0.03); /* 極淡的白色背景（與層級列區隔） */
+    background: rgb(var(--primary-rgb) / 0.03); /* 極淡的白色背景（與層級列區隔） */
 }
 
 .sc-total-row td:first-child {

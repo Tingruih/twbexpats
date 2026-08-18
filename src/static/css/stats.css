@@ -155,7 +155,7 @@
 
 /* 控制【賽季數據 Tab / 年份彙總列 hover 效果】 */
 .year-summary-row:hover {
-    background: rgba(255, 255, 255, 0.02); /* 極淡的白色背景（微微提示可點擊） */
+    background: rgb(var(--primary-rgb) / 0.02); /* 極淡的白色背景（微微提示可點擊） */
 }
 
 /* 控制【賽季數據 Tab / 年份彙總列 hover 時箭頭顏色】 */
@@ -182,7 +182,7 @@
     background: rgba(0, 0, 0, 0.2) !important; /* 略深的背景（視覺上縮排層級感） */
     color: var(--text-2);                       /* 灰色文字（次要層級） */
     font-size: .82rem;                          /* 比彙總行更小的文字 */
-    border-bottom-color: rgba(255, 255, 255, 0.02); /* 極淡的分隔線 */
+    border-bottom-color: rgb(var(--primary-rgb) / 0.02); /* 極淡的分隔線 */
 }
 
 /* 控制【賽季數據 Tab / 年份明細列 hover 效果】 */

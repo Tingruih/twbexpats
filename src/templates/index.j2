@@ -1,15 +1,18 @@
 {% extends 'base.j2' %}
 {% import "macros/tags.j2" as tags %}
+{% import "macros/search_box.j2" as search %}
 
 {% block content %}
 
-{# ─── Controls bar: sort buttons + build time ─── #}
-<div class="index-controls">
-    <div class="sort-bar glass-panel" id="sort-bar">
+{# ─── Controls bar: 排序按鈕 + 搜尋框（整合為單一面板） ─── #}
+<div class="index-controls glass-panel">
+    <div class="sort-group">
         <span class="sort-label">排序：</span>
         <button class="sort-btn sort-btn-active" id="btn-level" onclick="sortCards('level')">層級</button>
         <button class="sort-btn" id="btn-recent" onclick="sortCards('recent')">最近出賽</button>
     </div>
+    <span class="controls-divider" aria-hidden="true"></span>
+    {{ search.player_search() }}
 </div>
 
 <div class="dashboard-grid" id="player-grid">
@@ -20,7 +23,8 @@
     <a href="{{ player_url(player.mlb_id) }}" class="player-card glass-panel"
        data-level="{{ player.level | level_display(item.level_year) }}"
        data-level-order="{{ loop.index }}"
-       data-last-game="{{ item.last_game_date.isoformat() if item.last_game_date else '0000-00-00' }}">
+       data-last-game="{{ item.last_game_date.isoformat() if item.last_game_date else '0000-00-00' }}"
+       data-name="{{ player_name }}">
         <div class="player-header">
             <div class="avatar">
                 {# 頭像：原生 loading="lazy"，失敗 fallback 見 avatar-fallback.js #}
@@ -86,8 +90,13 @@
     <p class="empty-msg">尚無球員資料，資料尚未同步。</p>
     {% endfor %}
 </div>
+
+{# 搜尋無結果提示：放在 Grid 之外，避免 index-sort.js 的 appendChild 重排把它推到卡片前面。
+   內容由 player-search.js 填入 #}
+<p class="empty-msg search-empty-msg" id="search-empty-msg" role="status" aria-live="polite" hidden></p>
 {% endblock %}
 
 {% block extra_scripts %}
 <script defer src="{{ static_url('js/index-sort.js') }}"></script>
+<script defer src="{{ static_url('js/player-search.js') }}"></script>
 {% endblock %}

@@ -1,8 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
    首頁專用樣式（index.html）
    包含：標題區、球員卡片 Grid、每張卡片的 header / stats-row、
-   右上角「資料更新時間」、排序列 (sort-bar) 按鈕。
-   僅載入於 index.j2，不影響球員詳細頁。
+   右上角「資料更新時間」、控制列（.index-controls）內的排序按鈕群組（.sort-group）
+   與共用搜尋框（.search-*，結構見 templates/macros/search_box.j2）。
+   載入於 index.j2 與 retired.j2，不影響球員詳細頁。
 ═══════════════════════════════════════════════════════════ */
 
 /* 控制【首頁 / 頁面標題區塊】
@@ -26,8 +27,22 @@
 /* 控制【離隊頁 / 頁首說明區塊（retired.j2）】
    說明卡片數據為生涯合計、徽章為最高層級 */
 .index-intro {
-    padding: 1.1rem 1.35rem;    /* 內距 */
+    display: flex;              /* 左側說明文字、右側搜尋框並排 */
+    align-items: center;        /* 搜尋框對齊說明文字區塊的垂直中線 →
+                                   說明文字之後改成幾行，搜尋框都會自動維持置中 */
+    justify-content: space-between;
+    /* --controls-gap 是這個控制列的唯一間距來源：gap 用它，收合元件抵銷 gap 的負邊距也用它，
+       改一個值兩邊自動同步（手機版的覆寫見下方 media query） */
+    --controls-gap: 1.5rem;     /* 說明文字與搜尋框之間的距離 */
+    gap: var(--controls-gap);
+    padding: 1.1rem 1.2rem;     /* 左右內距與首頁 .index-controls 相同，
+                                   兩頁的搜尋框右緣才會落在同一條線上 */
     margin-bottom: 1.25rem;     /* 與下方球員卡片 Grid 的距離 */
+}
+
+/* 說明文字群組（標題 + 說明），可收縮以讓右側搜尋框保持完整寬度 */
+.index-intro-text {
+    min-width: 0;
 }
 
 .index-intro-title {
@@ -50,21 +65,35 @@
     gap: 1rem;                                              /* 卡片之間的間距 */
 }
 
-/* 控制【首頁 / 排序列 + 更新時間的外層容器】
-   包住「依層級/依最新出賽」按鈕組與右側更新時間戳 */
+/* 控制【首頁 / 控制列外框】
+   單一面板，左側為排序按鈕組、右側為搜尋欄
+   （退休頁沒有排序，搜尋欄直接放在 .index-intro 內） */
 .index-controls {
-    display: flex;                  /* Flex 讓左右元件排成一排 */
-    align-items: center;            /* 垂直置中對齊 */
-    justify-content: space-between; /* 左右推到兩端 */
-    gap: 1rem;                      /* 左右間距 */
-    margin-bottom: 1.25rem;         /* 與下方球員卡片 Grid 的距離 */
-    flex-wrap: wrap;                /* 螢幕太窄時允許換行 */
+    display: flex;              /* Flex 讓左右元件排成一排 */
+    align-items: flex-end;      /* 搜尋框底線對齊排序按鈕的底邊 */
+    /* 同 .index-intro：gap 與「抵銷 gap 的負邊距」共用這個變數 */
+    --controls-gap: 1rem;       /* 元件之間的間距 */
+    gap: var(--controls-gap);
+    padding: .75rem 1.2rem;     /* 面板內邊距 → 改這裡調整控制列高度 */
+    margin-bottom: 1.25rem;     /* 與下方球員卡片 Grid 的距離 */
 }
 
-/* 控制【首頁 / 排序列在 index-controls 內的佈局】 */
-.index-controls .sort-bar {
-    margin-bottom: 0;   /* 在 index-controls 內不需要底部 margin */
-    flex: 1;            /* 讓排序列佔滿剩餘空間 */
+/* 控制【首頁 / 控制列左側排序按鈕群組】 */
+.sort-group {
+    display: flex;          /* Flex 讓標籤和按鈕橫排 */
+    align-items: center;
+    gap: .5rem;             /* 按鈕之間的間距 */
+    flex-wrap: wrap;        /* 螢幕太窄時允許換行 */
+}
+
+/* 控制【首頁 / 排序群組與搜尋欄之間的垂直分隔線】
+   margin-left:auto 會把分隔線與右側搜尋欄一起推到最右邊 */
+.controls-divider {
+    width: 1px;                 /* 線寬 */
+    align-self: stretch;        /* 高度自動等於排序按鈕的高度，上下都與按鈕齊平 */
+    background: var(--border);  /* 分隔線顏色 */
+    margin-left: auto;          /* 把自己與後方搜尋欄推到右側 */
+    flex-shrink: 0;
 }
 
 /* 控制【首頁 / 右上角資料更新時間戳】
@@ -180,18 +209,6 @@
     color: var(--text-2);       /* 灰色（次要資訊） */
 }
 
-/* 控制【首頁 / 排序列（sort-bar）整體容器】
-   包住「依層級/依最新出賽」等排序按鈕 */
-.sort-bar {
-    display: flex;              /* Flex 讓標籤和按鈕橫排 */
-    align-items: center;        /* 垂直置中 */
-    gap: .5rem;                 /* 按鈕之間的間距 */
-    padding: .7rem 1.2rem;      /* 排序列內邊距 */
-    margin-bottom: 1.25rem;     /* 與下方球員 Grid 的距離 */
-    flex-wrap: wrap;            /* 螢幕太窄時允許換行 */
-    background: var(--card-bg); /* 背景色（與頁面背景同色，形成無縫感） */
-}
-
 /* 控制【首頁 / 排序列左側「排序方式：」標籤文字】 */
 .sort-label {
     font-weight: 500;       /* 中粗體 */
@@ -229,4 +246,385 @@
 .sort-btn-active:hover {
     color: var(--primary-fg);
     background: var(--primary);
+}
+
+/* ───────────────────────────────────────────────
+   搜尋框
+   結構見 templates/macros/search_box.j2
+
+   桌機與手機共用兩個基底 class，各自的專屬 class 只放差異：
+     .search-underline  底線 + focus 時由左滑出的白線（.search-field 內與 .search-inline 都套用）
+     .search-input      輸入框本體的樣式重置
+   改底線顏色／粗細／動畫只需動基底 class，兩個斷點自動同步。
+─────────────────────────────────────────────── */
+
+/* 控制【首頁 / 退休頁 / 輸入框那一列的底線外觀】（桌機、手機共用） */
+.search-underline {
+    position: relative;                     /* 供 ::after 的動態底線定位 */
+    display: flex;
+    align-items: center;
+    gap: .5rem;                             /* 輸入框與放大鏡的距離 */
+    /* 上下留一樣的內距，輸入文字才會落在方框的垂直中心，
+       手機容器 align-items:center 時就能與放大鏡圓鈕、取消鈕對齊
+       （只給 padding-bottom 會讓文字整體偏高約 5px） */
+    padding: .3rem 0;
+    border-bottom: 1px solid var(--border); /* 靜態底線顏色 */
+}
+
+/* focus 時由左往右滑出的亮白底線（疊在靜態底線上） */
+.search-underline::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: var(--primary);     /* 亮白色（與排序按鈕選中態同一套互動色） */
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform .25s ease;
+}
+
+.search-underline:focus-within::after {
+    transform: scaleX(1);           /* focus 時底線展開 */
+}
+
+/* 控制【首頁 / 退休頁 / 搜尋輸入框本體】（桌機、手機共用） */
+.search-input {
+    flex: 1;
+    min-width: 0;               /* 允許在 flex 中收縮，避免撐破容器 */
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--text-1);
+    font-size: .85rem;
+    font-family: inherit;
+    padding: 0;
+}
+
+.search-input::placeholder {
+    color: var(--text-3);
+}
+
+/* 註：桌機刻意保留瀏覽器原生的清除叉叉（type="search" 內建），那是桌機唯一的清除入口。
+   手機版另有「取消」鈕，原生叉叉在收合動畫中會閃動，所以只在手機版隱藏（見 .search-inline-input） */
+
+/* 控制【全站 / 放大鏡 icon 顏色與大小】 */
+.search-icon {
+    flex-shrink: 0;
+    color: var(--text-3);           /* 未 focus 時的灰色 */
+    transition: color .2s ease;
+}
+
+.search-underline:focus-within .search-icon {
+    color: var(--text-1);           /* focus 時亮起白色 */
+}
+
+/* 控制【首頁 / 退休頁 / 桌機搜尋欄外層】
+   固定寬度，所以下方底線不會拉得過長 */
+.search-field {
+    width: clamp(190px, 24vw, 250px);  /* 搜尋欄寬度 → 改這裡調整底線長度 */
+    flex-shrink: 0;
+}
+
+/* 註：首頁的搜尋欄靠右是由 .controls-divider 的 margin-left:auto 負責；
+   .search-field 本身不加 auto margin，否則兩個 auto 會平分空隙把分隔線推到中間 */
+
+/* ───────────────────────────────────────────────
+   搜尋框（手機版：放大鏡圓鈕 + 搜尋模式）
+   桌機預設隱藏，於 max-width:768px 時才顯示。
+   按下放大鏡後，控制列（.index-controls / .index-intro）加上 .search-mode：
+   排序按鈕／說明文字收合淡出、放大鏡滑到最左、底線輸入框展開、取消鈕淡入。
+   收合類元件共用同一組 max-width + opacity 動畫，order 定義在下方 media query
+   內，避免影響桌機版的排列。
+
+   ★ 放大鏡的位移不是 CSS 過渡，是 player-search.js 的 FLIP（見該檔 flipTrigger）。
+     order 與 margin-left 一律「瞬間到位」，位移由 transform 補，理由見 .search-trigger。
+─────────────────────────────────────────────── */
+
+/* 控制【手機 / 控制列右側放大鏡圓鈕】 */
+.search-trigger {
+    display: none;                      /* 桌機隱藏，手機的 media query 才開啟 */
+    position: relative;
+    align-items: center;
+    justify-content: center;
+    width: 38px;                        /* 圓鈕大小 → 改這裡調整放大鏡按鈕尺寸 */
+    height: 38px;
+    flex-shrink: 0;
+    margin-left: auto;                  /* 未進入搜尋模式時，永遠靠控制列最右側 */
+    border: 1px solid var(--border);
+    border-radius: 50%;                 /* 圓形 */
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    /* ⚠ 這裡只列顏色類屬性，絕對不要用 var(--ease)（= all .15s）：
+       `all` 會把 order 當成可插值的整數，把 3 → 0 拆成三次離散跳格，
+       視覺上就是進出搜尋模式時的掉幀；margin-left: auto → 0 則相反，
+       auto 不可插值會直接瞬移。位移改由 player-search.js 的 FLIP 用
+       transform 處理（合成器執行，不觸發 reflow），此處務必不要加 transform，
+       否則會和 FLIP 的行內 transition 打架。
+       這串也會被 JS 讀去接在 transform 後面 → 顏色過渡的真相來源就是這一行。 */
+    transition: color .15s ease-in-out,
+                background-color .15s ease-in-out,
+                border-color .15s ease-in-out;
+}
+
+.search-trigger .search-icon {
+    color: currentColor;                /* 跟隨按鈕文字色 */
+}
+
+/* 有篩選條件時：按鈕轉為主題色，右上角亮一顆小圓點 */
+.search-trigger.is-filtering {
+    color: var(--text-1);
+    border-color: rgb(var(--primary-rgb) / .35);   /* 與 Tab 選中態同樣的半透明白邊框 */
+    background: rgb(var(--primary-rgb) / .18);     /* 與 Tab 選中態同樣的半透明白底 */
+}
+
+/* 控制【手機 / 放大鏡圓鈕按下時的回饋】
+   圖示與邊框一起亮起（與下方搜尋模式的「亮起」是同一套視覺，只是多了縮放回饋）。
+   寫在 .is-filtering 之後，篩選中時按下才不會被蓋掉。
+   縮放刻意不過渡（transform 沒列在上面的 transition 裡），按下即時縮小、
+   放開即時彈回，維持跟手感，也不會和 FLIP 的 transform 搶同一個屬性 */
+.search-trigger:active,
+.search-trigger.is-filtering:active {
+    color: var(--text-1);                          /* 圖示亮成白色 */
+    border-color: rgb(var(--primary-rgb) / .55);
+    background: rgb(var(--primary-rgb) / .18);
+    transform: scale(.94);                         /* 按下時微微縮小 */
+}
+
+.search-trigger-dot {
+    position: absolute;
+    top: 3px;
+    right: 3px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    opacity: 0;                         /* 預設不顯示 */
+    transform: scale(.5);
+    transition: var(--ease);
+}
+
+.search-trigger.is-filtering .search-trigger-dot {
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* 控制【手機 / 搜尋模式展開的底線輸入框】
+   底線外觀繼承 .search-underline，這裡只放收合／展開的差異。
+   預設收合（0 寬度 + 透明），.search-mode 開啟時展開，見下方 media query */
+.search-inline {
+    display: none;                      /* 桌機隱藏，手機的 media query 才開啟 */
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 0;
+    /* 這裡刻意不加 overflow:hidden：底線 ::after 定位在 bottom:-1px（在 padding box 之外，
+       剛好蓋住 border-bottom），一旦裁切白色亮起的底線就會整條消失。
+       收合時 input 會跟著縮到 0 寬並自行裁切文字，外層不需要再裁一次 */
+    opacity: 0;
+    transition: max-width .3s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
+}
+
+/* 手機輸入框的差異：font-size 保持 16px 避免 iOS Safari 自動放大頁面；收合時不換行 */
+.search-inline-input {
+    font-size: 1rem;
+    white-space: nowrap;
+}
+
+/* 手機的清除入口是「取消」鈕，隱藏原生叉叉（收合動畫中它會跟著閃動） */
+.search-inline-input::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+/* 控制【手機 / 搜尋模式淡入的「取消」鈕】
+   預設收合，.search-mode 開啟時淡入展開，見下方 media query */
+.search-cancel {
+    display: none;                      /* 桌機隱藏，手機的 media query 才開啟 */
+    flex-shrink: 0;
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-2);
+    font-size: .82rem;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    /* 水平內距收合時必須是 0：box-sizing 是 border-box，max-width:0 只會把
+       border box 壓到「padding + border」而不是真正的 0，殘留寬度會把放大鏡往左推。
+       展開後才補回左右內距（見下方 media query） */
+    padding: .1rem 0;
+    -webkit-tap-highlight-color: transparent;
+    /* 未進入搜尋模式時它寬度是 0，卻仍是排在放大鏡之後的 flex item，
+       會在放大鏡與面板右緣之間多撐出一道 gap，讓圓鈕對不齊下方卡片。
+       用等同 gap 的負左邊距抵銷（搜尋模式下改回 0，見下方 media query） */
+    margin-left: calc(var(--controls-gap, 0px) * -1);
+    transition: max-width .3s cubic-bezier(.22, 1, .36, 1),
+                padding .3s cubic-bezier(.22, 1, .36, 1), opacity .22s ease;
+}
+
+/* 控制【首頁 / 退休頁 / 搜尋無結果提示】
+   刻意放在 #player-grid 之外：index-sort.js 會用 appendChild 重排 grid 的子節點，
+   訊息若在 grid 內就會被排序推到卡片前面 */
+.search-empty-msg {
+    margin-top: .75rem;
+}
+
+/* ─── 手機版切換：隱藏底線輸入欄，改用放大鏡圓鈕 + 搜尋模式 ─── */
+@media (max-width: 768px) {
+    .index-controls {
+        --controls-gap: .6rem;
+        padding: .55rem .7rem;
+        align-items: center;    /* 手機的放大鏡圓鈕比排序按鈕高，改回垂直置中才不會讓按鈕沉底 */
+    }
+
+    .search-field,
+    .controls-divider {
+        display: none;              /* 手機不顯示底線式搜尋欄與分隔線 */
+    }
+
+    .search-trigger { order: 3; }   /* 未進入搜尋模式時排在最右 */
+    .search-inline { order: 2; }
+    .search-cancel { order: 4; }
+
+    .search-trigger {
+        display: inline-flex;       /* 手機才顯示放大鏡圓鈕 */
+    }
+
+    .search-inline {
+        display: flex;              /* 手機才顯示搜尋模式輸入框 */
+    }
+
+    .search-cancel {
+        display: inline-flex;       /* 手機才顯示取消鈕 */
+    }
+
+    /* max-height 同時參與收合：max-width 收到 0 時裡面的文字會重新斷行把高度撐開
+       （排序按鈕會被壓成一個字一行），必須一起限制高度，面板才不會愈收愈高 */
+    .sort-group {
+        order: 1;
+        gap: .4rem;
+        flex-wrap: nowrap;
+        min-width: 0;
+        max-width: 100%;
+        max-height: 3rem;           /* 略大於單行按鈕高度，正常狀態不會裁切 */
+        overflow: hidden;
+        opacity: 1;
+        transition: max-width .3s cubic-bezier(.22, 1, .36, 1),
+                    max-height .3s cubic-bezier(.22, 1, .36, 1),
+                    opacity .22s ease, margin .3s ease;
+    }
+
+    .sort-label { font-size: .8rem; }
+    .sort-btn { padding: .3rem .65rem; font-size: .78rem; }
+
+    /* ─── 搜尋模式開啟：排序列／說明文字收合，放大鏡滑到最左，輸入框展開，取消鈕淡入 ─── */
+    .index-controls.search-mode .sort-group,
+    .index-intro.search-mode .index-intro-text {
+        max-width: 0;
+        max-height: 0;          /* 一併收掉高度，否則面板會被重新斷行的內容撐大 */
+        opacity: 0;
+        /* 收合後寬度是 0，但仍是 flex item，兩側各留一道 gap。
+           用等同 gap 的負右邊距抵銷多出來的那一道，
+           放大鏡才會真正貼齊面板左緣、與輸入框只隔一個 gap */
+        margin: 0 calc(var(--controls-gap, 0px) * -1) 0 0;
+        pointer-events: none;
+        /* 收合後仍在 DOM 中，JS 會同步加上 inert 把它移出 Tab 順序與無障礙樹
+           （見 player-search.js 的 openSearch/closeSearch） */
+    }
+
+    .index-controls.search-mode .search-trigger,
+    .index-intro.search-mode .search-trigger {
+        order: 0;
+        margin-left: 0;             /* 取消預設的靠右 auto margin，改滑到最左 */
+        pointer-events: none;       /* 已在搜尋模式中，圖示轉為裝飾用，取消鈕才是收合入口 */
+    }
+
+    .index-controls.search-mode .search-inline,
+    .index-intro.search-mode .search-inline {
+        max-width: 100%;
+        opacity: 1;
+    }
+
+    .index-controls.search-mode .search-cancel,
+    .index-intro.search-mode .search-cancel {
+        max-width: 100%;
+        opacity: 1;
+        padding-inline: .2rem;      /* 展開後補回左右內距 */
+        margin-left: 0;             /* 展開後自己有寬度，不必再抵銷 gap */
+        color: var(--text-1);       /* 取消鈕文字亮成白色（見下方「亮起」說明） */
+    }
+
+    /* ─── 搜尋模式的「亮起」狀態 ───
+       對齊桌機版 .search-underline:focus-within 的視覺：放大鏡、底線、取消鈕一起變白。
+       這裡綁 .search-mode 而不是 :focus-within，收起鍵盤後三者才不會只亮一半 */
+    .index-controls.search-mode .search-trigger,
+    .index-intro.search-mode .search-trigger {
+        color: var(--text-1);                           /* 放大鏡亮成白色 */
+        border-color: rgb(var(--primary-rgb) / .35);    /* 圓框跟著亮 */
+        background: rgb(var(--primary-rgb) / .10);
+    }
+
+    .index-controls.search-mode .search-inline::after,
+    .index-intro.search-mode .search-inline::after {
+        transform: scaleX(1);       /* 白色底線展開（與桌機 focus 底線同一套） */
+    }
+
+    .search-cancel:active {
+        color: var(--text-3);       /* 按下取消時稍微變暗，作為點擊回饋 */
+    }
+
+    /* 退休頁：說明文字在手機會斷成 3~4 行，底部對齊會讓圓鈕孤立在文字塊右下角，
+       所以手機改為讓圓鈕的視覺中心對齊「標題那一行」的中心 */
+    .index-intro {
+        --controls-gap: .75rem;
+        align-items: flex-start;
+        /* 搜尋模式會把內距收成與首頁控制列相同，這裡讓它平順過渡 */
+        transition: padding .3s cubic-bezier(.22, 1, .36, 1),
+                    gap .3s cubic-bezier(.22, 1, .36, 1);
+    }
+
+    .index-intro-text {
+        max-width: 100%;
+        max-height: 12rem;          /* 與 .sort-group 同理：正常狀態放得下標題＋說明文字，
+                                       收合時當作高度動畫的起點 */
+        overflow: hidden;
+        opacity: 1;
+        transition: max-width .3s cubic-bezier(.22, 1, .36, 1),
+                    max-height .3s cubic-bezier(.22, 1, .36, 1),
+                    opacity .22s ease, margin .3s ease;
+    }
+
+    .index-intro .search-trigger {
+        margin-top: -.25rem;    /* 補正圓鈕(38px)與標題行(28px)的高度差 */
+    }
+
+    /* 搜尋模式開啟時，說明文字已收合，改回垂直置中讓輸入框／取消鈕對齊放大鏡。
+       內距與間距一併對齊首頁的 .index-controls，兩頁展開後的搜尋列大小才會完全相同 */
+    .index-intro.search-mode {
+        --controls-gap: .6rem;
+        align-items: center;
+        padding: .55rem .7rem;
+    }
+
+    .index-intro.search-mode .search-trigger {
+        margin-top: 0;
+    }
+}
+
+/* 尊重使用者的「減少動態效果」系統設定 */
+@media (prefers-reduced-motion: reduce) {
+    .search-underline::after,
+    .search-trigger,
+    .sort-group,
+    .index-intro,
+    .index-intro-text,
+    .search-inline,
+    .search-cancel {
+        transition: none;
+    }
 }

@@ -44,9 +44,9 @@
 /* ── 逐球紀錄展開 ── */
 .m-pitch-log-toggle {
     align-items: center;
-    background: rgba(255, 255, 255, 0.02);
+    background: rgb(var(--primary-rgb) / 0.02);
     border: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.05);
     color: var(--text-2);
     display: flex;
     font: inherit;
@@ -61,7 +61,7 @@
 }
 
 .m-pitch-log-panel {
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.05);
     padding: 0.75rem 0.75rem 0.85rem;
 }
 

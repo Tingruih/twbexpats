@@ -188,9 +188,9 @@ function initTrendChart(canvas, trendByYear) {
                     },
                 },
                 scales: {
-                    x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8" } },
+                    x: { grid: { color: window.TW.primaryAlpha(0.05) }, ticks: { color: "#94a3b8" } },
                     y: {
-                        grid: { color: "rgba(255,255,255,0.05)" },
+                        grid: { color: window.TW.primaryAlpha(0.05) },
                         ticks: {
                             color: "#94a3b8",
                             callback: function (value) { return formatValue(cfg, Number(value)); },

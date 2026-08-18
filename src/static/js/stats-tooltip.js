@@ -9,7 +9,7 @@
         lineHeight:   '1.4',
         padding:      '5px 10px',
         borderRadius: '6px',
-        border:       '1px solid rgba(255,255,255,0.12)',
+        border:       '1px solid ' + window.TW.primaryAlpha(0.12),
         boxShadow:    '0 4px 14px rgba(0,0,0,0.45)',
         pointerEvents:'none',
         zIndex:       '9999',
@@ -39,8 +39,8 @@
         var IN_X = 42, IN_Y = 46;          // 九宮格左上角
         var IN_W = CELL_W * 3, IN_H = CELL_H * 3;
         var MID_X = IN_X + IN_W / 2, MID_Y = IN_Y + IN_H / 2;
-        var outerStroke = 'rgba(255,255,255,0.30)';
-        var innerStroke = 'rgba(255,255,255,0.55)';
+        var outerStroke = window.TW.primaryAlpha(0.30);
+        var innerStroke = window.TW.primaryAlpha(0.55);
 
         var svg = svgEl('svg', {
             viewBox: '0 0 180 200',
@@ -52,7 +52,7 @@
 
         svg.appendChild(svgEl('rect', {
             x: OUT.x, y: OUT.y, width: OUT.w, height: OUT.h, rx: 3,
-            fill: 'rgba(255,255,255,0.04)', stroke: outerStroke, 'stroke-width': 1.5,
+            fill: window.TW.primaryAlpha(0.04), stroke: outerStroke, 'stroke-width': 1.5,
         }));
 
         // 外圈四象限的分隔線（避開中央九宮格）
@@ -75,7 +75,7 @@
                 var y = IN_Y + row * CELL_H;
                 svg.appendChild(svgEl('rect', {
                     x: x, y: y, width: CELL_W, height: CELL_H,
-                    fill: 'rgba(255,255,255,0.08)', stroke: innerStroke, 'stroke-width': 1.5,
+                    fill: window.TW.primaryAlpha(0.08), stroke: innerStroke, 'stroke-width': 1.5,
                 }));
                 svg.appendChild(svgEl('text', {
                     x: x + CELL_W / 2, y: y + CELL_H / 2,

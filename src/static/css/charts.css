@@ -128,25 +128,25 @@
 
 /* 控制【圖表 Tab / SVG 背景輔助格線】 */
 .pitch-chart-gridline {
-    stroke: rgba(255, 255, 255, 0.08); /* 極淡白色（輔助線不搶焦點） */
+    stroke: rgb(var(--primary-rgb) / 0.08); /* 極淡白色（輔助線不搶焦點） */
     stroke-width: 1.2;                 /* 細線 */
 }
 
 /* 控制【圖表 Tab / 散點圖的 X=0 垂直中線（粗白實線）】 */
 .pitch-chart-zero-line {
-    stroke: rgba(255, 255, 255, 0.42); /* 稍亮白色（比格線突出） */
+    stroke: rgb(var(--primary-rgb) / 0.42); /* 稍亮白色（比格線突出） */
     stroke-width: 2.1;                 /* 略粗 */
 }
 
 /* 控制【對左右打球種使用率 / 最上層中央基準線】 */
 .pitch-chart-zero-line--foreground {
-    stroke: rgba(255, 255, 255, 0.72); /* 穿過各色長條時仍保持清楚 */
+    stroke: rgb(var(--primary-rgb) / 0.72); /* 穿過各色長條時仍保持清楚 */
     pointer-events: none;              /* 不攔截圖表互動 */
 }
 
 /* 控制【圖表 Tab / 散點圖的 Y=0 水平中線（虛線）】 */
 .pitch-chart-zero-line--horizontal {
-    stroke: rgba(255, 255, 255, 0.18); /* 比垂直中線更淡 */
+    stroke: rgb(var(--primary-rgb) / 0.18); /* 比垂直中線更淡 */
     stroke-dasharray: 10 9;            /* 虛線模式 */
 }
 
@@ -214,7 +214,7 @@
 
 /* 控制【圖表 Tab / 位移散點圖每個球種的圓點】 */
 .pitch-movement-point {
-    stroke: rgba(255, 255, 255, 0.34);  /* 白色描邊（提升可見度） */
+    stroke: rgb(var(--primary-rgb) / 0.34);  /* 白色描邊（提升可見度） */
     stroke-width: 1.35;                 /* 描邊粗細 */
     cursor: pointer;                    /* 滑鼠指標（提示可點擊） */
     transition: r .12s ease, opacity .12s ease; /* hover 半徑與透明度動畫 */
@@ -254,7 +254,7 @@
     width: 11px;                                    /* 圓點寬度 */
     height: 11px;                                   /* 圓點高度 */
     border-radius: 50%;                             /* 正圓 */
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.22); /* 淡白描邊 */
+    box-shadow: 0 0 0 1px rgb(var(--primary-rgb) / 0.22); /* 淡白描邊 */
 }
 
 /* 控制【圖表 Tab / 滑鼠移入散點圓點時的浮動 Tooltip】
@@ -272,7 +272,7 @@
     box-shadow: 0 20px 42px rgba(15, 23, 42, 0.24); /* 陰影 */
     pointer-events: none;                           /* 不接受滑鼠事件（避免遮住圓點） */
     backdrop-filter: blur(4px);                     /* 背景模糊 */
-    border: 1px solid rgba(255, 255, 255, 0.06);    /* 極淡邊框 */
+    border: 1px solid rgb(var(--primary-rgb) / 0.06);    /* 極淡邊框 */
 }
 
 /* 控制【圖表 Tab / Tooltip 顯示狀態（JS 加上此 class 時顯示）】 */
@@ -295,7 +295,7 @@
     justify-content: space-between; /* 標籤靠左，數值靠右 */
     gap: 1rem;                      /* 標籤與數值之間的最小間距 */
     min-height: 1.35rem;            /* 最小行高（保持整齊） */
-    color: rgba(255, 255, 255, 0.78); /* 稍透明白色 */
+    color: rgb(var(--primary-rgb) / 0.78); /* 稍透明白色 */
     font-size: 0.84rem;             /* 較小文字 */
     font-weight: 650;               /* 中粗 */
 }
@@ -415,7 +415,7 @@
 
 /* 控制【圖表 Tab / Plinko 圖連接球路結果節點的邊線】 */
 .pitch-plinko-edge {
-    stroke: rgba(255, 255, 255, 0.34); /* 淡白色連線 */
+    stroke: rgb(var(--primary-rgb) / 0.34); /* 淡白色連線 */
     stroke-linecap: round;             /* 線段末端圓角 */
     vector-effect: non-scaling-stroke; /* 縮放時線寬不變 */
 }
@@ -432,7 +432,7 @@
 /* 控制【圖表 Tab / Plinko 節點的背景環形（灰色環）】 */
 .pitch-plinko-ring-bg {
     fill: none;                         /* 無填充（只有邊框） */
-    stroke: rgba(255, 255, 255, 0.16);  /* 淡白色環 */
+    stroke: rgb(var(--primary-rgb) / 0.16);  /* 淡白色環 */
 }
 
 /* 控制【圖表 Tab / Plinko 節點中心圓（遮蓋連線交叉處）】 */
@@ -442,7 +442,7 @@
 
 /* 控制【圖表 Tab / Plinko 無資料節點的背景環顏色（稍亮）】 */
 .pitch-plinko-node-empty .pitch-plinko-ring-bg {
-    stroke: rgba(255, 255, 255, 0.22); /* 略亮的環（與有資料節點區分） */
+    stroke: rgb(var(--primary-rgb) / 0.22); /* 略亮的環（與有資料節點區分） */
 }
 
 /* 控制【圖表 Tab / Plinko 節點中心的使用率百分比文字】 */
@@ -518,7 +518,7 @@
     box-shadow: 0 20px 42px rgba(15, 23, 42, 0.24); /* 陰影 */
     pointer-events: none;                           /* 不接受滑鼠事件 */
     backdrop-filter: blur(4px);                     /* 背景模糊 */
-    border: 1px solid rgba(255, 255, 255, 0.06);    /* 極淡邊框 */
+    border: 1px solid rgb(var(--primary-rgb) / 0.06);    /* 極淡邊框 */
 }
 
 /* 控制【圖表 Tab / Plinko Tooltip 顯示狀態（JS 加上此 class 時顯示）】 */
@@ -544,7 +544,7 @@
 
 /* 控制【圖表 Tab / Plinko Tooltip 標題的次要文字（如「全投」「好球數」）】 */
 .pitch-plinko-tooltip-title span {
-    color: rgba(255, 255, 255, 0.78); /* 稍透明白色 */
+    color: rgb(var(--primary-rgb) / 0.78); /* 稍透明白色 */
     font-weight: 600;                 /* 中粗 */
 }
 

@@ -61,9 +61,9 @@
    ★ 想改按鈕選中外觀就改這裡 ★ */
 .tab-label.tab-label--active {
     color: var(--text-1);                    /* ★ 文字顏色（白色，與手機版一致）→ 改這裡換文字色 */
-    background: rgba(255, 255, 255, 0.18);  /* ★ 純色背景（無漸層）→ 改這裡換底色 */
-    border-color: rgba(255, 255, 255, 0.35); /* ★ 邊框顏色（半透明白色）→ 改這裡換邊框色 */
-    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) inset; /* ★ 內陰影 → 改這裡 */
+    background: rgb(var(--primary-rgb) / 0.18);  /* ★ 純色背景（無漸層）→ 改這裡換底色 */
+    border-color: rgb(var(--primary-rgb) / 0.35); /* ★ 邊框顏色（半透明白色）→ 改這裡換邊框色 */
+    box-shadow: 0 0 0 1px rgb(var(--primary-rgb) / 0.15) inset; /* ★ 內陰影 → 改這裡 */
 }
 
 /* 控制【球員詳細頁 / 分頁內容面板（未選中時）】

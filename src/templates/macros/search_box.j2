@@ -1,0 +1,52 @@
+{# 共用球員搜尋框：首頁 (index.j2) 與退休球員頁 (retired.j2) 皆使用
+
+   ⚠ 內部 id 全部寫死（player-search / search-trigger / search-inline / search-cancel），
+     player-search.js 也是靠這些 id 抓元素 → 每頁最多呼叫一次 player_search()。
+
+   桌機：控制列右側的「細底線 + 放大鏡」輸入欄（.search-field）
+   手機：控制列右側只留一顆放大鏡圓鈕（.search-trigger），
+         點擊後控制列切換為「搜尋模式」（外層容器加上 .search-mode）：
+         排序按鈕（或退休頁說明文字）收合淡出，放大鏡滑到最左側，
+         中間展開底線輸入框（.search-inline），最右側淡入「取消」鈕（.search-cancel）。
+   兩個輸入框內容由 player-search.js 互相同步。
+
+   桌機與手機的底線外觀／focus 白線動畫共用 .search-underline，
+   輸入框本體共用 .search-input，各自的 class 只放差異（寬度、收合動畫、字級）。
+#}
+
+{# 放大鏡 icon（stroke 用 currentColor，顏色由外層 CSS 控制） #}
+{% macro _magnifier(size) -%}
+<svg class="search-icon" width="{{ size }}" height="{{ size }}" viewBox="0 0 24 24" fill="none"
+     stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7"></circle>
+    <line x1="16.5" y1="16.5" x2="21" y2="21"></line>
+</svg>
+{%- endmacro %}
+
+{% macro player_search() -%}
+{# ─── 桌機版：控制列內的底線式輸入欄（保留瀏覽器原生的清除叉叉） ─── #}
+<div class="search-field">
+    <div class="search-underline">
+        <input type="search" id="player-search" class="search-input"
+               placeholder="搜尋中文或英文姓名…" autocomplete="off" aria-label="搜尋球員姓名">
+        {{ _magnifier(15) }}
+    </div>
+</div>
+
+{# ─── 手機版：放大鏡觸發鈕（搜尋模式時滑到最左側，轉為裝飾用圖示） ─── #}
+<button type="button" class="search-trigger" id="search-trigger"
+        aria-label="搜尋球員" aria-expanded="false" aria-controls="search-inline">
+    {{ _magnifier(18) }}
+    <span class="search-trigger-dot" aria-hidden="true"></span>
+</button>
+
+{# ─── 手機版：搜尋模式時展開的底線輸入框（清除交給「取消」鈕，隱藏原生叉叉） ─── #}
+<div class="search-underline search-inline" id="search-inline">
+    <input type="search" id="player-search-mobile" class="search-input search-inline-input" tabindex="-1"
+           placeholder="中文或英文姓名" autocomplete="off"
+           enterkeyhint="search" aria-label="搜尋球員姓名">
+</div>
+
+{# ─── 手機版：搜尋模式時淡入的取消鈕 ─── #}
+<button type="button" class="search-cancel" id="search-cancel" tabindex="-1">取消</button>
+{%- endmacro %}

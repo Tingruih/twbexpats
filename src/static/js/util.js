@@ -302,8 +302,24 @@ window.TW = (function () {
         tooltip.style.top = top + "px";
     }
 
+    // 半透明白：與 CSS 的 rgb(var(--primary-rgb) / a) 同一個真相來源。
+    // canvas（Chart.js）與 SVG presentation attribute 不會解析 CSS 變數，
+    // 所以在這裡讀一次 --primary-rgb 再組字串，避免 JS 又抄一份 255,255,255。
+    // 刻意輸出舊式 rgba(r, g, b, a)：canvas 與 SVG presentation attribute 對
+    // CSS Color 4 的斜線語法支援較晚，逗號形式在各處都吃得下。
+    var _primaryRgb = null;
+    function primaryAlpha(alpha) {
+        if (_primaryRgb === null) {
+            var raw = getComputedStyle(document.documentElement)
+                .getPropertyValue("--primary-rgb").trim();
+            _primaryRgb = (raw || "250 250 250").split(/[\s,]+/).join(", ");
+        }
+        return "rgba(" + _primaryRgb + ", " + alpha + ")";
+    }
+
     return {
         escapeHtml: escapeHtml,
+        primaryAlpha: primaryAlpha,
         populateLevelSelect: populateLevelSelect,
         levelItemsFromContainers: levelItemsFromContainers,
         trendStatConfig: TREND_STAT_CONFIG,

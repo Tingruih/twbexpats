@@ -44,8 +44,8 @@
 /* ── 卡片標題列 ── */
 .mc-hd {
     align-items: center;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgb(var(--primary-rgb) / 0.03);
+    border-bottom: 1px solid rgb(var(--primary-rgb) / 0.06);
     display: flex;
     gap: 0.4rem;
     padding: 0.5rem 0.85rem;
@@ -57,7 +57,7 @@
 }
 
 .mc-hd--tap:active {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgb(var(--primary-rgb) / 0.05);
 }
 
 .mc-hd-meta {
@@ -119,7 +119,7 @@
 /* label：指標名稱 */
 .mc-hero-cell b,
 .mc-cell b {
-    color: rgba(255, 255, 255, 0.38);
+    color: rgb(var(--primary-rgb) / 0.38);
     display: block;
     font-size: 0.56rem;
     font-weight: 500;
@@ -154,13 +154,13 @@
 }
 
 .mc-hero-cell + .mc-hero-cell {
-    border-left: 1px solid rgba(255, 255, 255, 0.05);
+    border-left: 1px solid rgb(var(--primary-rgb) / 0.05);
 }
 
 /* ── 明細格網（label 上 / value 下）── */
 .mc-grid {
     background: rgba(0, 0, 0, 0.28);
-    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.06);
     display: flex;
     flex-wrap: wrap;
 }
@@ -187,26 +187,26 @@
 
 /* 水平髮絲線：每 4 格一排，第二排起畫上邊線 */
 .mc-grid:not(.mc-grid--3) > .mc-cell:nth-child(n+5) {
-    border-top: 1px solid rgba(255, 255, 255, 0.045);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.045);
 }
 
 .mc-grid--3 > .mc-cell:nth-child(n+4) {
-    border-top: 1px solid rgba(255, 255, 255, 0.045);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.045);
 }
 
 /* 縱向髮絲線：每列第一格不畫 */
 .mc-grid:not(.mc-grid--3) > .mc-cell:not(:nth-child(4n+1)) {
-    border-left: 1px solid rgba(255, 255, 255, 0.04);
+    border-left: 1px solid rgb(var(--primary-rgb) / 0.04);
 }
 
 .mc-grid--3 > .mc-cell:not(:nth-child(3n+1)) {
-    border-left: 1px solid rgba(255, 255, 255, 0.04);
+    border-left: 1px solid rgb(var(--primary-rgb) / 0.04);
 }
 
 /* ── 卡片內子分組標題（如「對戰結果」）── */
 .mc-group-hd {
     align-items: center;
-    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    border-top: 1px solid rgb(var(--primary-rgb) / 0.05);
     color: var(--text-3);
     display: flex;
     font-size: 0.58rem;
@@ -228,7 +228,7 @@
 }
 
 .mc-sub-card {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-bottom: 1px solid rgb(var(--primary-rgb) / 0.05);
 }
 
 .mc-sub-card:last-child {
