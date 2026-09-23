@@ -303,7 +303,10 @@ def build_pitcher_trend_by_year(logs_by_year: dict) -> dict:
     """
     result = {}
     for year in sorted(logs_by_year, reverse=True):
-        year_logs = [log for log in logs_by_year[year] if log.date]
+        year_logs = [
+            log for log in logs_by_year[year]
+            if log.date and not log.is_postseason
+        ]
         if not year_logs:
             continue
         year_entry = _group_games_by_level(
@@ -321,7 +324,10 @@ def build_batter_trend_by_year(logs_by_year: dict) -> dict:
     """Build the filtered batter trend payload for every available season."""
     result = {}
     for year in sorted(logs_by_year, reverse=True):
-        year_logs = [log for log in logs_by_year[year] if log.date]
+        year_logs = [
+            log for log in logs_by_year[year]
+            if log.date and not log.is_postseason
+        ]
         if not year_logs:
             continue
         year_entry = _group_games_by_level(

@@ -14,7 +14,7 @@ from ..api import (
     get_player_profile,
     get_player_stats,
 )
-from ..constants import PLAYER_FETCH_WORKERS
+from ..constants import GAME_LOG_GAME_TYPES, PLAYER_FETCH_WORKERS
 from ..db.players import get_cached_is_active, warn_orphaned_players
 from ..db.schema import init_db
 from ..db.season_stats import (
@@ -332,6 +332,10 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
                 game_pk = split.get("game", {}).get("gamePk")
                 if not game_date or not game_pk:
                     continue
+                game_type = split.get("gameType", "")
+                if game_type not in GAME_LOG_GAME_TYPES:
+                    # e.g. "P" — a duplicate label of an F/D/L/W game
+                    continue
                 # Prefer split-level sport, fall back to group-level
                 split_sport_level = (
                     split.get("sport", {}).get("abbreviation", "")
@@ -339,13 +343,15 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
                 )
                 cur.execute(
                     "INSERT INTO game_logs "
-                    "(player_mlb_id, date, game_id, opponent, is_home, stats_json, sport_level) "
-                    "VALUES (?,?,?,?,?,?,?) "
+                    "(player_mlb_id, date, game_id, opponent, is_home, stats_json, sport_level, "
+                    " game_type) "
+                    "VALUES (?,?,?,?,?,?,?,?) "
                     "ON CONFLICT(player_mlb_id, game_id) DO UPDATE SET "
                     " date=excluded.date, opponent=excluded.opponent, "
                     " is_home=excluded.is_home, stats_json=excluded.stats_json, "
                     " sport_level = CASE WHEN excluded.sport_level != '' "
-                    "   THEN excluded.sport_level ELSE game_logs.sport_level END",
+                    "   THEN excluded.sport_level ELSE game_logs.sport_level END, "
+                    " game_type=excluded.game_type",
                     (
                         mlb_id,
                         game_date,
@@ -354,6 +360,7 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
                         1 if split.get("isHome") else 0,
                         dumps_json(split.get("stat", {})),
                         split_sport_level,
+                        game_type,
                     ),
                 )
 

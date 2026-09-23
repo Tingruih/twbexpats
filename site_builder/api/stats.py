@@ -4,6 +4,7 @@ sabermetrics / expectedStatistics)."""
 import logging
 from typing import Optional
 
+from ..constants import GAME_LOG_GAME_TYPES
 from .client import BASE_URL, get_json
 
 logger = logging.getLogger(__name__)
@@ -81,14 +82,17 @@ def get_game_logs(mlb_id: int, season: int) -> list:
     """Fetch game logs for a specific season from both MLB and MiLB endpoints.
 
     Always fetches both endpoints so shuttle players (MLB ↔ MiLB) get all
-    game logs regardless of current assignment.
+    game logs regardless of current assignment. Includes postseason games
+    (see ``GAME_LOG_GAME_TYPES``); each split carries its own ``gameType``.
     """
     all_logs = []
+    game_types = ",".join(GAME_LOG_GAME_TYPES)
 
     # MLB endpoint — returns MLB game logs; empty for players without MLB time
     url = (
         f"{BASE_URL}/people/{mlb_id}/stats"
         f"?stats=gameLog&season={season}&group=hitting,pitching"
+        f"&gameType={game_types}"
     )
     try:
         all_logs.extend(get_json(url).get("stats", []))
@@ -98,6 +102,7 @@ def get_game_logs(mlb_id: int, season: int) -> list:
     url = (
         f"{BASE_URL}/people/{mlb_id}/stats"
         f"?stats=gameLog&season={season}&leagueListId=milb_all&group=hitting,pitching"
+        f"&gameType={game_types}"
     )
     try:
         all_logs.extend(get_json(url).get("stats", []))

@@ -51,6 +51,7 @@ def init_db(conn: sqlite3.Connection):
             game_id INTEGER NOT NULL,
             opponent TEXT NOT NULL,
             is_home INTEGER,
+            game_type TEXT NOT NULL,
             stats_json TEXT NOT NULL DEFAULT '{}',
             pitches_json TEXT NOT NULL DEFAULT '[]',
             events_json TEXT NOT NULL DEFAULT '[]',

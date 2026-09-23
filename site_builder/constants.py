@@ -37,6 +37,13 @@ DEFAULT_ROSTER_FILE = SRC_DIR / "data" / "roster.json"
 API_TIMEOUT = 15
 LIVE_FEED_TIMEOUT = 30
 
+# ── Game types ──
+# gameLog 端點不帶 gameType 時只回傳例行賽（R）。季後賽要明確列出 F/D/L/W；
+# 不可帶 P——API 會把同一場季後賽再以 P 重複回傳一次（同 gamePk）。
+REGULAR_SEASON_GAME_TYPE = "R"
+POSTSEASON_GAME_TYPES = ("F", "D", "L", "W")
+GAME_LOG_GAME_TYPES = (REGULAR_SEASON_GAME_TYPE, *POSTSEASON_GAME_TYPES)
+
 # MLB Stats API rate limit (requests/second), enforced process-wide in
 # site_builder/api/client.py::get_json regardless of how many threads call it.
 API_RATE_LIMIT = 25

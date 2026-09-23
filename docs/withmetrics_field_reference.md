@@ -1,386 +1,559 @@
-# `withMetrics` 端點完整欄位參考
+# `withMetrics` 端點完整欄位參考（2026-08 全面實測版）
 
-本文件記錄 MLB Stats API `GET /api/v1/game/{gamePk}/withMetrics` 回傳 JSON 中，
-**`liveData.plays`**（打席／逐球資料，也是目前 `site_builder` 抓取 Statcast 的唯一資料來源）
-與 **`gameData`** 底下所有欄位的定義，並標明：
+**端點**：`GET https://statsapi.mlb.com/api/v1/game/{gamePk}/withMetrics`
+（專案封裝於 `site_builder/api/games.py::get_game_play_by_play()`）
 
-- **feed/live 有嗎**：現行 `site_builder/api/games.py::get_game_play_by_play()` 打的
-  `GET /api/v1.1/game/{gamePk}/feed/live` 端點是否也有這個欄位
-- **目前程式碼有抓嗎**：`site_builder/sync/extract.py::extract_pitch_logs()` /
-  `_extract_runners()` 現在有沒有讀取並寫進 `game_logs.pitches_json`
-
-> 調查方法：實際對同一場 2024-06-01 的 MLB 比賽（`gamePk=744932`）分別呼叫兩個端點，
-> 對整棵 JSON 樹做遞迴 key-diff，並抽樣真實回傳值驗證型別與意義；另外用一場 MiLB 比賽
-> （`gamePk=753515`）驗證 `withMetrics` 在小聯盟層級也能打，但 Statcast 系欄位
-> （`contextMetrics` 內容）只有 MLB 比賽才有值。
->
-> **結論**：`feed/live` 是 `withMetrics` 的**嚴格子集**——對整份 JSON 做完整 diff，
-> `feed/live` 沒有任何欄位是 `withMetrics` 沒有的（0 個）。`withMetrics` 只在兩處新增內容：
-> `gameData.ruleSettings`，以及 `liveData.plays`（`allPlays[]`/`currentPlay`）底下的一批
-> 逐打席／逐球進階指標。`liveData.boxscore`、`liveData.linescore`、`liveData.decisions`、
-> `liveData.leaders`、`gameData.game/datetime/status/teams/players/venue/weather/...`
-> 等其餘區塊在兩個端點之間逐位元組相同，因此本文件不重複列出（不影響切換決策）。
-
----
+這份文件是這個端點**整棵 JSON 樹**的欄位清單。每個欄位都標了型別、出現率、
+**從哪一年開始有**、**哪些層級有**、實際值域，以及 `site_builder/sync/extract.py`
+現在有沒有抓。看完你應該不用再自己試探「這個數字到底有沒有」。
 
 ## 目錄
 
-1. [gameData 層級新增欄位](#一gamedata-層級新增欄位)
-2. [Play 層級欄位（`liveData.plays.allPlays[]`）](#二play-層級欄位liveDataplaysallplays)
-3. [Play 子物件欄位](#三play-子物件欄位)
-4. [Event／逐球層級欄位（`playEvents[]`）](#四event逐球層級欄位playevents)
-5. [Event 子物件欄位](#五event-子物件欄位)
-6. [現有 `extract.py` 欄位對應總表](#六現有-extractpy-欄位對應總表)
+1. [調查方法與樣本](#一調查方法與樣本)
+2. [★ 資料可用性總表：什麼年份、什麼層級才有什麼](#二-資料可用性總表)
+3. [★ 死資料清單](#三死資料清單)
+4. [JSON 頂層地圖](#四json-頂層地圖)
+5. [打席層級欄位（allPlays[]）](#五打席層級欄位allplays)
+6. [逐球／事件層級欄位（playEvents[]）](#六逐球事件層級欄位playevents)
+7. [boxscore／gameData／metaData](#七boxscoregamedatametadata)
+8. [extract.py 現況對照與補抓建議](#八extractpy-現況對照與補抓建議)
 
 ---
 
-## 一、gameData 層級新增欄位
+## 一、調查方法與樣本
 
-| 欄位 | 型別 | feed/live 有嗎 | 目前程式碼有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `gameData.ruleSettings[]` | list[dict] | ❌ 沒有 | ❌ 沒有 | 該場比賽生效的規則設定清單。每個元素含 `settingId`、`settingName`（如 `designatedHitter`、`extraInningsRunnerOnSecond`、`replayChallenges`）、`settingDisplayName`、`settingDescription`、`valueType`（`boolean`/`numeric`）、`settingValue`。屬於**game 層級**（一場比賽一份，不隨打席/球數重複），非本文件核心關注的逐球資料。 |
+依「年份 × 層級」對 `data/tracker.sqlite3` 的 `game_logs` 分層抽樣 499 場比賽，
+逐場呼叫 `withMetrics`，對整棵 JSON 做遞迴走訪，統計每個欄位路徑的出現次數、
+null／空值、型別、值分布，以及**按年份 × 層級交叉**的覆蓋率。
 
----
-
-## 二、Play 層級欄位（`liveData.plays.allPlays[]`）
-
-「Play」= 一個完整打席（at-bat）。以下是該 dict 的**所有**頂層欄位（不只新增的），
-`extract_pitch_logs()` 目前是逐一走訪這個陣列來取得每個打席。
-
-| 欄位 | 型別 | feed/live 有嗎 | 目前程式碼有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `result` | dict | ✅ 有 | ✅ 有（`.eventType`/`.event`） | 打席最終結果，見下方子表 |
-| `about` | dict | ✅ 有 | ✅ 有（`.inning`） | 打席發生的局數/時間等中繼資料，見下方子表 |
-| `count` | dict | ✅ 有 | ✅ 有（→ `pa_final_balls`/`pa_final_strikes`/`pa_final_outs`，只在該打席最後一球） | 打席**結束當下**的球數（balls/strikes/outs）；逐球的球數是取用 `playEvents[].count`，這個是 play 層級的最終值 |
-| `matchup` | dict | ✅ 有 | ✅ 有（`.pitcher`/`.batter`/`.batSide`/`.pitchHand`） | 打席的投打對戰資訊，見下方子表 |
-| `pitchIndex[]` | list[int] | ✅ 有 | ❌ 沒有 | `playEvents[]` 中屬於「投球」的索引位置 |
-| `actionIndex[]` | list[int] | ✅ 有 | ❌ 沒有 | `playEvents[]` 中屬於「場上動作」（換人、暫停等）的索引位置 |
-| `runnerIndex[]` | list[int] | ✅ 有 | ❌ 沒有 | `playEvents[]` 中屬於「跑壘動作」（盜壘、牽制等）的索引位置 |
-| `runners[]` | list[dict] | ✅ 有 | ✅ 有（`_extract_runners()`） | 打席結束時的跑壘/得分/守備 credit 明細（現在只掛在最後一球那筆 pitch dict 上） |
-| `playEvents[]` | list[dict] | ✅ 有 | ✅ 有（逐球資料主要來源） | 這個打席內的每一顆球/每個動作，見第四節 |
-| `playEndTime` | str (ISO8601) | ✅ 有 | ❌ 沒有 | 打席結束時間戳 |
-| `atBatIndex` | int | ✅ 有 | ❌ 沒有 | 該打席在全場的序號（從 0 開始） |
-| `reviewDetails` | dict | ✅ 有（僅重播挑戰時出現） | ❌ 沒有 | 挑戰重播詳情：`isOverturned`、`inProgress`、`reviewType`、`challengeTeamId` |
-| `credits[]` | list[dict] | 🆕 只有 withMetrics | ❌ 沒有 | 打席相關計分代碼清單，如 `{"player": {"id":...}, "credit": "b_pa"}`（打席）、`p_pa`（投手打席）；資訊量低，`result.eventType` 已足夠涵蓋大部分語意 |
-| `flags[]` | list[dict] | 🆕 只有 withMetrics | ❌ 沒有 | 特殊計分旗標，如犧牲觸擊/高飛：`[{"credit": "b_sac_fly"}]`；多數情況為空陣列 |
-| `homeTeamWinProbability` | float (0–100) | 🆕 只有 withMetrics | ✅ 有（→ `home_wp`，只在該打席最後一球） | 打席結束當下，主隊的獲勝機率（百分比） |
-| `awayTeamWinProbability` | float (0–100) | 🆕 只有 withMetrics | ❌ 沒有（未落地存欄位，讀取時可用 `100 - home_wp` 反推） | 客隊獲勝機率，恆等於 `100 - homeTeamWinProbability` |
-| `homeTeamWinProbabilityAdded` | float | 🆕 只有 withMetrics | ✅ 有（→ `wpa`，只在該打席最後一球） | 這個打席讓主隊勝率增減多少個百分點（WPA，主隊視角，可正可負） |
-| `leverageIndex` | float | 🆕 只有 withMetrics | ✅ 有（→ `leverage_index`，只在該打席最後一球） | 局勢緊張度指數（LI）。以 1.0 為聯盟平均緊張度，數字越高代表這個打席對比賽結果影響越關鍵 |
-| `dramaIndex` | float (0–100) | 🆕 只有 withMetrics | ✅ 有（→ `drama_index`，只在該打席最後一球） | MLB 官方定義的「精彩程度」綜合指標，混合勝率變化與比賽情境，用於轉播/精華片段排序，無公開精確公式 |
-| `contextMetrics` | dict | 🆕 只有 withMetrics | ✅ 有（`.xWoba`/`.catchProbability` → `pa_xwoba`/`catch_probability`，只在該打席最後一球） | 該打席結果的期望值指標，見下方 |
-
-### `contextMetrics`（play 層級）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `xWoba` | float | 這個打席**實際結果**對應的期望 wOBA 貢獻值（依打擊初速/角度或結果類型查表得出），只在有值時出現 |
-| `catchProbability` | int (0–100) | 若該打席是飛球，野手接殺這顆球的機率（Statcast Catch Probability 的官方版本，OAA 系列指標的素材） |
-
-> 注意：MiLB 比賽這個欄位存在，但通常是空 dict `{}`——只有 MLB 比賽有 Statcast 來源可算。
-
----
-
-## 三、Play 子物件欄位
-
-以下都是 **feed/live 本來就有**、withMetrics 沒有新增內容的既有欄位，列出是為了回答「play
-層級所有資料」，非切換時需要特別處理的部分。
-
-### `result`
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `type` | str | 打席類型，如 `"atBat"` |
-| `event` | str | 事件的人類可讀名稱，如 `"Walk"`、`"Home Run"` |
-| `eventType` | str | 事件的機器可讀代碼，如 `"walk"`、`"home_run"`（`extract.py` 用這個判斷 `pa_event`） |
-| `description` | str | 完整播報文字 |
-| `rbi` | int | 這個打席貢獻的打點數 |
-| `awayScore`/`homeScore` | int | 打席結束當下的比分 |
-| `isOut` | bool | 打者是否出局 |
-
-### `about`
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `atBatIndex` | int | 同 play 層級的 `atBatIndex` |
-| `halfInning` | str | `"top"`/`"bottom"` |
-| `isTopInning` | bool | 是否為上半局 |
-| `inning` | int | 第幾局（`extract.py` 用這個填 pitch dict 的 `inning`） |
-| `startTime`/`endTime` | str | 打席起訖時間 |
-| `isComplete` | bool | 打席是否已完成 |
-| `isScoringPlay` | bool | 這個打席是否有得分 |
-| `hasReview` | bool | 是否有申請重播 |
-| `hasOut` | bool | 是否產生出局數 |
-| `captivatingIndex` | int | 舊版「精彩度」指標（withMetrics 的 `dramaIndex` 是它的進階版） |
-
-### `count`（play 層級，打席結束當下）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `balls` | int | 結束時的壞球數 |
-| `strikes` | int | 結束時的好球數 |
-| `outs` | int | 結束時的出局數 |
-
-### `matchup`
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `batter` | dict `{id, fullName, link}` | 打者 |
-| `batSide` | dict `{code, description}` | 打者站位（左/右打） |
-| `pitcher` | dict `{id, fullName, link}` | 投手 |
-| `pitchHand` | dict `{code, description}` | 投手慣用手 |
-| `postOnFirst`/`postOnSecond`/`postOnThird` | dict `{id, fullName, link}` | 打席結束當下一、二、三壘的跑者（沒人上壘則該 key 不存在） |
-| `batterHotColdZones`/`pitcherHotColdZones` | list | 熱區資料，本場樣本中恆為空陣列 |
-| `splits` | dict `{batter, pitcher, menOnBase}` | 左右投打對戰情境代碼 |
-
-### `reviewDetails`
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `isOverturned` | bool | 重播後判決是否被推翻 |
-| `inProgress` | bool | 重播是否進行中 |
-| `reviewType` | str | 重播類型代碼 |
-| `challengeTeamId` | int | 提出挑戰的球隊 ID |
-
----
-
-## 四、Event／逐球層級欄位（`playEvents[]`）
-
-`playEvents[]` 是每個打席內部，依時間序排列的「事件」清單，`type` 欄位共有四種值
-（本場樣本統計）：`pitch`（272 顆真正投球）、`action`（24 筆場上動作，如換人/暫停）、
-`pickoff`（3 筆牽制）、`stepoff`（2 筆踏板）。`isPitch=True` 只對應 `type=="pitch"`，
-`extract_pitch_logs()` 現在除了處理 `isPitch=True` 的投球事件外，也額外擷取
-`pickoff`/`stepoff` 兩種事件（寫入 `events_json`，見第六節）；`action`/`no_pitch`
-類型的事件本身仍完全被忽略。
-
-| 欄位 | 型別 | feed/live 有嗎 | 目前程式碼有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `details` | dict | ✅ 有 | ✅ 有（部分欄位） | 這顆球/這個動作的結果細節，見下方子表 |
-| `count` | dict | ✅ 有 | ✅ 有（`balls`/`strikes`/`outs`） | 這顆球**投完之後**的球數 |
-| `preCount` | dict | 🆕 只有 withMetrics | ✅ 有（→ `pre_balls`/`pre_strikes`/`pre_outs`；缺值時 `pre_balls`/`pre_strikes` fallback 手動累加 `pa_pre_balls`/`pa_pre_strikes`，`pre_outs` 缺值時則為 `None`，無 fallback） | 這顆球**投出之前**的球數（`balls`/`strikes`/`outs`），可直接取代或驗證現有的手動推算邏輯，且多了目前完全沒有的「投球前出局數」 |
-| `index` | int | ✅ 有 | ✅ 有（僅牽制/踏板事件透過 `events_json.index` 保留；一般投球事件本身不重存） | 事件在 `playEvents[]` 中的序號 |
-| `startTime`/`endTime` | str | ✅ 有 | ❌ 沒有 | 事件起訖時間 |
-| `isPitch` | bool | ✅ 有 | ✅ 有（篩選用） | 是否為真正的一次投球 |
-| `type` | str | ✅ 有 | ✅ 有（`pickoff`/`stepoff` 走 `events_json.type`；`action`/`no_pitch` 仍完全略過，投球事件本身隱含用 `isPitch` 篩選） | `pitch`/`action`/`pickoff`/`stepoff` |
-| `player` | dict `{id, link}` | ✅ 有 | ❌ 沒有 | 非投球事件（如換人）的當事球員 |
-| `playId` | str (UUID) | ✅ 有 | ✅ 有（投球事件 → `play_id`；牽制/踏板事件 → `events_json.play_id`） | 這顆球的全域唯一 ID（可用來對應 Baseball Savant 等外部資料） |
-| `pitchNumber` | int | ✅ 有 | ✅ 有（→ `pitch_number`） | **該打席內第幾球**（含界外），非投手單場累計球數。**經 2026-07 實測驗證更正**：實測投手單場投 99 球，但 `pitchNumber` 最大只到 8，且每個新打席歸 1 重算，原文件「該投手單場累計第幾球」是錯的 |
-| `actionPlayId` | str | ✅ 有（僅動作事件） | ❌ 沒有 | 場上動作事件的 ID |
-| `isBaseRunningPlay` | bool | ✅ 有 | ❌ 沒有 | 是否為跑壘相關事件 |
-| `isSubstitution` | bool | ✅ 有（僅動作事件） | ❌ 沒有 | 是否為換人事件 |
-| `position` | dict `{code, name, type, abbreviation}` | ✅ 有（僅換人事件） | ❌ 沒有 | 換人後守備位置 |
-| `battingOrder` | str | ✅ 有（僅換人事件） | ❌ 沒有 | 打序代碼 |
-| `replacedPlayer` | dict `{id, link}` | ✅ 有（僅換人事件） | ❌ 沒有 | 被換下場的球員 |
-| `officials[]` | list[dict] | ✅ 有 | ❌ 沒有 | 該球時場上四位裁判，見下方子表 |
-| `pitchData` | dict | ✅ 有（部分子欄位新增） | ✅ 有（含新增的 `strikeZoneInfo.*`/`breaks.breakVertical`） | 投球物理量，見下方子表 |
-| `hitData` | dict | ✅ 有（部分子欄位新增） | ✅ 有（含新增的 `hitProbability`/`batSpeed`/`isSwordSwing`） | 擊球物理量，見下方子表 |
-| `defense` | dict | 🆕 只有 withMetrics | ✅ 有（→ `defense` 濃縮 dict，經 `_condense_defense()` 只留 9 個守備位置的球員 id） | 這顆球投出當下 9 個守備位置的球員，見下方子表 |
-| `offense` | dict | 🆕 只有 withMetrics | ✅ 有（→ `offense` 濃縮 dict，經 `_condense_offense()` 存投球前壘況＋代打偵測，不重存 `batter_id`） | 這顆球投出當下的打者與壘上跑者，見下方子表 |
-| `homeTeamWinProbability` | float | 🆕 只有 withMetrics | ❌ 沒有 | **經 2026-07 實測驗證更正**：抽樣 4 場（含 2024 世界大賽 G1）逐球層級此欄位全部是 0，並非真正逐球更新——WP 只有 play（打席結束）層級才有真實值（見第二節對應欄位），原文件「這代表 WP 系列指標其實可以做到每球精度，不只打席結束時才有」是錯的 |
-| `awayTeamWinProbability` | float | 🆕 只有 withMetrics | ❌ 沒有 | 同上，客隊視角，實測同樣恆為 0 |
-| `homeTeamWinProbabilityAdded` | float | 🆕 只有 withMetrics | ❌ 沒有 | 同上，實測恆為 0，WPA 只有 play 層級才有真實值 |
-| `leverageIndex` | float | 🆕 只有 withMetrics | ❌ 沒有 | 同上，實測恆為 0，LI 只有 play 層級才有真實值 |
-| `dramaIndex` | float | 🆕 只有 withMetrics | ❌ 沒有 | 同上，實測恆為 0，drama 只有 play 層級才有真實值 |
-| `contextMetrics` | dict | 🆕 只有 withMetrics | ✅ 有（`.averagePitchSpeedPlayer`/`.maxPitchSpeedPlayer`/`.pitchSpeedPlayerRank`/`.homeRunBallparks` → `avg_pitch_speed_player`/`max_pitch_speed_player`/`pitch_speed_pct`/`hr_ballparks`；與同名 play 層級欄位不同，此為逐球真實值） | 逐球脈絡指標，見下方子表 |
-
----
-
-## 五、Event 子物件欄位
-
-### `details`
-
-| 欄位 | 型別 | feed/live 有嗎 | 目前有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `description` | str | ✅ | ❌ | 這顆球/動作的播報文字 |
-| `event`/`eventType` | str | ✅ | ❌（play 層級的才有抓） | 動作事件（非投球）專用的結果分類 |
-| `awayScore`/`homeScore` | int | ✅ | ❌ | 這顆球當下比分 |
-| `isScoringPlay` | bool | ✅ | ❌ | 是否觸發得分 |
-| `isOut` | bool | ✅ | ✅（僅牽制/踏板事件透過 `events_json.is_out`；投球事件本身不重存） | 是否造成出局 |
-| `hasReview` | bool | ✅ | ❌ | 是否有申請重播 |
-| `call` | dict `{code, description}` | ✅ | ❌ | 裁判判決（好壞球判決等） |
-| `code` | str | ✅ | ✅（`result_code`） | 該球結果代碼，如 `"B"`/`"C"`/`"S"` |
-| `ballColor`/`trailColor` | str (rgba) | ✅ | ❌ | 動畫用顏色，網站不需要 |
-| `isInPlay`/`isStrike`/`isBall` | bool | ✅ | ✅ | 這球是否形成打擊入場/好球/壞球 |
-| `type` | dict `{code, description}` | ✅ | ✅（`pitch_type`/`pitch_name`） | 球種 |
-| `fromCatcher` | bool | ✅（僅牽制事件） | ✅（→ `events_json.from_catcher`） | 牽制是否由捕手發動 |
-| `disengagementNum` | int | ✅（僅牽制/踏板事件） | ✅（→ `events_json.disengagement_num`） | 該打席第幾次「脫離投手板」（2023 起限制牽制次數規則的計數） |
-| `runnerGoing` | bool | ✅（僅特定事件） | ✅（→ `events_json.runner_going`） | 跑者是否正在起跑（盜壘中） |
-
-### `count` / `preCount`（結構相同）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `balls` | int | 壞球數 |
-| `strikes` | int | 好球數 |
-| `outs` | int | 出局數 |
-
-### `pitchData`
-
-| 欄位 | 型別 | feed/live 有嗎 | 目前有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `startSpeed`/`endSpeed` | float (mph) | ✅ | ✅ | 出手/過壘速度 |
-| `strikeZoneTop`/`strikeZoneBottom` | float (ft) | ✅ | ✅ | 該打者的好球帶上下緣 |
-| `zone` | int | ✅ | ✅ | 好球帶九宮格+外圍分區代碼（1–14） |
-| `typeConfidence` | float | ✅ | ✅ | 球種分類信心值 |
-| `plateTime` | float (sec) | ✅ | ✅ | 出手到過壘所需時間 |
-| `extension` | float (ft) | ✅ | ✅ | 出手延伸距離 |
-| `coordinates` | dict | ✅ | ✅（大部分子欄位） | 座標與初速/加速度，見下方 |
-| `breaks` | dict | ✅ | ✅（全部子欄位，含新增的 `breakVertical`） | 位移/轉速資料，見下方 |
-| `strikeZoneInfo` | dict | 🆕 只有 withMetrics | ✅ 有（見下方 `pitchData.strikeZoneInfo` 子表） | 新版好球帶模型明細，見下方 |
-
-#### `pitchData.coordinates`
-
-| 欄位 | 定義 |
+| 項目 | 數量 |
 |---|---|
-| `pfxX`/`pfxZ` | 水平/垂直位移量（含重力影響，英吋） |
-| `pX`/`pZ` | 過本壘板時的水平/垂直座標 |
-| `x0`/`y0`/`z0` | 出手點座標 |
-| `vX0`/`vY0`/`vZ0` | 出手點三軸速度分量 |
-| `aX`/`aY`/`aZ` | 三軸加速度分量 |
-| `x`/`y` | 轉播圖表用的螢幕座標（現有程式碼未使用，也不建議用） |
+| 成功掃描場次 | **392 場**（2002–2026；MLB／AAA／AA／A+／A／A(Short)／ROK） |
+| 打席（`allPlays[]`） | 30,127 |
+| 事件（`playEvents[]`） | 109,151 |
+| 其中真正的投球 | 98,850（`pitch` 98,850／`action` 7,813／`pickoff` 2,135／`no_pitch` 236／`stepoff` 117） |
+| 擊球進場（有 `hitData.trajectory`） | 20,600 |
+| 跑壘紀錄（`runners[]`） | 42,411 |
+| 不重複欄位路徑 | 2,312 |
 
-#### `pitchData.breaks`
+**兩個先講清楚的前提**
 
-| 欄位 | 定義 |
-|---|---|
-| `breakAngle` | 位移角度 |
-| `breakLength` | 最大位移量（英吋） |
-| `breakY` | 最大位移發生位置的 y 座標 |
-| `breakVertical` | 垂直位移（含重力） |
-| `breakVerticalInduced` | 誘導垂直位移（IVB，扣除重力後的「純」垂直位移，現有程式碼取為 `ivb`） |
-| `breakHorizontal` | 水平位移（HB） |
-| `spinRate` | 轉速（rpm） |
-| `spinDirection` | 轉軸方向（時鐘方向角度） |
+1. **這個端點對 2002 年的比賽一樣可用。** 抽樣時有 107 場抓取失敗，逐一重試後
+   全部回 200——失敗純粹是 8 併發下的連線逾時，不是舊比賽沒有資料。要抓歷史
+   資料時記得放重試，別把逾時誤判成「沒有」。
+2. **欄位缺席時 MLB 是直接不給 key，不是給 null。** 所以判斷有沒有資料要用
+   `"key" in obj`，而不是 `obj.get(key) is None`；`.get(k, 0)` 這種寫法會把
+   「不存在」變成 0，是先前文件把 event 層級 WPA 誤判成「恆為 0」的原因。
 
-#### `pitchData.strikeZoneInfo`（🆕 withMetrics 新增，現已全部擷取）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `plateX`/`plateY`/`plateZ` | float | 新版模型下，球通過本壘板平面的三維座標 |
-| `strikeZoneTop`/`strikeZoneBottom` | float | 新版模型的好球帶上下緣（與 `pitchData.strikeZoneTop/Bottom` 理論上一致，但用不同建模管線算出，可能有微小差異） |
-| `strikeZoneFlat`/`strikeZoneRounded` | bool | 好球帶形狀模型是否套用「平面版」或「圓角版」邊界（MLB 2024 起測試的好球帶形狀修正） |
-| `strikeZoneCornerRadiusInches` | float | 圓角好球帶模型的轉角半徑 |
-| `widthInches`/`depthInches` | float | 好球帶寬度/景深（3D 好球帶模型用，取代傳統只看 2D 平面的判法） |
-| `edgeDistance` | float (inches) | 球心到好球帶邊緣的最短距離（正值代表在好球帶內側，負值代表在外側——精確量化「差一點點的好壞球」） |
-| `isStrike` | bool | 新版模型下這球是否落在好球帶內（可能與 `details.isStrike`〔裁判實際判決〕不同，能用來算「好球帶誤判率」） |
-
-### `hitData`
-
-| 欄位 | 型別 | feed/live 有嗎 | 目前有抓嗎 | 定義 |
-|---|---|---|---|---|
-| `launchSpeed` | float (mph) | ✅ | ✅（`ev`） | 擊球初速 |
-| `launchAngle` | float (度) | ✅ | ✅（`la`） | 擊球仰角 |
-| `totalDistance` | float (ft) | ✅ | ✅（`hit_distance`） | 落點總距離 |
-| `trajectory` | str | ✅ | ✅ | 球路類型（`line_drive`/`fly_ball`/`ground_ball`/`popup`） |
-| `hardness` | str | ✅ | ✅ | 擊球強度分類（`hard`/`medium`/`soft`） |
-| `location` | str | ✅ | ✅（`hit_location`） | 落點守備位置代碼 |
-| `coordinates` | dict `{coordX, coordY}` | ✅ | ✅ | 球場示意圖座標 |
-| `hitProbability` | float (0–100) | 🆕 只有 withMetrics | ✅ 有（→ `hit_probability`） | 這個擊球初速+仰角組合，聯盟平均安打機率（Statcast xBA 系列的逐球版本） |
-| `batSpeed` | float (mph) | 🆕 只有 withMetrics（2024/25 賽季起才有實測資料，需球棒感測器覆蓋） | ✅ 有（→ `bat_speed`） | 揮棒時球棒的最大速度（bat-tracking 數據） |
-| `isSwordSwing` | bool | 🆕 只有 withMetrics | ✅ 有（→ `is_sword_swing`） | 是否為「劍擊」——揮棒速度極慢且打點偏離重心的防禦性揮棒（本場樣本中出現兩次，`batSpeed` 分別只有 43.3/35.2 mph，正常揮棒約 60–80 mph） |
-
-### `contextMetrics`（event 層級）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `averagePitchSpeedPlayer` | float (mph) | 該投手當場、該球種的平均球速（動態統計，非原始物理量） |
-| `maxPitchSpeedPlayer` | float (mph) | 該投手當場、該球種目前為止的最快球速 |
-| `pitchSpeedPlayerRank` | int (百分位) | 這顆球的球速在該投手當季所有同球種球速中的百分位排名；只有部分球才有值 |
-| `homeRunBallparks` | int (0–30) | 若這球是全壘打，30 座球場中有幾座會出牆（Statcast 轉播常見的「這支全壘打在其他球場也是全壘打嗎」圖表數據） |
-
-### `defense`（🆕 withMetrics 新增，投球當下守備站位，現已濃縮擷取為 `defense`，見 `_condense_defense()`）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `pitcher` | dict `{id, link, pitchHand}` | 投手 |
-| `catcher`/`first`/`second`/`third`/`shortstop`/`left`/`center`/`right` | dict `{id, link}` | 對應守備位置當下站守的球員 |
-
-### `offense`（🆕 withMetrics 新增，投球當下打者/跑者狀態，現已濃縮擷取為 `offense`，見 `_condense_offense()`）
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `batter` | dict `{id, link, batSide}` | 打者 |
-| `batterPosition` | dict `{code, name, type, abbreviation}` | 打者的防守位置（用於代打/代跑情境識別） |
-| `first`/`second`/`third` | dict `{id, link}` | 投球**前**壘上跑者 |
-| `postOnSecond`/`postOnThird` | dict `{id, link}` | 投球**後**（若有跑壘）二、三壘跑者；無對應的 `postOnFirst`（因為推進到一壘的情況少見） |
-
-### `officials[]`
-
-| 欄位 | 型別 | 定義 |
-|---|---|---|
-| `official` | dict `{id, link}` | 裁判 |
-| `officialType` | str | 崗位，如 `"Home Plate"`/`"First Base"`/`"Second Base"`/`"Third Base"` |
+> 「出現率」的定義：該欄位出現次數 ÷ 它父物件的出現次數，也就是
+> 「父物件在的時候，這個 key 有多大機率也在」。
 
 ---
 
-## 六、現有 `extract.py` 欄位對應總表
+## 二、★ 資料可用性總表
 
-方便日後改欄位時對照，目前 `extract_pitch_logs()` 寫進 `pitches_json` 每球一筆的欄位，來源如下：
+### 2.1 追蹤系統（Statcast／PITCHf/x）是**逐場全有或全無**
 
-| `pitches_json` 欄位 | 來源 JSON 路徑 |
+這是最重要的一件事：**除了 MLB 與 2023 年起的 AAA，其他層級的球速／轉速／
+好球帶座標，是看那座球場有沒有裝 Hawk-Eye，而不是看年份。** 同一年同一層級，
+有的場子整場 100% 有資料、有的整場 0%，中間沒有灰色地帶。
+
+實測（每格 = 該年該層級抽樣場次中，帶有球速的投球比例）：
+
+| 年份 | MLB | AAA | AA | A+ | A | ROK |
+|---|---|---|---|---|---|---|
+| 2002–2006 | 0% | 0% | 0% | 0% | 0% | 0% |
+| 2007 | 43% | 0% | 0% | 0% | 0% | 0% |
+| 2008–2020 | 97–100% | 0% | 0% | 0% | 0% | 0% |
+| 2021 | 100% | 0% | 0% | 0% | 29% | 0% |
+| 2022 | 100% | 63% | 0% | 0% | 100% | 0% |
+| 2023 | 100% | 100% | 0% | 0% | 47% | 0% |
+| 2024 | 100% | 100% | 0% | 0% | 100% | 0% |
+| 2025 | 100% | 100% | 0% | 0% | 0% | 33% |
+| 2026 | 100% | 100% | 0% | 0% | 0% | 69% |
+
+追加驗證（2024–2026 額外抽 45 場，逐場檢查）：
+
+- **AA／A+：22 場全部 0%。**到 2026 年為止，二軍高階與 A+ 基本上完全沒有逐球追蹤資料。
+- **A（Single-A）：同年不同場差異極大**——2024 抽 6 場有 4 場 100%、2 場 0%；
+  2025 抽 5 場全 0%；2026 抽 6 場只有 1 場 100%。是球場決定的。
+- **ROK：2026 抽 6 場有 1 場 100%**（複合訓練基地的部分球場）。
+- 每一場都是「整場 100%」或「整場 0%」，沒有一場是中間值。
+
+**實務建議**：處理非 MLB 資料時，先用該場第一顆球有沒有 `pitchData.startSpeed`
+判斷整場的追蹤資料是否存在，不要逐球判斷、也不要用年份硬編碼。
+
+### 2.2 各項資料的「第一年」
+
+| 資料 | 欄位 | MLB 起始 | 其他層級 |
+|---|---|---|---|
+| 打席結果、球數、跑壘、守備 credit | `result`/`count`/`runners[]` | **2002**（有紀錄以來） | 全層級同步 |
+| 勝率、WPA、LI、drama | `homeTeamWinProbability` 等 | **2002** | **全層級全年都有**（連 ROK 都算） |
+| 投球前球數 `preCount` | `playEvents[].preCount` | **2002** | 全層級 100% |
+| 擊球落點座標 | `hitData.coordinates.coordX/Y` | **2005** | 全層級 2005 起 ~100% |
+| 逐球唯一 ID | `playEvents[].playId` | **2005** | 全層級 2005 起 |
+| 打席／事件時間戳 | `about.startTime`/`endTime` | **2010** | 全層級 2010 起 |
+| 球速、位移、轉速、好球帶分區、球種 | `pitchData.*`、`details.type` | **2007**（2008 起近 100%） | 見 2.1 |
+| 舊 PITCHf/x ID | `playEvents[].pfxId` | 2007–**2016**（之後消失） | 無 |
+| 擊球初速／仰角／距離 | `hitData.launchSpeed` 等 | **2015** | AAA 2022／A 部分球場／ROK 2025 |
+| 期望 wOBA | `contextMetrics.xWoba` | **2015**（打席的 ~77%） | AAA 幾乎沒有（≤25%）、A 跟球場走 |
+| 安打機率 | `hitData.hitProbability` | **2015**（100%） | **只有 MLB 穩定**，AAA 2025 起變 0 |
+| 全壘打在幾座球場會出牆 | `contextMetrics.homeRunBallparks` | **2015**（投球的 ~15%） | 幾乎只有 MLB |
+| 誘導垂直位移 IVB／延伸／過壘時間 | `breaks.breakVerticalInduced`、`extension`、`plateTime` | **2017**（Hawk-Eye 換代） | 跟 2.1 同步 |
+| 投手板脫離次數（牽制限制規則） | `details.disengagementNum` | **2023** | 全層級（規則） |
+| 投球計時器違規 | `details.violation` | **2023** | 全層級（規則） |
+| 好球帶 3D 模型 | `pitchData.strikeZoneInfo` | **2020** | 跟 2.1 同步 |
+| 好球帶模型的通過座標 | `strikeZoneInfo.plateX/Y/Z` | **2022** | 同上 |
+| 到好球帶邊緣距離 | `strikeZoneInfo.edgeDistance` | **2024** | 同上 |
+| 好球帶寬深（ABS 用） | `pitchData.strikeZoneWidth`/`Depth` | **2025** | AAA 2023 起（ABS 試驗先在 AAA） |
+| 球棒揮速／sword swing | `hitData.batSpeed`/`isSwordSwing` | **2024**（2024 33%→2026 49%） | 幾乎只有 MLB |
+| ABS（機器好球帶）挑戰 | `gameData.absChallenges` | **2023** | A／AAA／MLB |
+| 好球帶邊緣球的位置向量 | `strikeZoneInfo.edgePositionBall/Zone` | **2025** | AAA／MLB／ROK |
+| 投手丘訪問次數 | `gameData.moundVisits` | **2018** | 全層級 |
+
+---
+
+## 三、死資料清單
+
+### A. 端點根本不回傳（0 筆）
+
+| 欄位 | 實測 |
 |---|---|
-| `game_pk` | `game_data.gamePk` |
+| `allPlays[].contextMetrics.catchProbability` | 30,127 個打席**一次都沒出現**。Statcast 的接殺機率不會從這個端點出來 |
+| `playEvents[].contextMetrics.averagePitchSpeedPlayer` | 109,151 個事件**一次都沒出現** |
+| `playEvents[].contextMetrics.maxPitchSpeedPlayer` | 同上，0 筆 |
+| `playEvents[].contextMetrics.pitchSpeedPlayerRank` | 同上，0 筆（曾以為是「這球球速在該投手的百分位」，不存在） |
+
+`playEvents[].contextMetrics` 這個 dict **本身 100% 存在**，但裡面實際上只可能有
+`homeRunBallparks`（約 3.6% 的事件），其餘時候就是空 dict——它存在不代表有內容。
+
+### B. 永遠是空容器
+
+| 欄位 | 實測 |
+|---|---|
+| `allPlays[].matchup.pitcherHotColdZones` | 30,127 次全是 `[]` |
+| `gameData.alerts` | 392 場全是 `[]` |
+| `liveData.leaders.hitDistance` / `.hitSpeed` / `.pitchSpeed` | 392 場全是 `{}`（這裡不會有單場之最） |
+| `gameData.teams.{home,away}.record.records` | 392 場全是 `{}` |
+
+### C. 值恆定、零資訊量
+
+| 欄位 | 恆定值 | 樣本 |
+|---|---|---|
+| `pitchData.strikeZoneInfo.strikeZoneRounded` | `False` | 17,878/17,878 |
+| `pitchData.strikeZoneInfo.strikeZoneCornerRadiusInches` | `0.0` | 17,878/17,878 |
+| `pitchData.strikeZoneInfo.baseballDiameterInches` | `2.9` | 3,899/3,899（棒球直徑常數，不是量測值） |
+| `pitchData.breaks.breakY` | `24.0`（少數 `19.2`） | 39,793 筆只有兩種值 |
+| boxscore `stats.fielding.fielding` | `'.000'` | 全部（單場守備率沒有實際計算） |
+| boxscore `stats.fielding.caughtStealingPercentage` | `'.---'` | 全部 |
+| boxscore `stats.pitching.passedBall` | `0` | 全部（捕逸只記在 fielding） |
+| `allPlays[].result.type` | `'atBat'` | 30,127/30,127 |
+| `metaData.wait` | `10` | 392/392 |
+
+> 「恆定」不等於「死」：`gameData.flags.noHitter`、`batting.groundIntoTriplePlay`、
+> `gameData.game.type='R'` 在樣本裡也恆定，但那是因為 392 場剛好沒抽到無安打比賽／
+> 三殺／季後賽。上表只列**結構上就不會變**的。
+
+### D. 存在但極稀有
+
+| 欄位 | 實測量 | 說明 |
+|---|---|---|
+| `matchup.batterHotColdZones[]` | 78 個元素，全在 **2026 MLB**（= 6 個打席） | 轉播用熱區圖素材（9 宮格＋角落），只掛在全場最後一個打席，值是球員生涯／近況數字而非本場算出，**不能當統計來源** |
+| `matchup.batterHotColdZoneStats` | 6 筆，全在 2026 MLB | 同上的結構化版本 |
+| `contextMetrics.averagePitchSpeedLeague` / `maxPitchSpeedLeague` | 各 40 筆，**只有 2023 年的 A 級** | 等同不存在 |
+| `playEvents[].umpire` | 21 筆 / 109,151 | 裁判換人之類的特殊事件 |
+| `playEvents[].credits[]` | 9 筆，全是 `f_foul_error` | 跟 `runners[].credits[]` 是不同東西 |
+| `playEvents[].injuryType` | 22 筆（`shoulder`/`hand`/`head`/`ankle`…） | 當場受傷退場才有 |
+| `playEvents[].pfxId` | 16,306 筆，**只有 2007–2016 MLB** | PITCHf/x 時代舊 ID，2017 起消失 |
+| `playEvents[].details.violation` | 44 筆（2023 起） | 投球計時器／脫離投手板／打者暫停違規 |
+| `allPlays[].reviewDetails` | 54 個打席（0.2%），MLB／AAA | 重播挑戰 |
+| `gameData.absChallenges` | 19 場（2023 起，A／AAA／MLB） | 機器好球帶挑戰制度 |
+| `playEvents[].offense.postOnFirst` | 34 筆 | 先前文件說「沒有這個欄位」是錯的，只是極少 |
+| `gameData.secondaryDatacaster` | 18 場 | 幾乎都缺 |
+
+### E. 陷阱欄位（有值，直接用會算錯）
+
+| 欄位 | 陷阱 |
+|---|---|
+| `allPlays[].contextMetrics.xWoba` | 單位是 **wOBA × 100**（全壘打實測最高 201.8、出局 0.0），但**保送與觸身球恆為 `0.7`**——那是未乘 100 的原始權重，MLB 自己單位不一致。另外只有約 77% 的 MLB 打席有值（三振等沒有擊球資料的打席沒有） |
+| `playEvents[].homeTeamWinProbability` / `.homeTeamWinProbabilityAdded` / `.leverageIndex` / `.dramaIndex` | **只有 `isBaseRunningPlay=True` 的跑壘事件才有**（1,440 筆 / 109,151），投球事件根本沒有這些 key。實測值是真的（例：牽制成功 WPA=+9.8、LI=2.43、drama=126），**不是**先前文件寫的「恆為 0」——那是把「key 不存在」誤讀成 0。**這是取得盜壘／牽制／暴投等跑壘事件 WPA 的唯一管道** |
+| `allPlays[].dramaIndex` | 實測範圍 **5 ~ 687**，不是 0–100 |
+| `playEvents[].pitchNumber` | 是**該打席內第幾球**（值分布 1×28,325 ≈ 打席數），不是投手單場累計球數 |
+| `pitchData.strikeZoneInfo.widthInches` / `.depthInches` | 有 4,335 筆是 `0.0`（壞值），用之前先濾掉 0 |
+| `hitData.hardness` | 20,600 筆裡 19,218 筆是 `'medium'`（93%），沒有鑑別度；要判斷強擊球請用 `launchSpeed` |
+| `pitchData.coordinates.y0` | 不是第三個座標軸，是 `x0`/`z0` 所在平面距本壘板幾呎（2008 起恆為 50，PITCHf/x 早期有 40/45/50/55，2007 年還會場中切換） |
+| `details.type.code` | 球種代碼在 `details.type` 存在時仍有約 28% 缺席（`description` 會是 `'Unknown'`），一律用 `.get("code","")` |
+| `isBaseRunningPlay` / `isSubstitution` / `details.runnerGoing` | 「存在即為真」的旗標（值恆為 `True`），**key 不存在 = False**，不能用 `.get(k) == False` 判斷 |
+| `allPlays[].matchup.batter` / `.pitcher` | 是「打席**結束時**」的打者／投手。中途換投或代打時前面幾球其實是別人的——投手可用每球的 `playEvents[].defense.pitcher.id` 校正，打者沒有逐球欄位，只能靠 `offensive_substitution` 事件的位置切割（`extract.py` 已處理） |
+| `liveData.leaders` | 見死資料 B，永遠空，別在這裡找單場最速球 |
+
+---
+
+## 四、JSON 頂層地圖
+
+```
+gamePk            int      比賽 ID
+link              str      /api/v1.1/game/{pk}/feed/live
+copyright         str      版權宣告（可丟）
+metaData          dict     timeStamp / gameEvents[] / logicalEvents[] / wait
+gameData          dict     比賽層級中繼：球場、天氣、規則、雙方球隊與所有球員檔案
+liveData
+ ├── plays        dict     ★ 逐打席／逐球資料，專案的 Statcast 唯一來源
+ ├── linescore    dict     各局比分、當下攻守名單
+ ├── boxscore     dict     ★ 雙方每位球員的單場＋球季累計 batting/pitching/fielding
+ ├── decisions    dict     勝投／敗投／救援投手
+ └── leaders      dict     永遠空（死資料 B）
+```
+
+`liveData.plays` 底下：
+
+| 欄位 | 內容 |
+|---|---|
+| `allPlays[]` | ★ 全場每個打席，平均 76.9 個/場 |
+| `currentPlay` | 全場最後一個打席的複本，等於 `allPlays[-1]`，比賽結束後沒有額外資訊 |
+| `scoringPlays[]` | 有得分的打席在 `allPlays` 的 index 清單 |
+| `playsByInning[]` | 每個半局的 `startIndex`／`endIndex`、該局各打席 index，以及 `hits.home[]`／`hits.away[]`——**每支安打的落點座標＋打者＋投手，可以直接畫落點圖** |
+
+> 這個端點是 `feed/live` 的**嚴格超集**：對整份 JSON 做 diff，`feed/live` 沒有任何
+> 一個欄位是 `withMetrics` 缺的。`withMetrics` 多出來的是 `gameData.ruleSettings`
+> 與 `plays` 底下的一批進階指標（`preCount`、`defense`、`offense`、`contextMetrics`、
+> `strikeZoneInfo`、WP/LI/drama、`hitProbability`、`batSpeed` 等）。
+
+---
+
+## 五、打席層級欄位（`allPlays[]`）
+
+樣本 30,127 個打席。
+
+| 欄位 | 型別 | 出現率 | 起始年／層級 | 說明 | extract.py |
+|---|---|---|---|---|---|
+| `result` | dict | 100% | 全 | 打席最終結果（見 5.1） | ✅ `.eventType`/`.event` |
+| `about` | dict | 100% | 全 | 局數／時間／旗標（見 5.2） | ✅ `.inning` |
+| `count` | dict | 100% | 全 | 打席**結束當下**的 balls/strikes/outs | ✅ `pa_final_*` |
+| `matchup` | dict | 100% | 全 | 投打對戰（見 5.3） | ✅ 部分 |
+| `runners[]` | list | 平均 1.41 筆/打席 | 全 | 跑壘與守備 credit（見 5.4） | ✅ `_extract_runners()` |
+| `playEvents[]` | list | 平均 3.62 筆/打席 | 全 | 逐球／逐動作（見第六節） | ✅ 主來源 |
+| `pitchIndex[]` | list[int] | 100% | 全 | `playEvents` 中投球事件的索引 | ❌ |
+| `actionIndex[]` | list[int] | 100%（22% 非空） | 全 | 動作事件的索引 | ❌ |
+| `runnerIndex[]` | list[int] | 100% | 全 | `runners[]` 對應索引 | ❌ |
+| `atBatIndex` | int | 100% | 全 | 該打席在全場的序號（0 起算） | ❌ |
+| `playEndTime` | str | 73% | **2010 起** | 打席結束時間戳 | ❌ |
+| `credits[]` | list | 平均 3.75 筆 | 全 | `b_pa`／`p_pa`／`b_ab`／`p_ab`，資訊量低於 `result.eventType` | ❌ |
+| `flags[]` | list | 7.5% 非空 | 全 | `t_double_play`／`b_gnd_into_dp`／`b_foul_out`／`b_sac_fly`／`b_sac_bunt`／`b_gnd_rule_double` 等，**判斷雙殺與犧牲打最乾淨的來源** | ❌ |
+| `homeTeamWinProbability` | float 0–100 | 100% | **2002 起全層級** | 打席結束當下主隊勝率（%） | ✅ `home_wp` |
+| `awayTeamWinProbability` | float | 100% | 全 | 恆等於 `100 − home_wp` | ❌（可反推） |
+| `homeTeamWinProbabilityAdded` | float | 100% | 全 | 這個打席讓主隊勝率增減幾個百分點（WPA，主隊視角，實測 −64.4 ~ +75.8） | ✅ `wpa` |
+| `leverageIndex` | float | 98.7% | 全 | 局勢緊張度（1.0 = 平均，實測 0 ~ 9.25） | ✅ `leverage_index` |
+| `dramaIndex` | float | 98.7% | 全 | MLB 的精彩度指標，**實測 5 ~ 687** | ✅ `drama_index` |
+| `contextMetrics.xWoba` | float | MLB 約 77% | **2015 起**，MLB 為主 | 期望 wOBA × 100，**BB/HBP 恆 0.7**（見陷阱欄位） | ✅ `pa_xwoba` |
+| `reviewDetails` | dict | 0.2% | 2011 起，MLB／AAA | `isOverturned`／`reviewType`（`MJ`/`MF`/`MA`/`NH`…）／`challengeTeamId`／`player`（2026 新增，ABS 挑戰發起者）／`additionalReviews[]` | ❌ |
+
+### 5.1 `result`
+
+| 欄位 | 說明 |
+|---|---|
+| `type` | 恆為 `'atBat'`（死欄位） |
+| `event` | 人類可讀：`Strikeout`／`Groundout`／`Single`… |
+| `eventType` | 機器可讀：`field_out`(39%)／`strikeout`(21%)／`single`(15%)／`walk`(9%)… |
+| `description` | 完整播報文字 |
+| `rbi` | 打點 0~4 |
+| `awayScore`／`homeScore` | 打席後比分 |
+| `isOut` | 打者是否出局 |
+
+### 5.2 `about`
+
+| 欄位 | 出現率 | 說明 |
+|---|---|---|
+| `atBatIndex`／`halfInning`／`isTopInning`／`inning` | 100% | 局數資訊 |
+| `isComplete`／`isScoringPlay`／`hasOut`／`hasReview` | 100% | 打席狀態旗標 |
+| `captivatingIndex` | 100% | 舊版精彩度（0~95，52% 是 0），`dramaIndex` 是進階版 |
+| `startTime`／`endTime` | 73%（**2010 起**） | 打席起訖時間戳 |
+
+### 5.3 `matchup`
+
+| 欄位 | 出現率 | 說明 |
+|---|---|---|
+| `batter`／`pitcher` | 100% | `{id, fullName, link}`，**打席結束時的人**（見陷阱欄位） |
+| `batSide`／`pitchHand` | 100% | `{code:'R'/'L', description}` |
+| `splits` | 100% | `{batter:'vs_RHP'/'vs_LHP', pitcher:'vs_RHB'/'vs_LHB', menOnBase:'Empty'/'Men_On'/'RISP'/'Loaded'}`——**分項統計的分組鍵直接給你，不用自己算** |
+| `postOnFirst`／`postOnSecond`／`postOnThird` | 34%／20%／11% | 打席**結束後**壘上跑者（沒人就沒有 key） |
+| `batterHotColdZones` | 99.7% 是空的 | 見死資料 D |
+| `pitcherHotColdZones` | **永遠空** | 見死資料 B |
+
+### 5.4 `runners[]`（42,411 筆）
+
+跑壘與守備 credit 的唯一來源。`extract.py` 只在打席最後一球掛上這份資料。
+
+| 欄位 | 說明 |
+|---|---|
+| `movement.originBase`／`.start`／`.end`／`.outBase` | 起始壘包／本次移動起點／終點（`1B`/`2B`/`3B`/`score`）／被觸殺在哪個壘（null = 沒有該狀態） |
+| `movement.isOut`／`.outNumber` | 是否出局、是該半局第幾個出局數 |
+| `details.event`／`.eventType` | 造成這次跑壘的事件 |
+| `details.movementReason` | 移動原因：`r_adv_force`／`r_adv_play`／`r_force_out`／`r_stolen_base_2b`…**算盜壘與推進最準的欄位** |
+| `details.isScoringEvent`／`.rbi`／`.earned`／`.teamUnearned` | 是否得分／算打點／自責分／球隊非自責 |
+| `details.responsiblePitcher` | 該得分算在哪個投手頭上（換投後繼承跑者的歸屬，只在得分時有值） |
+| `details.playIndex` | ★ **這次跑壘發生在 `playEvents[]` 的哪個 index**，可把跑壘精準對到某一顆球 |
+| `details.runner` | `{id, fullName, link}` |
+| `credits[]` | 守備 credit：`f_putout`／`f_assist`／`f_fielded_ball`／`f_throwing_error` ＋ 該野手的 `player` 與 `position`，**自算守備數據的原始素材** |
+
+---
+
+## 六、逐球／事件層級欄位（`playEvents[]`）
+
+樣本 109,151 個事件。`type` 的分布：
+`pitch` 98,850（90.6%）／`action` 7,813／`pickoff` 2,135／`no_pitch` 236／`stepoff` 117。
+`isPitch=True` 完全等同 `type=='pitch'`。
+
+### 6.1 事件頂層
+
+| 欄位 | 型別 | 出現率 | 起始年 | 說明 | extract.py |
+|---|---|---|---|---|---|
+| `type` | str | 100% | 全 | 見上 | ✅（`pickoff`/`stepoff` 存入 `events_json`） |
+| `isPitch` | bool | 100% | 全 | 篩選投球 | ✅ |
+| `index` | int | 100% | 全 | 事件在 `playEvents[]` 的序號 | ✅（非投球事件） |
+| `details` | dict | 100% | 全 | 結果細節（見 6.2） | ✅ 部分 |
+| `count` | dict | 100% | 全 | 這球**投完之後**的 balls/strikes/outs | ✅ |
+| `preCount` | dict | **100%，2002 起全層級** | 全 | 這球**投出之前**的 balls/strikes/**outs**。實測 109,151/109,151 全部都有——`extract.py` 裡「缺 `preCount` 時手動累加」的 fallback 實際上永遠不會觸發 | ✅ |
+| `contextMetrics` | dict | 100%（內容多半空） | 全 | 只可能有 `homeRunBallparks` | ✅ |
+| `defense` | dict | 98.6% | 全 | 這球當下 9 個守備位置的球員（`pitcher` 另含 `pitchHand`）。**`defense.pitcher.id` 是逐球校正投手身分的唯一依據** | ✅ 濃縮 |
+| `offense` | dict | 98.6% | 全 | 這球當下的打者（含 `batSide`）、`batterPosition`、投球**前**壘上跑者 `first`/`second`/`third`，以及 `postOnFirst`(34 筆)/`postOnSecond`/`postOnThird` | ✅ 濃縮 |
+| `officials[]` | list | 98.6%（平均 3.13 位） | 全 | 該球場上裁判：`Home Plate`／`First Base`／`Third Base`／`Second Base`（小聯盟常只有 2–3 位） | ❌ |
+| `playId` | str(UUID) | 92.7%（投球事件 ~100%） | **2005 起** | 該球的全域唯一 ID，可對應外部資料 | ✅ |
+| `pitchNumber` | int | 90.7% | 全 | **該打席內第幾球**（含界外） | ✅ |
+| `pitchData` | dict | 90.6% | 全（物理量另計） | 見 6.3 | ✅ |
+| `hitData` | dict | 24.7% | 全 | 見 6.4。⚠️ **2024 起揮空的球也會有 `hitData`**（只帶 `batSpeed`/`isSwordSwing`），26,938 筆裡只有 20,600 筆是真的擊球進場——判斷是否擊球要用 `details.isInPlay` 或 `hitData.trajectory` | ✅ |
+| `startTime`／`endTime` | str | 75.6% | **2010 起** | 事件起訖時間戳 | ❌ |
+| `player` | dict | 6.8% | 全 | 非投球事件的當事球員 | ❌ |
+| `isSubstitution`／`position`／`battingOrder`／`replacedPlayer` | — | 3.3%／3.3%／1.6%／1.4% | 全 | 換人事件：換上誰、守什麼位置、打序、換下誰。**`replacedPlayer` 是判斷代打／中途換人的關鍵**（`extract.py` 已用） | 部分（打者切割邏輯） |
+| `isBaseRunningPlay` | bool | 1.3%（恆 True） | 全 | 跑壘事件旗標 | ❌ |
+| `homeTeamWinProbability`／`awayTeamWinProbability`／`homeTeamWinProbabilityAdded`／`leverageIndex`／`dramaIndex` | float | 1.3% | 全 | **只有跑壘事件才有**（與 `isBaseRunningPlay` 完全同步，1,440 筆），值是真的。**盜壘／牽制／暴投的 WPA 只能從這裡拿** | ❌ ← 建議補抓 |
+| `actionPlayId` | str | 1.4% | 全 | 動作事件的 ID | ❌ |
+| `base` | int | 0.1% | 全 | 跑壘事件的目標壘包（1/2/3） | ❌ |
+| `reviewDetails` | dict | 0.1% | 2017 起 | 事件層級的重播挑戰 | ❌ |
+| `pfxId` | str | 14.9% | **2007–2016 MLB only** | PITCHf/x 舊 ID | ❌ |
+| `umpire`／`injuryType`／`credits[]` | — | 各 ~20 筆 | — | 見死資料 D | ❌ |
+
+### 6.2 `details`
+
+| 欄位 | 出現率 | 說明 | extract.py |
+|---|---|---|---|
+| `description` | 99.9% | 這球／這個動作的播報文字 | ✅ `result_desc` |
+| `isOut`／`hasReview` | 100% | 是否造成出局、是否申請重播 | 部分 |
+| `code` | 92.8% | 結果代碼：`B`(壞球)／`C`(看見好球)／`F`(界外)／`X`(擊出出局)／`S`(揮空)／`D`(擊出安打)… | ✅ `result_code` |
+| `call` | 90.7% | `{code, description}`，與 `code` 同義的裁判判決 | ❌ |
+| `isStrike`／`isBall`／`isInPlay` | 90.7%（= 投球事件） | 好球／壞球／擊入場 | ✅ |
+| `type` | 51.1%（**2007 起**） | `{code, description}` 球種。**`code` 在 `type` 存在時仍有 28% 缺席**（`description='Unknown'`） | ✅ `pitch_type`/`pitch_name` |
+| `ballColor`／`trailColor` | 85.9%／51.1% | 轉播動畫顏色，無分析價值 | ❌ |
+| `event`／`eventType` | 7.2% | **非投球動作**的分類：`pitching_substitution`(2,257)／`game_advisory`(1,524)／`offensive_substitution`(551)／`stolen_base_2b`／`defensive_switch`／`wild_pitch`… | ❌ |
+| `awayScore`／`homeScore`／`isScoringPlay` | 7.2% | 動作事件當下的比分 | ❌ |
+| `disengagementNum` | 4.4%（**2023 起**） | 該打席第幾次脫離投手板（牽制次數限制規則） | ✅（牽制事件） |
+| `fromCatcher` | 2.1% | 牽制是否由捕手發動 | ✅ |
+| `runnerGoing` | 1.5%（恆 True） | 跑者起跑中（盜壘） | ✅ |
+| `violation` | 44 筆（**2023 起**） | `{type, description, player}`：`pitcher_pitch_timer`(29)／`batter_pitch_timer`(10)／`pitcher_disengagement`(4)／`batter_timeout`(1) | ❌ |
+
+### 6.3 `pitchData`（分母 = 98,850 顆投球）
+
+`strikeZoneTop`／`strikeZoneBottom` 是**唯二 100% 全年全層級都有**的欄位
+（來自打者身高的估算，不需要追蹤系統）。其他物理量都受 2.1 的覆蓋限制。
+
+| 欄位 | 出現率 | 起始年 | 說明 | extract.py |
+|---|---|---|---|---|
+| `strikeZoneTop`／`strikeZoneBottom` | **100%** | 2002 | 該打者的好球帶上下緣（呎） | ✅ |
+| `startSpeed`／`endSpeed` | 40.3% | 2007 | 出手／過壘速度（mph，實測 37.2–101.7） | ✅ |
+| `zone` | 40.3% | 2007 | 好球帶分區代碼 1–14 | ✅ |
+| `typeConfidence` | 39.9% | 2007 | 球種分類信心值（0–2） | ✅ |
+| `coordinates.pX`／`pZ` | 40.3% | 2007 | 過本壘板的水平／垂直座標 | ✅ |
+| `coordinates.pfxX`／`pfxZ` | 40.3% | 2007 | 水平／垂直位移（含重力，英吋） | ✅ |
+| `coordinates.x0`／`y0`／`z0` | 40.3% | 2007 | 出手點座標（`y0` 是量測平面，見陷阱欄位） | ✅ |
+| `coordinates.vX0`／`vY0`／`vZ0`／`aX`／`aY`／`aZ` | 40.3% | 2007 | 三軸初速與加速度（可自行重算完整彈道） | ✅ |
+| `coordinates.x`／`y` | 96.0% | 2005 | **轉播圖表用的螢幕座標**，不是物理量，別拿來算東西 | ❌（正確） |
+| `breaks.breakAngle`／`breakLength`／`breakY` | 40.3% | 2007 | 舊版位移描述（`breakY` 恆為 24.0，死） | ✅ |
+| `breaks.spinRate`／`spinDirection` | 40.1% | 2007 | 轉速（9–3630 rpm）／轉軸方向（0–359°） | ✅ |
+| `breaks.breakVerticalInduced`（IVB） | 23.8% | **2017** | 誘導垂直位移（扣掉重力，−22.6 ~ +30.1） | ✅ `ivb` |
+| `breaks.breakHorizontal`（HB） | 23.8% | **2017** | 水平位移（−31.8 ~ +25.0） | ✅ `hb` |
+| `breaks.breakVertical` | 23.8% | **2017** | 含重力的垂直位移 | ✅ |
+| `extension` | 23.8% | **2017** | 出手延伸（3.1–8.0 呎） | ✅ |
+| `plateTime` | 23.8% | **2017** | 出手到過壘的時間（0.37–1.05 秒） | ✅ |
+| `strikeZoneWidth`／`strikeZoneDepth` | 8.7% | **AAA 2023／MLB 2025** | ABS 用的好球帶寬（17/20 吋）與深（8.5/17 吋） | ❌ ← 可補 |
+| `strikeZoneInfo` | 18.1% | **2020** | 3D 好球帶模型（見下） | ✅ |
+
+`pitchData.strikeZoneInfo`：
+
+| 欄位 | 出現率 | 起始年 | 說明 |
+|---|---|---|---|
+| `isStrike` | 18.1% | 2020 | **模型判定**這球是不是好球——跟 `details.isStrike`（裁判實判）比對就能算好球帶誤判率 |
+| `strikeZoneTop`／`strikeZoneBottom` | 18.1% | 2020 | 模型版好球帶上下緣（與 `pitchData.strikeZoneTop` 是不同管線，數值略有差異） |
+| `strikeZoneFlat` | 18.1% | 2020 | 是否套用平面版邊界（71% True） |
+| `strikeZoneRounded`／`strikeZoneCornerRadiusInches` | 18.1% | 2020 | **恆為 False / 0.0（死）** |
+| `plateX`／`plateY`／`plateZ` | 14.1% | **2022** | 模型版通過本壘板的三維座標 |
+| `widthInches`／`depthInches` | 16.2% | 2021 | 好球帶寬／深，**有 4,335 筆 0.0 壞值** |
+| `edgeDistance` | 9.0% | **2024** | 球心到好球帶邊緣的最短距離（負值＝在帶內），量化「差一點點的好壞球」 |
+| `edgePositionBall`／`edgePositionZone` | 3.9% | **2025** | 球心／好球帶邊緣最近點的 3D 座標 `{x,y,z}` |
+| `baseballDiameterInches` | 3.9% | 2025 | 恆為 2.9（常數，死） |
+
+### 6.4 `hitData`（分母 = 26,938 個 hitData，其中 20,600 是真正擊球進場）
+
+| 欄位 | 出現率（相對 hitData） | 起始年 | 說明 | extract.py |
+|---|---|---|---|---|
+| `trajectory` | 76.5% | 2002 | `ground_ball`(9,129)／`fly_ball`(5,702)／`line_drive`(3,879)／`popup`(1,453)／`bunt_grounder`／`bunt_popup`。**出現次數精準等於 `isInPlay=True` 的數量，是判斷「有沒有真的擊球」最可靠的鍵** | ✅ |
+| `location` | 76.3% | 2002 | 落點守備位置代碼（`8`/`7`/`9`/`6`…） | ✅ |
+| `hardness` | 76.5% | 2002 | 93% 是 `medium`，沒有鑑別度（見陷阱欄位） | ✅ |
+| `coordinates.coordX`／`coordY` | 72.3% | **2005** | 球場示意圖落點座標，**2005 起全層級 ~100%，是最古老也最全面的落點資料**（畫落點圖／算噴射角靠它） | ✅ |
+| `launchSpeed`（EV） | 16.7% | **2015** | 擊球初速（14.0–114.7 mph） | ✅ `ev` |
+| `launchAngle`（LA） | 16.7% | **2015** | 擊球仰角（−88 ~ +89°） | ✅ `la` |
+| `totalDistance` | 16.6% | **2015** | 落點總距離（1–462 呎） | ✅ `hit_distance` |
+| `hitProbability` | 14.1% | **2015，只有 MLB 穩定** | 該 EV+LA 組合的聯盟平均安打機率（0–100） | ✅ |
+| `batSpeed` | 8.0% | **2024** | 揮棒最大棒速（1.2–86.8 mph）。**沒揮棒的球本來就沒有，不是缺資料** | ✅ |
+| `isSwordSwing` | 1.9% | **2024** | 是否為「劍擊」揮棒（樣本中 42 次 True） | ✅ |
+
+### 6.5 `contextMetrics`（事件層級）
+
+| 欄位 | 出現率 | 起始年 | 說明 |
+|---|---|---|---|
+| `homeRunBallparks` | 3.6%（MLB 約 15%） | 2015 | 這球若是全壘打，30 座球場中有幾座會出牆（0–30） |
+| 其他四個 speed 相關欄位 | **0 筆** | — | 見死資料 A |
+
+---
+
+## 七、boxscore／gameData／metaData
+
+這兩塊跟逐球資料無關，但常被忽略——**很多不用自己從逐球資料重算的東西就在這裡**。
+
+### 7.1 `liveData.boxscore`
+
+`teams.{home,away}` 底下：
+
+| 欄位 | 說明 |
+|---|---|
+| `players.{id}` | ★ 每位出賽球員一筆（平均 24.1 位/隊） |
+| `players.{id}.stats.{batting,pitching,fielding}` | **該場**的完整數據 |
+| `players.{id}.seasonStats.{batting,pitching,fielding}` | ★ **該球員到這場為止的球季累計**——不用另外打 API 就能重建球季進程 |
+| `players.{id}.gameStatus` | `isCurrentBatter`／`isCurrentPitcher`／`isOnBench`／`isSubstitute` |
+| `players.{id}.position`／`allPositions[]` | 主守位置／本場守過的所有位置 |
+| `players.{id}.battingOrder` | 打序碼（`'100'`=第一棒先發、`'901'`=第九棒的第一位替補） |
+| `players.{id}.status` | `Active`／`Rehab Assignment`（復健賽出賽可從這裡認出來） |
+| `players.{id}.parentTeamId`／`jerseyNumber` | 母隊 ID／背號 |
+| `batters[]`／`pitchers[]`／`bench[]`／`bullpen[]`／`battingOrder[]` | 各類球員 ID 清單 |
+| `teamStats.{batting,pitching,fielding}` | 該隊全隊單場數據 |
+| `info[]`／`note[]` | 官方 box score 附註（`BATTING`／`FIELDING`／`BASERUNNING` 分段的文字說明、代打註記） |
+
+`stats.batting` 有 32 個欄位：`atBats`／`hits`／`doubles`／`triples`／`homeRuns`／`rbi`／
+`runs`／`baseOnBalls`／`intentionalWalks`／`strikeOuts`／`hitByPitch`／`sacBunts`／`sacFlies`／
+`stolenBases`／`caughtStealing`／`groundIntoDoublePlay`／`leftOnBase`／`totalBases`／
+`plateAppearances`／`groundOuts`／`flyOuts`／`lineOuts`／`popOuts`／`airOuts`／`pickoffs`／
+`catchersInterference`／`summary`… **`groundOuts`/`flyOuts`/`lineOuts`/`popOuts` 這組
+出局型態的細分是 season stats 端點沒有的**。
+
+`stats.pitching` 有 50 個欄位，除了常規項目外值得注意的：`battersFaced`、`numberOfPitches`／
+`pitchesThrown`、`strikes`／`balls`／`strikePercentage`、`inheritedRunners`／
+`inheritedRunnersScored`（繼承跑者，算後援投手真實表現用）、`holds`／`blownSaves`、
+`outs`（可直接算局數，不用解析 `inningsPitched` 的 `'1.1'` 格式）。
+
+`stats.fielding`：`assists`／`putOuts`／`errors`／`chances`／`passedBall`／`pickoffs`／
+`stolenBases`／`caughtStealing`（**`fielding` 與 `caughtStealingPercentage` 是死欄位**）。
+
+其他：
+
+| 欄位 | 說明 |
+|---|---|
+| `boxscore.topPerformers[]` | 本場最佳（平均 3 位）：`type`（`hitter`／`starter`／`reliever`／`twoWayReliever`）、`gameScore`、`hittingGameScore`、`pitchingGameScore`（Bill James Game Score，49–96） |
+| `boxscore.officials[]` | 該場裁判名單 |
+| `boxscore.info[]` | 全場資訊：`Weather`／`Wind`／`Umpires`／`Batters faced`／`Groundouts-flyouts`／`First pitch`… |
+| `boxscore.pitchingNotes[]` | 「X 在第 N 局面對 M 位打者」之類的註記 |
+
+### 7.2 `gameData`
+
+| 欄位 | 出現率 | 說明 |
+|---|---|---|
+| `players.{id}` | 100%（平均 48.4 位/場） | ★ 每位球員的完整檔案：`birthCountry`（**找台灣出身球員就靠這個**）／`birthCity`／`birthDate`／`currentAge`／`height`／`weight`／`batSide`／`pitchHand`／`primaryPosition`／`mlbDebutDate`／`draftYear`／`nickName`／`pronunciation`／`strikeZoneTop`／`strikeZoneBottom`（該球員的標準好球帶） |
+| `venue` | 100% | `name`／`location`／`timeZone`／`fieldInfo`（`capacity`／`turfType`／`roofType`／各方向全壘打牆距離 `leftLine`/`leftCenter`/`center`/`rightCenter`/`rightLine`）——**算球場因子的原始素材** |
+| `weather` | 100% | `condition`／`temp`（℉，字串）／`wind`（如 `'12 mph, R To L'`；1.4% 缺） |
+| `gameInfo` | 100% | `attendance`／`gameDurationMinutes`／`firstPitch`／`delayDurationMinutes`(7%) |
+| `datetime` | 100% | `officialDate`／`originalDate`／`dayNight`／`time`／`ampm`；`resumeDate` 系列（0.5%，保留比賽） |
+| `teams.{home,away}` | 100% | 球隊檔案＋`record`（勝敗、勝率）＋`league`／`division`／`sport`／`parentOrgId`（**小聯盟球隊的母隊**）／`springLeague`／`springVenue` |
+| `status` | 100% | `detailedState`（`Final`／`Completed Early: Rain`…）／`statusCode`／`reason` |
+| `ruleSettings[]` | 100%（平均 5.7 條/場） | ★ **`withMetrics` 才有**。該場生效的規則：`baseSize`／`defensiveShiftBanned`／`moundVisitRule`／`secondBaseDistanceFromHome`／`extraInningsRunnerOnSecond`／`designatedHitter`… 每條含 `settingValue` 與 `valueType`。要跨年比較時，這是判斷「這場適用什麼規則」最直接的來源 |
+| `flags` | 100% | `noHitter`／`perfectGame`／各隊版本 |
+| `review` | 100% | 雙方剩餘／已用的挑戰次數 |
+| `moundVisits` | 27.9%（**2018 起**） | 雙方投手丘訪問 `used`／`remaining` |
+| `absChallenges` | 5.1%（**2023 起**） | ABS 挑戰 `remaining`／`usedSuccessful`／`usedFailed` |
+| `probablePitchers` | 80% | 雙方預告先發 |
+| `officialScorer`／`primaryDatacaster` | 96.5%（2005 起） | 官方記錄員／資料記錄員 |
+
+### 7.3 `metaData`
+
+| 欄位 | 說明 |
+|---|---|
+| `timeStamp` | 這份 JSON 的產生時間（`YYYYMMDD_HHMMSS`） |
+| `gameEvents[]`／`logicalEvents[]` | 最後一次更新觸發的事件標記（即時比賽用，回溯分析沒價值） |
+| `wait` | 恆為 10（死） |
+
+---
+
+## 八、`extract.py` 現況對照與補抓建議
+
+### 8.1 `pitches_json` 每球一筆的欄位來源
+
+| 欄位 | 來源路徑 |
+|---|---|
+| `game_pk` | `gamePk` |
 | `inning` | `play.about.inning` |
-| `pitch_type`/`pitch_name` | `event.details.type.code`/`.description` |
-| `result_code`/`result_desc` | `event.details.code`/`.description` |
-| `is_strike`/`is_ball`/`is_in_play` | `event.details.isStrike`/`.isBall`/`.isInPlay` |
-| `zone` | `event.pitchData.zone` |
-| `start_speed`/`end_speed`/`extension`/`plate_time` | `event.pitchData.*` |
-| `strike_zone_top`/`strike_zone_bottom` | `event.pitchData.strikeZoneTop`/`.strikeZoneBottom` |
-| `type_confidence` | `event.pitchData.typeConfidence` |
-| `pfx_x`/`pfx_z`/`px`/`pz`/`x0`/`z0`/`vx0`/`vy0`/`vz0`/`ax`/`ay`/`az` | `event.pitchData.coordinates.*` |
-| `ivb`/`hb`/`spin_rate`/`spin_dir`/`break_angle`/`break_length`/`break_y` | `event.pitchData.breaks.*` |
-| `ev`/`la`/`hit_distance`/`trajectory`/`hit_location`/`hardness` | `event.hitData.*` |
-| `hit_coord_x`/`hit_coord_y` | `event.hitData.coordinates.*` |
-| `balls`/`strikes`/`outs` | `event.count.*`（投球**後**的球數） |
-| `pre_balls`/`pre_strikes` | 優先取 `event.preCount.balls`/`.strikes`；缺值時 fallback 程式手動往前推算（見下方說明） |
-| `pre_outs` | `event.preCount.outs`；缺值時為 `None`，**沒有**手動推算 fallback（`preCount` 出現前完全無法取得投球前出局數） |
-| `batter_id`/`pitcher_id` | `play.matchup.batter.id`/`.pitcher.id` |
-| `bat_side`/`pitch_hand` | `play.matchup.batSide.code`/`.pitchHand.code` |
-| `is_pa_final` | 程式自算：該打席最後一個 `isPitch=True` 的事件（**不是 API 欄位**） |
-| `pa_event`/`pa_event_desc` | `play.result.eventType`/`.event`（只在 `is_pa_final` 時填入） |
-| `runners` | `play.runners[]`（只在 `is_pa_final` 時填入，見 `_extract_runners()`） |
-| `play_id` | `event.playId` |
-| `pitch_number` | `event.pitchNumber`（該打席內第幾球，非單場累計，見第四節更正說明） |
-| `sz_plate_x`/`sz_plate_y`/`sz_plate_z` | `event.pitchData.strikeZoneInfo.plateX`/`.plateY`/`.plateZ` |
-| `sz_top`/`sz_bottom` | `event.pitchData.strikeZoneInfo.strikeZoneTop`/`.strikeZoneBottom` |
-| `sz_flat`/`sz_rounded` | `event.pitchData.strikeZoneInfo.strikeZoneFlat`/`.strikeZoneRounded` |
-| `sz_corner_radius` | `event.pitchData.strikeZoneInfo.strikeZoneCornerRadiusInches` |
-| `sz_width_in`/`sz_depth_in` | `event.pitchData.strikeZoneInfo.widthInches`/`.depthInches` |
-| `sz_edge_distance` | `event.pitchData.strikeZoneInfo.edgeDistance` |
-| `sz_is_strike` | `event.pitchData.strikeZoneInfo.isStrike` |
-| `break_vertical` | `event.pitchData.breaks.breakVertical` |
-| `avg_pitch_speed_player`/`max_pitch_speed_player`/`pitch_speed_pct`/`hr_ballparks` | `event.contextMetrics.averagePitchSpeedPlayer`/`.maxPitchSpeedPlayer`/`.pitchSpeedPlayerRank`/`.homeRunBallparks` |
-| `hit_probability`/`bat_speed`/`is_sword_swing` | `event.hitData.hitProbability`/`.batSpeed`/`.isSwordSwing` |
-| `defense` | `event.defense`（經 `_condense_defense()` 濃縮成 9 個守備位置的球員 id） |
-| `offense` | `event.offense`（經 `_condense_offense()` 濃縮成投球前壘況＋代打偵測，不重存 `batter_id`） |
-| `home_wp`/`wpa`/`leverage_index`/`drama_index` | `play.homeTeamWinProbability`/`.homeTeamWinProbabilityAdded`/`.leverageIndex`/`.dramaIndex`（經 `_pa_context()`，只在 `is_pa_final` 時填入） |
-| `pa_xwoba`/`catch_probability` | `play.contextMetrics.xWoba`/`.catchProbability`（經 `_pa_context()`，只在 `is_pa_final` 時填入） |
-| `pa_final_balls`/`pa_final_strikes`/`pa_final_outs` | `play.count.balls`/`.strikes`/`.outs`（經 `_pa_context()`，只在 `is_pa_final` 時填入） |
+| `pitch_type`／`pitch_name` | `event.details.type.code`／`.description` |
+| `result_code`／`result_desc` | `event.details.code`／`.description` |
+| `is_strike`／`is_ball`／`is_in_play` | `event.details.isStrike`／`.isBall`／`.isInPlay` |
+| `zone`／`start_speed`／`end_speed`／`extension`／`plate_time`／`type_confidence` | `event.pitchData.*` |
+| `strike_zone_top`／`strike_zone_bottom` | `event.pitchData.strikeZoneTop`／`.strikeZoneBottom` |
+| `pfx_x`／`pfx_z`／`px`／`pz`／`x0`／`y0`／`z0`／`vx0`／`vy0`／`vz0`／`ax`／`ay`／`az` | `event.pitchData.coordinates.*` |
+| `ivb`／`hb`／`spin_rate`／`spin_dir`／`break_angle`／`break_length`／`break_y`／`break_vertical` | `event.pitchData.breaks.*` |
+| `ev`／`la`／`hit_distance`／`trajectory`／`hit_location`／`hardness`／`hit_probability`／`bat_speed`／`is_sword_swing` | `event.hitData.*` |
+| `hit_coord_x`／`hit_coord_y` | `event.hitData.coordinates.coordX`／`coordY` |
+| `balls`／`strikes`／`outs` | `event.count.*`（投球**後**） |
+| `pre_balls`／`pre_strikes`／`pre_outs` | `event.preCount.*`（投球**前**；實測 100% 都有，fallback 用不到） |
+| `batter_id` | `play.matchup.batter.id` |
+| `pitcher_id` | `event.defense.pitcher.id`（缺值退回 `play.matchup.pitcher.id`） |
+| `bat_side`／`pitch_hand` | `play.matchup.batSide.code`／`.pitchHand.code` |
+| `is_pa_final` | 程式自算（該打席最後一顆 `isPitch`），**非 API 欄位** |
+| `pa_event`／`pa_event_desc` | `play.result.eventType`／`.event`（僅最後一球） |
+| `runners` | `play.runners[]`（僅最後一球，見 `_extract_runners()`） |
+| `play_id`／`pitch_number` | `event.playId`／`.pitchNumber` |
+| `sz_plate_x/y/z`／`sz_top`／`sz_bottom`／`sz_flat`／`sz_rounded`／`sz_corner_radius`／`sz_width_in`／`sz_depth_in`／`sz_edge_distance`／`sz_is_strike` | `event.pitchData.strikeZoneInfo.*` |
+| `hr_ballparks` | `event.contextMetrics.homeRunBallparks` |
+| `defense`／`offense` | `event.defense`／`.offense`（經 `_condense_defense()`／`_condense_offense()` 濃縮） |
+| `pa_final_balls/strikes/outs`／`home_wp`／`wpa`／`leverage_index`／`drama_index`／`pa_xwoba` | `play.count.*`／`play.homeTeamWinProbability` 等（經 `_pa_context()`，僅最後一球） |
 
-`extract_pitch_logs()` 現在回傳 `(pitches, nonpitch_events)` 2-tuple；`nonpitch_events`
-定義了另一個快取欄位 `game_logs.events_json`（`pickoff`/`stepoff` 事件，經
-`_condense_nonpitch_event()`），每筆物件的欄位對應：
+`events_json`（目前只收 `pickoff`／`stepoff` 兩種事件）：
+`type`／`index`／`play_id`／`inning`／`pre_*`／`balls`/`strikes`/`outs`／`result_code`／
+`result_desc`／`disengagement_num`／`from_catcher`／`runner_going`／`is_out`／
+`pitcher_id`／`batter_id`。
 
-| `events_json` 欄位 | 來源 JSON 路徑 |
+### 8.2 已經在抓、但實測沒有資訊量的欄位
+
+| 欄位 | 狀況 |
 |---|---|
-| `type` | `event.type`（`pickoff`/`stepoff`） |
-| `index` | `event.index` |
-| `play_id` | `event.playId` |
-| `inning` | `play.about.inning` |
-| `pre_balls`/`pre_strikes`/`pre_outs` | `event.preCount.balls`/`.strikes`/`.outs` |
-| `balls`/`strikes`/`outs` | `event.count.balls`/`.strikes`/`.outs` |
-| `result_code`/`result_desc` | `event.details.code`/`.description` |
-| `disengagement_num` | `event.details.disengagementNum` |
-| `from_catcher` | `event.details.fromCatcher` |
-| `runner_going` | `event.details.runnerGoing` |
-| `is_out` | `event.details.isOut` |
-| `pitcher_id`/`batter_id` | `play.matchup.pitcher.id`/`.batter.id` |
+| `sz_rounded` | 恆為 `False`（17,878/17,878） |
+| `sz_corner_radius` | 恆為 `0.0` |
+| `break_y` | 只有 24.0／19.2 兩個值 |
+| `hardness` | 93% 是 `medium` |
 
-**2026-07 已完成擷取**：上一輪紀錄的「尚未使用、但已確認存在的 withMetrics 新欄位」
-（`preCount.outs`、`hitData.batSpeed`/`.hitProbability`/`.isSwordSwing`、
-`pitchData.strikeZoneInfo.*`、`contextMetrics.homeRunBallparks`、play 層級的
-`contextMetrics.xWoba`/`.catchProbability` 與 `homeTeamWinProbability` 系列指標）
-已於本輪 withMetrics 遷移全部擷取，對應見上表。唯一刻意不擷取的是 **event 層級**的
-`homeTeamWinProbability`/`leverageIndex`/`dramaIndex`（實測恆為 0，見第四節更正說明），
-以及第一節列出的少量低價值/場次中繼資料欄位。
+留著不會錯（未來 MLB 可能啟用圓角好球帶），但別在這幾個欄位上建分析。
+
+### 8.3 值得補抓的欄位（按價值排序）
+
+| 優先 | 欄位 | 理由 |
+|---|---|---|
+| 高 | `playEvents[].officials[]`（至少主審 `Home Plate` 的 id） | 有了主審 ID＋已在抓的 `sz_is_strike`（模型判定）＋`details.isStrike`（實判），就能算**主審好球帶偏差**，這是自算指標、完全符合資料政策 |
+| 高 | 跑壘事件的 `homeTeamWinProbabilityAdded`／`leverageIndex`／`dramaIndex` | 盜壘、牽制、暴投的 WPA 只能從這裡取得（1.3% 的事件），目前完全沒收 |
+| 高 | `runners[].details.playIndex` | 能把每次跑壘精準對到 `playEvents[]` 的某一顆球，目前 `runners` 只整包掛在最後一球上 |
+| 中 | `action` 事件的 `details.eventType` | 目前 `action` 事件整批略過，`wild_pitch`／`passed_ball`／`stolen_base_2b`／`pickoff_error` 等要靠 `runners[].movementReason` 間接還原 |
+| 中 | `allPlays[].flags[]` | `b_sac_fly`／`b_sac_bunt`／`t_double_play`／`b_gnd_into_dp` 直接標好，比從 `eventType` 反推乾淨 |
+| 中 | `pitchData.strikeZoneWidth`／`strikeZoneDepth` | ABS 時代（AAA 2023／MLB 2025 起）的好球帶尺寸，跟 `sz_width_in` 的 0.0 壞值可以互補 |
+| 中 | `allPlays[].atBatIndex` | 目前打席順序靠陣列位置，存下來對 debug 與外部比對都方便 |
+| 低 | `offense.postOnFirst` | `_condense_offense()` 少抓的一個（只有 34 筆，但為了一致性） |
+| 低 | `details.violation` | 投球計時器違規（2023 起，44 筆） |
+| 低 | `about.captivatingIndex` | 舊版精彩度，已有 `drama_index` |
+
+### 8.4 明確不建議抓
+
+`details.ballColor`／`trailColor`（轉播動畫顏色）、`pitchData.coordinates.x`／`y`
+（螢幕座標）、`credits[]`（`b_pa`/`p_pa` 資訊量低於 `result.eventType`）、
+`metaData.gameEvents`／`logicalEvents`（即時推播用）、以及第三節列出的所有死欄位。

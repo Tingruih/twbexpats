@@ -3,6 +3,7 @@
 import datetime
 import sqlite3
 
+from ..constants import REGULAR_SEASON_GAME_TYPE
 from ..levels import level_rank
 from ..roster import categorize_roster_status
 from ..stats.core.selectors import has_appearance
@@ -77,12 +78,13 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
 
     if has_pitches_col:
         log_sql = (
-            "SELECT date, game_id, opponent, is_home, stats_json, pitches_json, sport_level "
+            "SELECT date, game_id, opponent, is_home, stats_json, sport_level, game_type, "
+            "pitches_json "
             "FROM game_logs WHERE player_mlb_id = ? ORDER BY date DESC"
         )
     else:
         log_sql = (
-            "SELECT date, game_id, opponent, is_home, stats_json, sport_level "
+            "SELECT date, game_id, opponent, is_home, stats_json, sport_level, game_type "
             "FROM game_logs WHERE player_mlb_id = ? ORDER BY date DESC"
         )
 
@@ -95,12 +97,10 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
         log.opponent = row[2]
         log.is_home = None if row[3] is None else bool(row[3])
         log.stats_json = loads_json_dict(row[4])
-        if has_pitches_col:
-            log.pitches_json = loads_json_list(row[5])
-            log.sport_level = row[6] or ""
-        else:
-            log.pitches_json = []
-            log.sport_level = row[5] or ""
+        log.sport_level = row[5] or ""
+        log.game_type = row[6]
+        log.is_postseason = log.game_type != REGULAR_SEASON_GAME_TYPE
+        log.pitches_json = loads_json_list(row[7]) if has_pitches_col else []
         logs.append(log)
 
     return player, stats, logs

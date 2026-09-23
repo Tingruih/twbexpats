@@ -1,5 +1,6 @@
 """game_logs pitch-cache queries."""
 
+from ..constants import REGULAR_SEASON_GAME_TYPE
 from ..util.json import loads_json_list
 
 
@@ -10,11 +11,15 @@ def load_all_pitches_for_player(cur, mlb_id: int) -> dict[tuple, list[dict]]:
     from season_stats.  If the player only appeared at one level in that year,
     the resolution is unambiguous; otherwise the pitches are grouped under
     ``(year, "")`` and the caller must handle the ambiguity.
+
+    Regular season only: these aggregates land in season_stats next to the
+    yearByYear numbers, which are regular-season-only too.
     """
     cur.execute(
         "SELECT date, sport_level, pitches_json FROM game_logs "
-        "WHERE player_mlb_id = ? AND pitches_json != '[]' AND pitches_json IS NOT NULL",
-        (mlb_id,),
+        "WHERE player_mlb_id = ? AND game_type = ? "
+        "AND pitches_json != '[]' AND pitches_json IS NOT NULL",
+        (mlb_id, REGULAR_SEASON_GAME_TYPE),
     )
     by_year_level: dict[tuple, list[dict]] = {}
     # Buffer games with empty sport_level for resolution

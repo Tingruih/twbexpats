@@ -197,7 +197,7 @@ def _pooled_year_pitches(logs) -> dict[int, list[dict]]:
     """
     by_year: dict[int, list[dict]] = {}
     for log in logs:
-        if not log.date or not log.pitches_json:
+        if not log.date or not log.pitches_json or log.is_postseason:
             continue
         by_year.setdefault(log.date.year, []).extend(log.pitches_json)
     return by_year
