@@ -6,23 +6,26 @@ hierarchy rank, and era-aware display string — lives here. No other module may
 define its own level constant table; they import from this one instead.
 
 Background: the 2020–21 MiLB reorganization renamed levels and eliminated the
-short-season tier, but the *hierarchy* never changed. So we model each level as
-a "tier" with a stable rank, plus an era-aware display name:
+short-season and rookie-advanced tiers, but the *hierarchy* never changed. So we
+model each level as a "tier" with a stable rank, plus an era-aware display name:
 
-    tier   rank  2021+ (modern)   2020- (legacy / "period name")
-    ─────  ────  ──────────────   ──────────────────────────────
-    MLB     0    MLB              MLB
-    AAA     1    AAA              AAA
-    AA      2    AA               AA
-    A+      3    A+  (High-A)     A(Adv)  (Class A-Advanced)
-    A       4    A   (Low-A)      A(Full) (Class A full-season)
-    A-      5    — (eliminated)   A(Short) (Class A Short Season)
-    ROK     6    ROK              ROK
-    WIN     7    WIN              WIN
-    Minors  99   Minors           Minors
+    tier   rank  sportId  2021+ (modern)   2020- (legacy / "period name")
+    ─────  ────  ───────  ──────────────   ──────────────────────────────
+    MLB     0    1        MLB              MLB
+    AAA     1    11       AAA              AAA
+    AA      2    12       AA               AA
+    A+      3    13       A+  (High-A)     A(Adv)  (Class A-Advanced)
+    A       4    14       A   (Low-A)      A(Full) (Class A full-season)
+    A-      5    15       — (eliminated)   A(Short) (Class A Short Season)
+    ROA     6    5442     — (eliminated)   ROA     (Rookie Advanced)
+    ROK     7    16       ROK              ROK
+    WIN     8    17       WIN              WIN
+    Minors  99   21       Minors           Minors
 
-`level_rank` collapses every era/spelling onto its tier for sorting/comparison;
-`level_display` keeps the period-accurate name (driven by the season `year`).
+Storage contract: every DB level column (``season_stats.sport_level``,
+``game_logs.sport_level``, ``players.level``, ``league_fip_constants.sport_level``)
+holds the tier *key*, written through :func:`sport_to_tier_key`. Period names
+never reach the DB; :func:`level_display` derives them from the season year.
 """
 
 from dataclasses import dataclass
@@ -32,8 +35,14 @@ from typing import Optional
 # MiLB season (COVID), so the boundary is clean.
 _MODERN_FROM_YEAR = 2021
 
-# Sentinel values used by client-side filters; never treated as real levels.
-_SENTINELS = frozenset({"_combined", "_all", ""})
+# 跨層級合計列的 sentinel，不是真的層級：
+#   COMBINED_LEVEL — Statcast 年度合計列（render/pages.py::_build_statcast_entries）
+#   ALL_LEVELS     — 走勢圖跨層級累計序列（graph/season_trend.py），也是前端
+#                    篩選器「All Levels」選項的值（src/static/js/util.js 寫死同一字串）
+COMBINED_LEVEL = "_combined"
+ALL_LEVELS = "_all"
+_ALL_LEVELS_LABEL = "All Levels"
+_SENTINELS = frozenset({COMBINED_LEVEL, ALL_LEVELS, ""})
 
 
 @dataclass(frozen=True)
@@ -48,32 +57,57 @@ class Tier:
 
 
 # ── The one and only level table ──
+# rank 順序與 MLB Stats API /sports 的 sortOrder 一致（A(Short) 501 < ROA 601 < ROK 701）
 TIERS = (
-    Tier("MLB",    0,  (1,),  "MLB",    "MLB",      ("MLB",),
+    Tier("MLB",    0,  (1,),    "MLB",    "MLB",      ("MLB",),
          ("Major League Baseball",)),
-    Tier("AAA",    1,  (11,), "AAA",    "AAA",      ("AAA",),
+    Tier("AAA",    1,  (11,),   "AAA",    "AAA",      ("AAA",),
          ("Triple-A",)),
-    Tier("AA",     2,  (12,), "AA",     "AA",       ("AA",),
+    Tier("AA",     2,  (12,),   "AA",     "AA",       ("AA",),
          ("Double-A",)),
-    Tier("A+",     3,  (13,), "A+",     "A(Adv)",   ("A+", "A(Adv)", "A (Adv)"),
+    Tier("A+",     3,  (13,),   "A+",     "A(Adv)",   ("A+", "A(Adv)", "A (Adv)"),
          ("High-A", "Class A-Advanced", "Class A Advanced")),
-    Tier("A",      4,  (14,), "A",      "A(Full)",  ("A", "A(Full)", "A (Full)"),
+    Tier("A",      4,  (14,),   "A",      "A(Full)",  ("A", "A(Full)", "A (Full)"),
          ("Single-A", "Low-A", "Class A")),
-    Tier("A-",     5,  (15,), None,     "A(Short)", ("A-", "A(Short)", "A (Short)"),
+    Tier("A-",     5,  (15,),   None,     "A(Short)", ("A-", "A(Short)", "A (Short)"),
          ("Class A Short Season",)),
-    Tier("ROK",    6,  (16,), "ROK",    "ROK",      ("ROK", "ROA", "Rk", "Rookie"),
-         ("Rookie", "Rookie Advanced")),
-    Tier("WIN",    7,  (17,), "WIN",    "WIN",      ("WIN",),
+    # Rookie Advanced（Pioneer / Appalachian League）有自己的 sportId 5442，
+    # 與 ROK（sportId 16）是不同層級；2021 年重組後廢除，所以跟 A- 一樣沒有 modern 名稱
+    Tier("ROA",    6,  (5442,), None,     "ROA",      ("ROA",),
+         ("Rookie Advanced",)),
+    Tier("ROK",    7,  (16,),   "ROK",    "ROK",      ("ROK", "Rk", "Rookie"),
+         ("Rookie",)),
+    Tier("WIN",    8,  (17,),   "WIN",    "WIN",      ("WIN",),
          ("Winter Leagues",)),
-    Tier("Minors", 99, (21,), "Minors", "Minors",   ("Minors",),
+    Tier("Minors", 99, (21,),   "Minors", "Minors",   ("Minors",),
          ("Minor League Baseball",)),
 )
+
+MLB_KEY = "MLB"  # SQL 參數用（WHERE sport_level = ?），避免在 SQL 字串裡寫死層級
+# 層級未知時的預設值（沒有現役球隊、也沒有任何 season_stats 可推算）；
+# db/schema.py 的 players.level DEFAULT 'Minors' 必須跟它一致
+MINORS_KEY = "Minors"
 
 _UNKNOWN_RANK = 50  # below every real level, above the "Minors" aggregate (99)
 
 _BY_ALIAS = {alias: t for t in TIERS for alias in t.aliases}
 _BY_SPORT_ID = {sid: t for t in TIERS for sid in t.sport_ids}
 _BY_NAME = {name: t for t in TIERS for name in t.names}
+_BY_KEY = {t.key: t for t in TIERS}
+
+# 附屬小聯盟：MLB 與 WIN 之間的 tier（WIN 是冬季聯盟，Minors 是 API 的整季合計列）
+_MILB_KEYS = tuple(
+    t.key for t in TIERS if _BY_KEY["MLB"].rank < t.rank < _BY_KEY["WIN"].rank
+)
+
+# 查詢未來賽程（/schedule?sportId=...）用：MLB 加上仍存在的附屬小聯盟層級。
+# 已廢除的 A-/ROA（modern 為 None）不會有未來比賽；WIN 與 Minors 合計列不追蹤
+SCHEDULE_SPORT_IDS = tuple(
+    sid
+    for t in TIERS
+    if t.modern is not None and (t.key == MLB_KEY or t.key in _MILB_KEYS)
+    for sid in t.sport_ids
+)
 
 
 def resolve_tier(raw: Optional[str]) -> Optional[Tier]:
@@ -99,8 +133,8 @@ def level_display(raw: Optional[str], year: Optional[int]) -> Optional[str]:
     - Sentinels (`_combined`, `_all`, ``) and unknown values pass through.
     - 2021+ seasons use the modern code (A+, A, ROK …); 2020- seasons keep the
       period name (A(Adv), A(Full), A(Short) …). Driven by *year*.
-    - This makes game_logs (which store modern codes) and season_stats (which
-      store period names) render identically for the same season.
+    - The DB stores tier keys only, so this is the one place a period name
+      is produced; the correctness of the label depends on *year*.
     """
     if raw in _SENTINELS or raw is None:
         return raw
@@ -112,51 +146,70 @@ def level_display(raw: Optional[str], year: Optional[int]) -> Optional[str]:
     return tier.legacy
 
 
-def is_mlb(raw: Optional[str]) -> bool:
-    """Whether *raw* is the MLB tier (used for the hero badge's special style)."""
+def level_label(raw: Optional[str], year: Optional[int]) -> Optional[str]:
+    """給人看的層級標籤：合計 sentinel 顯示 ``All Levels``，其餘同 :func:`level_display`。
+
+    ``level_display`` 讓 sentinel 原樣通過，因為前端篩選器拿它當 ``<option>`` 的值；
+    需要顯示文字的地方（``data-level-label``、走勢圖標籤）用這個。
+    """
+    if raw in (COMBINED_LEVEL, ALL_LEVELS):
+        return _ALL_LEVELS_LABEL
+    return level_display(raw, year)
+
+
+def is_level(raw: Optional[str], *tier_keys: str) -> bool:
+    """*raw*（任何拼法）是否屬於 *tier_keys* 其中之一。
+
+    *tier_keys* 必須是 TIERS 裡的 key；打錯字或傳入舊制名稱（``A(Adv)``）時直接
+    ``ValueError``，否則這種呼叫會永遠回 False 而沒人發現。未知層級一律回 False。
+    """
+    if not tier_keys:
+        raise ValueError("is_level() needs at least one tier key")
+    unknown = [k for k in tier_keys if k not in _BY_KEY]
+    if unknown:
+        raise ValueError(f"not tier keys: {unknown}")
     tier = resolve_tier(raw)
-    return tier is not None and tier.key == "MLB"
+    return tier is not None and tier.key in tier_keys
 
 
-def sport_id_to_code(sport_id: int) -> str:
-    """Map an MLB Stats API sportId to a stored level code.
+def is_mlb(raw: Optional[str]) -> bool:
+    """Whether *raw* is the MLB tier — the only MLB check the codebase should use."""
+    return is_level(raw, MLB_KEY)
 
-    Used at sync time for currentTeam / game-log levels. Falls back to the
-    period name for the defunct sportId 15 (short season) so the stored value is
-    never empty; the display layer normalizes it anyway.
+
+def is_milb(raw: Optional[str]) -> bool:
+    """*raw* 是否為附屬小聯盟（AAA … ROK，含已廢除的 A-/ROA）。
+
+    不含冬季聯盟 ``WIN``、``Minors`` 合計列與無法對應 tier 的層級（如獨立聯盟
+    ``IND``），所以 MiLB 生涯合計不能寫成 ``not is_mlb()``。
     """
-    tier = _BY_SPORT_ID.get(sport_id)
-    if tier is None:
+    return is_level(raw, *_MILB_KEYS)
+
+
+def to_tier_key(raw: Optional[str]) -> str:
+    """把任何層級拼法收斂成 tier key；未知拼法原樣回傳，``None`` 視為空字串。"""
+    if not raw:
         return ""
-    return tier.modern or tier.legacy
+    tier = resolve_tier(raw)
+    return tier.key if tier else raw
 
 
-def sport_name_to_code(name: str) -> str:
-    """Map an official MLB Stats API sport ``name`` to a stored level code.
+def sport_to_tier_key(sport: Optional[dict]) -> str:
+    """MLB Stats API 的 sport 物件 → 寫入 DB 的 tier key。所有寫入端都走這裡。
 
-    Fallback for :func:`sport_id_to_code` when only the sport name is available.
-    Returns ``tier.modern or tier.legacy`` (so the defunct short season yields
-    its period name, never empty); unknown names yield ``""``.
+    依序用 ``id``、``abbreviation``、``name`` 解析。``id`` 優先，因為
+    ``abbreviation`` 會隨年代變（2019 年 sportId 13 回 ``A(Adv)``），``name`` 也是。
+    三者都對不到（例如 sportId 23 獨立聯盟）時保留 API 的 ``abbreviation``，
+    不丟掉資訊；``level_rank`` 會把它排在所有已知層級之後。
     """
-    tier = _BY_NAME.get(name)
-    if tier is None:
-        return ""
-    return tier.modern or tier.legacy
-
-
-def sport_obj_to_abbr(sport: Optional[dict]) -> str:
-    """Convert an MLB Stats API sport object to a stored level code.
-
-    Prefers sportId; falls back to the sport name.
-    """
+    # sport 物件缺漏（例如 gameLog 的 group 層沒有 sport）
     if not sport:
         return ""
-    abbr = sport_id_to_code(sport.get("id", 0))
-    if abbr:
-        return abbr
-    return sport_name_to_code(sport.get("name", ""))
-
-
-def tier_keys_ordered() -> list:
-    """Tier keys ordered by rank (highest level first) — for SQL CASE ordering."""
-    return [t.key for t in sorted(TIERS, key=lambda t: t.rank)]
+    tier = (
+        _BY_SPORT_ID.get(sport.get("id"))
+        or resolve_tier(sport.get("abbreviation"))
+        or _BY_NAME.get(sport.get("name", ""))
+    )
+    if tier:
+        return tier.key
+    return sport.get("abbreviation") or ""

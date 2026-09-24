@@ -72,6 +72,14 @@ ROSTER_INACTIVE_CODES = {"RL", "RET", "VL", "DEC"}
 # unclassified: these describe a roster *move* rather than an unavailability
 # reason, so they fall through to the "active"/"other" defaults below.
 
+# categorize_roster_status 的回傳值。字串本身同時是前端 status-pill 的 CSS class
+# （src/static/css/components.css 的 .status-pill.<category>），改值要一起改
+STATUS_ACTIVE = "active"
+STATUS_INJURED = "injured"
+STATUS_RESTRICTED = "restricted"
+STATUS_INACTIVE = "inactive"
+STATUS_OTHER = "other"
+
 
 def categorize_roster_status(code, is_active_entry, player_is_active):
     """Map a player's most recent roster entry to a status-pill category.
@@ -82,23 +90,23 @@ def categorize_roster_status(code, is_active_entry, player_is_active):
     (e.g. Released). `player_is_active` is the top-level API `active` flag,
     used only as a fallback when there is no roster history at all.
 
-    Returns one of: "active", "injured", "restricted", "inactive", "other".
+    Returns one of the ``STATUS_*`` constants above.
     """
     if not code:
-        return "active" if player_is_active else "inactive"
+        return STATUS_ACTIVE if player_is_active else STATUS_INACTIVE
     if code == "DEC":
-        return "inactive"  # Deceased overrides isActive -- never shown as active.
+        return STATUS_INACTIVE  # Deceased overrides isActive -- never shown as active.
     if is_active_entry:
         if code in ROSTER_INJURED_CODES:
-            return "injured"
+            return STATUS_INJURED
         if code in ROSTER_RESTRICTED_CODES:
-            return "restricted"
+            return STATUS_RESTRICTED
         if code in ROSTER_OTHER_CODES:
-            return "other"
-        return "active"
+            return STATUS_OTHER
+        return STATUS_ACTIVE
     if code in ROSTER_INACTIVE_CODES:
-        return "inactive"
-    return "other"
+        return STATUS_INACTIVE
+    return STATUS_OTHER
 
 
 # ── Active / retired decision ──
