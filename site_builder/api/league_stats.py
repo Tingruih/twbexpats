@@ -3,13 +3,13 @@
 Used to compute FIP constants from real league-wide pitching totals instead
 of a hand-copied source. Both endpoints return one row per team, so a whole
 tier's data comes back in a single call each — no per-player fetching.
+
+Both raise ``FetchError`` on failure (see client.py): the caller in
+``league_constant/pitching.py`` must tell a failed fetch apart from an empty
+season, otherwise a half-failed fetch gets cached as if it were complete.
 """
 
-import logging
-
 from .client import BASE_URL, get_json
-
-logger = logging.getLogger(__name__)
 
 
 def fetch_team_league_map(sport_id: int, year: int) -> dict[int, str]:
@@ -18,11 +18,7 @@ def fetch_team_league_map(sport_id: int, year: int) -> dict[int, str]:
     api endpoint: /teams?sportId={sport_id}&season={year}
     """
     url = f"{BASE_URL}/teams?sportId={sport_id}&season={year}"
-    try:
-        teams = get_json(url).get("teams", [])
-    except Exception as e:
-        logger.warning("teams fetch failed for sportId=%s season=%s: %s", sport_id, year, e)
-        return {}
+    teams = get_json(url).get("teams", [])
     return {
         t["id"]: t["league"]["name"]
         for t in teams
@@ -44,14 +40,8 @@ def fetch_team_pitching_totals(sport_id: int, year: int) -> list[dict]:
         f"{BASE_URL}/teams/stats?sportId={sport_id}&stats=season"
         f"&group=pitching&season={year}"
     )
-    try:
-        stats = get_json(url).get("stats", [{}])
-        splits = stats[0].get("splits", []) if stats else []
-    except Exception as e:
-        logger.warning(
-            "teams/stats fetch failed for sportId=%s season=%s: %s", sport_id, year, e
-        )
-        return []
+    stats = get_json(url).get("stats", [{}])
+    splits = stats[0].get("splits", []) if stats else []
 
     out = []
     for split in splits:

@@ -1,16 +1,33 @@
 """TJStats (tjstats.ca) park factors and league constants — HTML scrape.
 
 Both fetches are best-effort enhancements for wRC+ computation, not core
-data, so failures must never raise; they log a warning and return {}.
+data, so network failures must never raise; they log a warning and return {}.
+A page whose layout no longer matches the parser also logs a warning (the
+wRC+ column would otherwise vanish without a trace). A season that has not
+been published yet renders the same page minus its table(s) (verified
+2026-09: pf_season=2027 has no table.tjs-guts, lc_season=2027 has only the
+park-factor one), so a missing table only warns for past seasons, which are
+always published; for the current season or later it logs at INFO.
 """
 
 import logging
 
 from bs4 import BeautifulSoup
 
-from .client import get_text
+from ..constants import SEASON_YEAR
+from ..util.log import describe_exc
+from .client import FetchError, get_text
 
 logger = logging.getLogger(__name__)
+
+
+def _log_missing_table(year: int, what: str, url: str) -> None:
+    """找不到預期的 table：過去球季代表版面改了（WARNING），當季以後視為尚未發布（INFO）。"""
+    if year < SEASON_YEAR:
+        logger.warning("TJStats %s table missing for past season %s (layout changed?): %s",
+                       what, year, url)
+    else:
+        logger.info("TJStats %s not published yet for %s", what, year)
 
 # site_builder.levels Tier key → (pf_level query value, league-constants Level
 # code) on tjstats.ca. The two pages spell the same levels differently
@@ -42,17 +59,21 @@ def fetch_park_factors(level: str, year: int) -> dict[str, dict]:
     url = f"https://tjstats.ca/park-factors/?pf_level={param}&pf_season={year}"
     try:
         html = get_text(url)
-    except Exception as exc:
-        print(f"  WARNING: failed to fetch TJStats park factors for {level} {year}: {exc}")
+    except FetchError as exc:
+        logger.warning(
+            "TJStats park factors fetch failed for %s %s: %s", level, year, describe_exc(exc)
+        )
         return {}
 
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.select("table.tjs-guts")
     if not tables:
+        _log_missing_table(year, f"park factors ({level})", url)
         return {}
 
+    rows = tables[0].select("tbody tr")
     result = {}
-    for tr in tables[0].select("tbody tr"):
+    for tr in rows:
         cells = [td.get_text(strip=True) for td in tr.find_all("td")]
         if len(cells) < 9:
             continue
@@ -62,6 +83,11 @@ def fetch_park_factors(level: str, year: int) -> dict[str, dict]:
         except ValueError:
             continue
         result[team_name] = {"pf_final": pf_final, "league": league}
+    if rows and not result:
+        logger.warning(
+            "TJStats park factors: %d row(s) for %s %s but none parsed (columns changed?): %s",
+            len(rows), level, year, url,
+        )
     return result
 
 
@@ -75,17 +101,22 @@ def fetch_league_constants(year: int) -> dict[tuple[str, str], dict]:
     url = f"https://tjstats.ca/park-factors/?lc_season={year}"
     try:
         html = get_text(url)
-    except Exception as exc:
-        print(f"  WARNING: failed to fetch TJStats league constants for {year}: {exc}")
+    except FetchError as exc:
+        logger.warning(
+            "TJStats league constants fetch failed for %s: %s", year, describe_exc(exc)
+        )
         return {}
 
     soup = BeautifulSoup(html, "html.parser")
     tables = soup.select("table.tjs-guts")
+    # 同一頁第二張 table.tjs-guts 才是 league constants，第一張是 park factors
     if len(tables) < 2:
+        _log_missing_table(year, "league constants", url)
         return {}
 
+    rows = tables[1].select("tbody tr")
     result = {}
-    for tr in tables[1].select("tbody tr"):
+    for tr in rows:
         cells = [td.get_text(strip=True) for td in tr.find_all("td")]
         if len(cells) < 7:
             continue
@@ -96,4 +127,9 @@ def fetch_league_constants(year: int) -> dict[tuple[str, str], dict]:
         except ValueError:
             continue
         result[(level_code, league)] = {"lg_woba": lg_woba, "lg_r_pa": lg_r_pa}
+    if rows and not result:
+        logger.warning(
+            "TJStats league constants: %d row(s) for %s but none parsed (columns changed?): %s",
+            len(rows), year, url,
+        )
     return result

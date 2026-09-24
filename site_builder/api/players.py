@@ -2,8 +2,9 @@
 
 import logging
 
-from ..levels import sport_id_to_code
-from .client import BASE_URL, get_json
+from ..levels import sport_to_tier_key
+from ..util.log import describe_exc
+from .client import BASE_URL, FetchError, get_json
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +33,13 @@ def get_player_profile(mlb_id: int) -> dict:
                 team_id (球隊 ID)
                 current_team_name (目前球隊名稱)
                 current_team_level (球隊等級，如 MLB, AAA, AA 等)
+
+    主請求失敗時丟出 FetchError；球隊層級的附帶請求失敗只記 warning，
+    current_team_level 留空。
     """
     url = f"{BASE_URL}/people/{mlb_id}?hydrate=transactions,rosterEntries,currentTeam"
     people = get_json(url).get("people", [])
+    # 查無此 ID（roster.json 的 mlb_id 打錯或已被 MLB 合併）
     if not people:
         return {}
 
@@ -80,10 +85,14 @@ def get_player_profile(mlb_id: int) -> dict:
         try:
             t_data = get_json(f"{BASE_URL}/teams/{team_id}").get("teams", [])
             if t_data:
-                sport_id = t_data[0].get("sport", {}).get("id")
-                current_team_level = sport_id_to_code(sport_id)
-        except Exception as e:
-            logger.warning("Failed to fetch team level for team_id=%s: %s", team_id, e)
+                # teams[0].sport：{id, link}，層級只能靠 sportId 解析
+                current_team_level = sport_to_tier_key(t_data[0].get("sport"))
+        except FetchError as e:
+            # 層級抓不到時留空，sync/players.py 會改用 season_stats 最近一季的層級
+            logger.warning(
+                "team level fetch failed for player %s team_id=%s: %s",
+                mlb_id, team_id, describe_exc(e),
+            )
 
     return {
         "mlb_id": p.get("id"),

@@ -1,115 +1,82 @@
 """Player stat endpoints (yearByYear / seasonAdvanced / gameLog /
-sabermetrics / expectedStatistics)."""
+sabermetrics / expectedStatistics).
 
-import logging
+全部經由 ``_fetch_stats``（MLB + MiLB 各一次、或逐年），任一請求在重試用盡後失敗就
+整個丟出 ``FetchError``，不回傳只有一部分的結果：呼叫端才能分辨「API 沒有資料」
+與「抓取失敗」，失敗時保留 DB 舊值並在下次執行重抓（見 sync/players.py）。
+"""
+
 from typing import Optional
 
 from ..constants import GAME_LOG_GAME_TYPES
 from .client import BASE_URL, get_json
 
-logger = logging.getLogger(__name__)
+# leagueListId：不帶時 API 只回 MLB；milb_all 是所有 MiLB 層級。
+# 刻意維持「MLB 一次 + milb_all 一次」而不用官方的 mlb_milb 一次取回：兩者資料逐筆相同，
+# 但回傳的 group/split 順序不同，而 sync/players.py 寫入時有依順序「後蓋前」的欄位
+# （gp、pitches_per_pa、同場又投又打的 game_logs.stats_json），換順序會改變寫入結果
+# （見 docs/bugs/UNFIXED_BUGS.md）。
+MLB_ONLY = (None,)
+MLB_AND_MILB = (None, "milb_all")
+
+
+def _fetch_stats(
+    mlb_id: int,
+    query: str,
+    years: Optional[list[int]] = None,
+    *,
+    leagues: tuple[Optional[str], ...] = MLB_AND_MILB,
+) -> list:
+    """``/people/{mlb_id}/stats?{query}`` 回傳的 ``stats`` 列表，依「年份 → 聯盟清單」順序串接。
+
+    ``years`` 給定時每年加 ``season`` 各打一次，否則不帶 ``season``（API 預設球季）；
+    每一年對 ``leagues`` 裡的每個 leagueListId 各打一次（None 代表不帶，只查 MLB）。
+    """
+    stats = []
+    for yr in years or [None]:
+        for league in leagues:
+            url = f"{BASE_URL}/people/{mlb_id}/stats?{query}"
+            if league:
+                url += f"&leagueListId={league}"
+            if yr:
+                url += f"&season={yr}"
+            stats.extend(get_json(url).get("stats", []))
+    return stats
 
 
 def get_player_stats(mlb_id: int) -> list:
     """
-    api endpoint: /people/{mlb_id}/stats?stats=yearByYear&group={groups}" (MLB)
-                : /people/{mlb_id}/stats?stats=yearByYear&leagueListId=milb_all&group={groups}" (MiLB)
+    api endpoint: /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding (MLB)
+                : 同上加 leagueListId=milb_all (MiLB)
 
     回傳所有年份的選手MLB與MiLB基礎數據，包含打擊、投球和守備。
     """
-    all_stats = []
-    groups = "hitting,pitching,fielding"
-
-    # MLB endpoint — returns MLB-level seasons only; empty for players without MLB time
-    try:
-        url = f"{BASE_URL}/people/{mlb_id}/stats?stats=yearByYear&group={groups}"
-        all_stats.extend(get_json(url).get("stats", []))
-    except Exception as e:
-        logger.warning("MLB yearByYear failed for %s: %s", mlb_id, e)
-
-    # MiLB endpoint — always needed for minor-league history
-    try:
-        url = (
-            f"{BASE_URL}/people/{mlb_id}/stats"
-            f"?stats=yearByYear&leagueListId=milb_all&group={groups}"
-        )
-        all_stats.extend(get_json(url).get("stats", []))
-    except Exception as e:
-        logger.warning("MiLB yearByYear failed for %s: %s", mlb_id, e)
-
-    return all_stats
+    return _fetch_stats(mlb_id, "stats=yearByYear&group=hitting,pitching,fielding")
 
 
 def get_player_advanced_stats(mlb_id: int, years: Optional[list[int]] = None) -> list:
     """
-    api endpoint: /people/{mlb_id}/stats?stats=seasonAdvanced&group={groups}&season={year} (MLB)
-                : /people/{mlb_id}/stats?stats=seasonAdvanced&leagueListId=milb_all&group={groups}&season={year} (MiLB)
+    api endpoint: /people/{mlb_id}/stats?stats=seasonAdvanced&group=hitting,pitching&season={year} (MLB)
+                : 同上加 leagueListId=milb_all (MiLB)
 
     傳入要查詢的 Mlb ID 與 年份
     回傳每年份的選手MLB與MiLB進階數據。
     """
-    all_stats = []
-    groups = "hitting,pitching"
-    fetch_years = years if years else [None]
-
-    for yr in fetch_years:
-        year_param = f"&season={yr}" if yr else ""
-
-        # MLB endpoint — returns empty for players without MLB time
-        url = f"{BASE_URL}/people/{mlb_id}/stats?stats=seasonAdvanced&group={groups}{year_param}"
-        try:
-            all_stats.extend(get_json(url).get("stats", []))
-        except Exception as e:
-            logger.warning(
-                "MLB seasonAdvanced failed for %s year=%s: %s", mlb_id, yr, e
-            )
-
-        url = (
-            f"{BASE_URL}/people/{mlb_id}/stats"
-            f"?stats=seasonAdvanced&leagueListId=milb_all&group={groups}{year_param}"
-        )
-        try:
-            all_stats.extend(get_json(url).get("stats", []))
-        except Exception as e:
-            logger.warning(
-                "MiLB seasonAdvanced failed for %s year=%s: %s", mlb_id, yr, e
-            )
-
-    return all_stats
+    return _fetch_stats(mlb_id, "stats=seasonAdvanced&group=hitting,pitching", years)
 
 
 def get_game_logs(mlb_id: int, season: int) -> list:
     """Fetch game logs for a specific season from both MLB and MiLB endpoints.
 
     Always fetches both endpoints so shuttle players (MLB ↔ MiLB) get all
-    game logs regardless of current assignment. Includes postseason games
-    (see ``GAME_LOG_GAME_TYPES``); each split carries its own ``gameType``.
+    game logs regardless of current assignment.
+    Includes postseason games (see ``GAME_LOG_GAME_TYPES``); each split
+    carries its own ``gameType``.
     """
-    all_logs = []
     game_types = ",".join(GAME_LOG_GAME_TYPES)
-
-    # MLB endpoint — returns MLB game logs; empty for players without MLB time
-    url = (
-        f"{BASE_URL}/people/{mlb_id}/stats"
-        f"?stats=gameLog&season={season}&group=hitting,pitching"
-        f"&gameType={game_types}"
+    return _fetch_stats(
+        mlb_id, f"stats=gameLog&group=hitting,pitching&gameType={game_types}", [season]
     )
-    try:
-        all_logs.extend(get_json(url).get("stats", []))
-    except Exception as e:
-        logger.warning("MLB game logs failed for %s/%s: %s", mlb_id, season, e)
-
-    url = (
-        f"{BASE_URL}/people/{mlb_id}/stats"
-        f"?stats=gameLog&season={season}&leagueListId=milb_all&group=hitting,pitching"
-        f"&gameType={game_types}"
-    )
-    try:
-        all_logs.extend(get_json(url).get("stats", []))
-    except Exception as e:
-        logger.warning("MiLB game logs failed for %s/%s: %s", mlb_id, season, e)
-
-    return all_logs
 
 
 def get_player_sabermetrics(mlb_id: int, years: Optional[list[int]] = None) -> list:
@@ -117,19 +84,9 @@ def get_player_sabermetrics(mlb_id: int, years: Optional[list[int]] = None) -> l
 
     Returns the raw ``stats`` list from the API; caller walks splits.
     """
-    all_stats = []
-    fetch_years = years if years else [None]
-    for yr in fetch_years:
-        year_param = f"&season={yr}" if yr else ""
-        url = (
-            f"{BASE_URL}/people/{mlb_id}/stats"
-            f"?stats=sabermetrics&group=pitching,hitting{year_param}"
-        )
-        try:
-            all_stats.extend(get_json(url).get("stats", []))
-        except Exception as e:
-            logger.warning("sabermetrics failed for %s year=%s: %s", mlb_id, yr, e)
-    return all_stats
+    return _fetch_stats(
+        mlb_id, "stats=sabermetrics&group=pitching,hitting", years, leagues=MLB_ONLY
+    )
 
 
 def get_player_expected_stats(
@@ -146,21 +103,6 @@ def get_player_expected_stats(
 
     Note: API fields are named ``avg``/``slg``/``woba``/``wobaCon`` (no x prefix).
     """
-    all_stats = []
-    fetch_years = years if years else [None]
-    for yr in fetch_years:
-        year_param = f"&season={yr}" if yr else ""
-
-        # MLB endpoint — returns valid xBA/xSLG/xwOBA for MLB seasons only
-        url = (
-            f"{BASE_URL}/people/{mlb_id}/stats"
-            f"?stats=expectedStatistics&group={group}{year_param}"
-        )
-        try:
-            all_stats.extend(get_json(url).get("stats", []))
-        except Exception as e:
-            logger.warning(
-                "MLB expectedStatistics failed for %s year=%s: %s", mlb_id, yr, e
-            )
-
-    return all_stats
+    return _fetch_stats(
+        mlb_id, f"stats=expectedStatistics&group={group}", years, leagues=MLB_ONLY
+    )

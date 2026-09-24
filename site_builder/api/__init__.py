@@ -11,13 +11,17 @@ Submodules:
 
 Public functions are re-exported here so callers can simply
 ``from site_builder.api import get_player_profile``.
+
+MLB Stats API 函式在重試用盡後丟出 ``FetchError``，由 sync/ 呼叫端處理；
+tjstats 為 best-effort 例外，失敗時記 warning 並回 {}。
 """
 
+from .client import FetchError  # noqa: F401
 from .content import (  # noqa: F401
     extract_play_videos,
     get_game_content,
 )
-from .games import get_game_play_by_play, get_game_sport_level  # noqa: F401
+from .games import get_game_play_by_play  # noqa: F401
 from .league_stats import fetch_team_league_map, fetch_team_pitching_totals  # noqa: F401
 from .players import get_player_profile  # noqa: F401
 from .schedule import get_next_game  # noqa: F401

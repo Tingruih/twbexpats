@@ -1,19 +1,16 @@
 """Game content endpoint helpers for per-play highlight videos."""
 
-import logging
 from .client import BASE_URL, get_json
-
-logger = logging.getLogger(__name__)
 
 
 def get_game_content(game_pk: int) -> dict:
-    """Fetch /game/{pk}/content, returning an empty dict on failure."""
+    """Fetch /game/{pk}/content; raises ``FetchError`` on failure.
+
+    失敗不能回 {}：呼叫端會把「沒有影片」記進 game_content_processed，
+    超過 CONTENT_RETRY_DAYS 的比賽就永遠不會再抓。
+    """
     url = f"{BASE_URL}/game/{game_pk}/content"
-    try:
-        return get_json(url)
-    except Exception as exc:
-        logger.warning("game content failed for game_pk=%s: %s", game_pk, exc)
-        return {}
+    return get_json(url)
 
 
 def extract_play_videos(content: dict) -> list[dict]:

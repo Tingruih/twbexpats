@@ -1,12 +1,11 @@
-"""Game play-by-play endpoints and sport-level helpers."""
+"""Game play-by-play endpoint.
 
-import logging
+抓取失敗時丟出 ``FetchError``（見 client.py），由 sync/statcast.py 統一記錄，
+該場比賽的 pbp_version 不變，下次執行重抓。
+"""
 
 from ..constants import LIVE_FEED_TIMEOUT
-from ..levels import sport_obj_to_abbr
-from .client import BASE_URL, BASE_URL_V11, get_json
-
-logger = logging.getLogger(__name__)
+from .client import BASE_URL, get_json
 
 
 def get_game_play_by_play(game_pk: int) -> dict:
@@ -14,37 +13,8 @@ def get_game_play_by_play(game_pk: int) -> dict:
 
     Returns the raw dict from MLB Stats API. Caller is responsible for
     walking ``liveData.plays.allPlays`` and extracting pitches.
+    Raises ``FetchError`` on failure.
     """
     url = f"{BASE_URL}/game/{game_pk}/withMetrics"
-    try:
-        return get_json(url, timeout=LIVE_FEED_TIMEOUT)
-    except Exception as e:
-        logger.warning("playByPlay failed for game_pk=%s: %s", game_pk, e)
-        return {}
+    return get_json(url, timeout=LIVE_FEED_TIMEOUT)
 
-
-def get_game_sport_level(game_pk: int) -> str:
-    """Fetch only the sport abbreviation (e.g. 'MLB', 'AAA') for a single game.
-
-    The live-feed ``gameData.game`` node does not expose a sport field; the
-    authoritative sport info is at ``gameData.teams.home.sport``.
-    Uses a fields-filtered request so the payload is small.
-
-    Returns an empty string on failure.
-    """
-    url = (
-        f"{BASE_URL_V11}/game/{game_pk}/feed/live"
-        "?fields=gameData,teams,home,sport,id,name"
-    )
-    try:
-        data = get_json(url)
-        sport = (
-            data.get("gameData", {})
-            .get("teams", {})
-            .get("home", {})
-            .get("sport", {})
-        )
-        return sport_obj_to_abbr(sport)
-    except Exception as e:
-        logger.warning("get_game_sport_level failed for game_pk=%s: %s", game_pk, e)
-        return ""
