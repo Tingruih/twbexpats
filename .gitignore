@@ -8,7 +8,6 @@ venv/
 .playwright-mcp
 .DS_Store
 
-CLAUDE.md
 chart-mvp.html
 data_now.md
 logs.md
