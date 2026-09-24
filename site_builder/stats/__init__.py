@@ -12,12 +12,15 @@ Layout:
                   are fetched and cached by ``site_builder.league_constant``
                   and passed in as arguments — no module under stats/ does
                   any I/O.
-    tables/       per-pitch-type table builders (compute + cross-level combine)
+    tables/       per-pitch-type table builders (same function serves one level
+                  and a year's pooled cross-level pitches)
 
 Adding a new stat = add one file with a pure ``compute_*`` function, then hook
 it into the relevant assembler:
     - season-row derived stats  → ``core/annotate.py``
     - pitcher statcast summary  → ``pitcher_statcast.py``
     - batter statcast summary   → ``batter_statcast.py``
-    - cross-level combined row  → ``combine.py``
+    - cross-level combined row  → no separate hook: ``render/pages.py``
+                                  reruns the statcast entry points on pooled
+                                  pitches
 """

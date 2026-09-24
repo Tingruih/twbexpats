@@ -7,7 +7,12 @@ from ..batted_ball.barrel import compute_barrel_pct
 from ..batted_ball.hard_hit import compute_hard_hit_pct
 from ..batting.avg import compute_avg
 from ..core.pa_outcomes import compute_pa_outcome_totals
-from ..core.pitches import aggregate_pitches, filter_known_pitch_events
+from ..core.pitches import (
+    aggregate_pitches,
+    filter_known_pitch_events,
+    group_by_pitch_type,
+    pitch_type_display_name,
+)
 from ..discipline.csw_pct import compute_csw_pct
 from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.pitch_strike_pct import compute_pitch_strike_pct
@@ -24,18 +29,13 @@ def compute_pitch_outcomes(pitches: list[dict]) -> list[dict]:
 
     total = len(pitches)
 
-    by_type: dict[str, list[dict]] = {}
-    for p in pitches:
-        t = p.get("pitch_type") or "UN"
-        by_type.setdefault(t, []).append(p)
-
     out = []
-    for ptype, ps in by_type.items():
+    for ptype, ps in group_by_pitch_type(pitches).items():
         n = len(ps)
         agg = aggregate_pitches(ps)
         totals = compute_pa_outcome_totals(agg["pa_final"])
         put_away_pct, two_strike_count = compute_put_away(ps)
-        name = next((p.get("pitch_name") for p in ps if p.get("pitch_name")), ptype)
+        name = pitch_type_display_name(ps, ptype)
 
         out.append({
             "type": ptype,

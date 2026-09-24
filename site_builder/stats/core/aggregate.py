@@ -1,6 +1,6 @@
 """Counting-stat summation and rate recomputation over season rows."""
 
-from ...constants import COUNTING_FIELDS
+from ...constants import COUNTING_FIELD_GROUPS
 from ...util.obj import Obj
 from ..batting.avg import compute_avg
 from ..batting.obp import compute_obp
@@ -12,12 +12,22 @@ from .innings import ip_to_outs, outs_to_ip
 
 
 def sum_counting(stats, result):
-    for field in COUNTING_FIELDS:
-        values = [getattr(s, field) for s in stats]
-        if all(v is None for v in values):
-            result[field] = None
-        else:
-            result[field] = sum(v or 0 for v in values)
+    """依 ``COUNTING_FIELD_GROUPS`` 加總計數欄位，寫入 *result*。
+
+    某列整組都沒有值（例如野手列沒有投球數據）時該列貢獻 0；某列有這組數據
+    卻缺某一欄時，該欄總和視為未知（None）。若把後者當 0 加總，分母（p_ab、
+    outs）照常累加、分子卻少算，曹錦輝 2003 年度合計的被打 SLG 會算成 .150
+    （MLB 單列為 .515）。
+    """
+    for group in COUNTING_FIELD_GROUPS:
+        present = [s for s in stats if any(s.get(f) is not None for f in group)]
+        for field in group:
+            values = [s.get(field) for s in present]
+            # 沒有任何列帶這組數據，或有列帶了這組卻缺這一欄：總和未知
+            if not values or any(v is None for v in values):
+                result[field] = None
+            else:
+                result[field] = sum(values)
 
 
 def compute_rate_stats(agg):
@@ -32,18 +42,16 @@ def compute_rate_stats(agg):
             agg.get("sac_flies"),
         )
         agg["slg"] = compute_slg(agg.get("tb"), agg["ab"])
+        # 刻意用上面已捨入的 OBP、SLG 相加：MLB API 的 OPS 慣例（見 batting/ops.py）
         agg["ops"] = compute_ops(agg.get("obp"), agg.get("slg"))
     else:
         agg["avg"] = agg["obp"] = agg["slg"] = agg["ops"] = None
 
-    # agg["ip"] is baseball decimal notation (e.g. 7.2 = 7⅔ innings = 7.333... real innings).
-    # Must convert via ip_to_outs → divide by 3 to get true fractional innings before
-    # computing rate stats, otherwise ERA/WHIP will be slightly wrong.
-    _ip_outs = ip_to_outs(agg.get("ip"))
-    _ip_actual = _ip_outs / 3.0  # real innings pitched as a fraction
-    if _ip_actual > 0:
-        agg["era"] = compute_era(agg.get("earned_runs"), _ip_actual)
-        agg["whip"] = compute_whip(agg.get("p_hits"), agg.get("bb"), _ip_actual)
+    # agg["ip"] 是棒球局數記法（7.2 = 7⅔ 局），先轉 outs 再算率（見 core/innings.py）
+    outs = ip_to_outs(agg.get("ip"))
+    if outs > 0:
+        agg["era"] = compute_era(agg.get("earned_runs"), outs)
+        agg["whip"] = compute_whip(agg.get("p_hits"), agg.get("bb"), outs)
     else:
         agg["era"] = agg["whip"] = None
 

@@ -12,7 +12,13 @@ from ...constants import (
     PITCH_TYPE_TO_GROUP,
 )
 from ...util.numbers import ratio
-from ..core.pitches import filter_known_pitch_events, pre_count_tuple
+from ..core.pitches import (
+    filter_known_pitch_events,
+    group_by_pitch_type,
+    pitch_type_display_name,
+    pitch_type_key,
+    pre_count_tuple,
+)
 
 
 def _compute_usage_by_count(pitches: list[dict], key_fn, ordered_keys=None) -> dict:
@@ -78,10 +84,16 @@ def _compute_usage_by_count(pitches: list[dict], key_fn, ordered_keys=None) -> d
 def compute_pitch_usage_by_count(pitches: list[dict]) -> dict:
     """Pitch-type usage percentages for common ball-strike count buckets."""
     pitches = filter_known_pitch_events(pitches)
+    # 名稱先按整個球種決定，而非 _compute_usage_by_count 的「第一球為準」，
+    # 與 arsenal/outcomes/vs_pitch_types 顯示同一個名稱
+    names = {
+        ptype: pitch_type_display_name(ps, ptype)
+        for ptype, ps in group_by_pitch_type(pitches).items()
+    }
 
     def key_fn(p):
-        ptype = p.get("pitch_type") or "UN"
-        return ptype, p.get("pitch_name") or ptype
+        ptype = pitch_type_key(p)
+        return ptype, names[ptype]
 
     return _compute_usage_by_count(pitches, key_fn)
 
@@ -91,8 +103,7 @@ def compute_pitch_group_usage_by_count(pitches: list[dict]) -> dict:
     fastball / breaking / offspeed super-categories (PITCH_TYPE_GROUPS)."""
 
     def key_fn(p):
-        ptype = p.get("pitch_type") or "UN"
-        group = PITCH_TYPE_TO_GROUP.get(ptype)
+        group = PITCH_TYPE_TO_GROUP.get(pitch_type_key(p))
         if group is None:
             return None
         return group, PITCH_GROUP_LABELS[group]

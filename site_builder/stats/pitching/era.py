@@ -1,7 +1,7 @@
-"""ERA — earned run average: ER × 9 / IP (real fractional innings)."""
+"""ERA — earned run average: ER × 27 / outs."""
+
+from ..core.innings import per_nine
 
 
-def compute_era(earned_runs, ip_actual):
-    if earned_runs is None or not ip_actual or ip_actual <= 0:
-        return None
-    return round(earned_runs / ip_actual * 9, 2)
+def compute_era(earned_runs, outs):
+    return per_nine(earned_runs, outs)

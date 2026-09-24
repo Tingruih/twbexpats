@@ -19,9 +19,8 @@ def compute_pitch_woba(totals: dict) -> Optional[float]:
     callers that also need ``totals["hits"]``/``totals["ab"]`` (e.g. AVG)
     can share a single pass instead of re-tallying PA outcomes.
 
-    Returns the unrounded ratio (mirrors :func:`compute_season_woba`) so that
-    PA-weighted combining across levels (``combine.py``) rounds exactly once,
-    at final display time, instead of rounding here and again after weighting.
+    Returns the unrounded ratio (mirrors :func:`compute_season_woba`); it is
+    rounded exactly once, at display time (templates use ``floatformat(3)``).
     """
     den = totals["woba_den"]
     if not den:

@@ -11,7 +11,13 @@ from ..batted_ball.hard_hit import compute_hard_hit_pct
 from ..batting.avg import compute_avg
 from ..core.atypical import Reason, exclude_atypical
 from ..core.pa_outcomes import compute_pa_outcome_totals
-from ..core.pitches import aggregate_pitches, filter_known_pitch_events
+from ..core.pitches import (
+    aggregate_pitches,
+    filter_known_pitch_events,
+    group_by_pitch_type,
+    pitch_type_display_name,
+    pitch_type_key,
+)
 from ..discipline.csw_pct import compute_csw_pct
 from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.pitch_strike_pct import compute_pitch_strike_pct
@@ -77,18 +83,9 @@ def compute_vs_pitch_types(pitches: list[dict]) -> list[dict]:
     pitches = filter_known_pitch_events(pitches)
     pitches = exclude_atypical(pitches, _ATYPICAL_REASONS)
 
-    by_type: dict[str, list[dict]] = {}
-    for p in pitches:
-        t = p.get("pitch_type") or "UN"
-        by_type.setdefault(t, []).append(p)
-
     out = [
-        _compute_pitch_bucket_row(
-            ptype,
-            next((p.get("pitch_name", "") for p in ps if p.get("pitch_name")), ptype),
-            ps,
-        )
-        for ptype, ps in by_type.items()
+        _compute_pitch_bucket_row(ptype, pitch_type_display_name(ps, ptype), ps)
+        for ptype, ps in group_by_pitch_type(pitches).items()
     ]
     out.sort(key=lambda r: r.get("count", 0), reverse=True)
     return out
@@ -101,8 +98,7 @@ def compute_vs_pitch_groups(pitches: list[dict]) -> list[dict]:
 
     by_group: dict[str, list[dict]] = {}
     for p in pitches:
-        t = p.get("pitch_type") or "UN"
-        group = PITCH_TYPE_TO_GROUP.get(t)
+        group = PITCH_TYPE_TO_GROUP.get(pitch_type_key(p))
         if group is None:
             continue
         by_group.setdefault(group, []).append(p)

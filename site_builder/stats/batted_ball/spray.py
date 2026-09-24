@@ -14,6 +14,18 @@ from ...constants import (
 )
 
 
+def _zone_to_direction(zone: str, bat_side: str) -> str:
+    """LF/CF/RF 區域 + 打者左右打 → pull / straight / oppo。
+
+    右打拉打方向是左外野，左打相反；兩種分類來源（座標、野手代碼）共用此規則。
+    """
+    if zone == "CF":
+        return "straight"
+    if bat_side == "L":
+        return "pull" if zone == "RF" else "oppo"
+    return "pull" if zone == "LF" else "oppo"
+
+
 def spray_direction_from_location(p: dict) -> Optional[str]:
     """Fallback: classify spray direction using hitData.location fielder code.
 
@@ -22,14 +34,10 @@ def spray_direction_from_location(p: dict) -> Optional[str]:
     combined with the batter's handedness to produce pull / straight / oppo.
     """
     zone = HIT_LOCATION_ZONE.get(str(p.get("hit_location", "") or ""))
+    # hit_location 缺漏或不是野手代碼（HIT_LOCATION_ZONE 對不到）
     if zone is None:
         return None
-    if zone == "CF":
-        return "straight"
-    bat = p.get("bat_side", "R")
-    if bat == "L":
-        return "pull" if zone == "RF" else "oppo"
-    return "pull" if zone == "LF" else "oppo"
+    return _zone_to_direction(zone, p.get("bat_side", "R"))
 
 
 def spray_direction_from_coordinates(p: dict) -> Optional[str]:
@@ -90,12 +98,7 @@ def spray_direction_from_coordinates(p: dict) -> Optional[str]:
     else:
         field = "CF"
 
-    if field == "CF":
-        return "straight"
-    bat = p.get("bat_side", "R")
-    if bat == "L":
-        return "pull" if field == "RF" else "oppo"
-    return "pull" if field == "LF" else "oppo"
+    return _zone_to_direction(field, p.get("bat_side", "R"))
 
 
 def compute_spray(in_play: list[dict]) -> dict:

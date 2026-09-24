@@ -4,7 +4,12 @@
 from ...util.numbers import mean_round, ratio
 from ..advanced.woba import compute_pitch_woba
 from ..core.pa_outcomes import compute_pa_outcome_totals
-from ..core.pitches import aggregate_pitches, filter_known_pitch_events
+from ..core.pitches import (
+    aggregate_pitches,
+    filter_known_pitch_events,
+    group_by_pitch_type,
+    pitch_type_display_name,
+)
 from ..discipline.o_swing_pct import compute_o_swing_pct
 from ..discipline.put_away import compute_put_away
 from ..discipline.whiff_pct import compute_whiff_pct
@@ -20,17 +25,12 @@ def compute_pitch_arsenal(pitches: list[dict]) -> list[dict]:
 
     total = len(pitches)
 
-    by_type: dict[str, list[dict]] = {}
-    for p in pitches:
-        t = p.get("pitch_type") or "UN"
-        by_type.setdefault(t, []).append(p)
-
     out = []
-    for ptype, ps in by_type.items():
+    for ptype, ps in group_by_pitch_type(pitches).items():
         n = len(ps)
         agg = aggregate_pitches(ps)
         totals = compute_pa_outcome_totals(agg["pa_final"])
-        name = next((p.get("pitch_name") for p in ps if p.get("pitch_name")), ptype)
+        name = pitch_type_display_name(ps, ptype)
         put_away_pct, two_strike_count = compute_put_away(ps)
         h_rel, v_rel = compute_avg_release_point(ps)
 

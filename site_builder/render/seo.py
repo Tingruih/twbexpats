@@ -3,7 +3,8 @@
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from .urls import headshot_cdn_urls
+from ..levels import level_display
+from .urls import RETIRED_INDEX_PATH, headshot_cdn_urls, player_page_path
 
 SITE_TITLE = "TwbExpats | 台灣旅美棒球員 MLB/MiLB Stats Tracker"
 SITE_DESCRIPTION = (
@@ -29,16 +30,12 @@ def player_display_name(player) -> str:
     return player.name_en
 
 
-def player_canonical_path(player, is_retired: bool = False) -> str:
-    if is_retired:
-        return f"retired/player/{player.mlb_id}/"
-    return f"player/{player.mlb_id}/"
-
-
 def player_description(player) -> str:
     role = "投球 / pitching" if player.is_pitcher else "打擊 / batting"
     level_team = " ".join(
-        part for part in [player.level, player.team] if part and part != "N/A"
+        part
+        for part in [level_display(player.level, player.level_year), player.team]
+        if part and part != "N/A"
     )
     team_text = f"，目前效力於 / currently with {level_team}" if level_team else ""
     return (
@@ -69,7 +66,7 @@ def index_structured_data(absolute_url, player_data):
                 {
                     "@type": "ListItem",
                     "position": idx,
-                    "url": absolute_url(player_canonical_path(item["player"])),
+                    "url": absolute_url(player_page_path(item["player"].mlb_id)),
                     "name": player_display_name(item["player"]),
                 }
                 for idx, item in enumerate(player_data, start=1)
@@ -79,7 +76,7 @@ def index_structured_data(absolute_url, player_data):
 
 
 def player_structured_data(absolute_url, player, is_retired: bool = False):
-    canonical_url = absolute_url(player_canonical_path(player, is_retired))
+    canonical_url = absolute_url(player_page_path(player.mlb_id, is_retired))
     breadcrumb_items = [
         {
             "@type": "ListItem",
@@ -93,7 +90,7 @@ def player_structured_data(absolute_url, player, is_retired: bool = False):
             "@type": "ListItem",
             "position": 2,
             "name": "已離美職體系球員 / Retired Players",
-            "item": absolute_url("retired/"),
+            "item": absolute_url(RETIRED_INDEX_PATH),
         })
     breadcrumb_items.append({
         "@type": "ListItem",

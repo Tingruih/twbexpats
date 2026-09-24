@@ -1,7 +1,7 @@
-"""K/9 — strikeouts per nine innings."""
+"""K/9 — strikeouts per nine innings: SO × 27 / outs."""
+
+from ..core.innings import per_nine
 
 
-def compute_k_per_9(so, ip_actual):
-    if so is None or not ip_actual or ip_actual <= 0:
-        return None
-    return round(so * 9 / ip_actual, 1)
+def compute_k_per_9(so, outs):
+    return per_nine(so, outs)

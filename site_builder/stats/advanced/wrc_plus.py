@@ -9,6 +9,9 @@ network or the database.
 from typing import Optional
 
 from ...constants import WOBA_SCALE
+from ...levels import is_mlb
+from ...positions import is_pitcher_position
+from ...util.numbers import round_half_up
 from ..core.aggregate import aggregate_stats
 from .woba import compute_season_woba
 
@@ -23,7 +26,7 @@ def compute_wrc_plus(
     pfm = 1 + (pf_final - 1) * 0.5
     if not pfm:
         return None
-    return round(100 * (wrc_pa / pfm) / lg_r_pa)
+    return int(round_half_up(100 * (wrc_pa / pfm) / lg_r_pa, 0))
 
 
 def annotate_wrc_plus(bundles, batting_lookup) -> None:
@@ -59,7 +62,7 @@ def annotate_wrc_plus(bundles, batting_lookup) -> None:
         the combined counting stats.
     """
     for player, stats, _logs in bundles:
-        if player.position == "P":
+        if is_pitcher_position(player.position):
             continue
 
         by_year_level: dict[tuple[int, str], list] = {}
@@ -80,7 +83,7 @@ def annotate_wrc_plus(bundles, batting_lookup) -> None:
                     woba, env.pf_final, env.lg_woba, env.lg_r_pa
                 )
 
-            calc_field = "wrc_plus_calc" if level == "MLB" else "wrc_plus"
+            calc_field = "wrc_plus_calc" if is_mlb(level) else "wrc_plus"
             for row in rows:
                 calc = _wrc_plus_of(row)
                 if calc is not None:

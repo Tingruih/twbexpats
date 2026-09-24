@@ -46,7 +46,7 @@
                ids rendered once by partials/chart_data.j2. #}
             {% for _e in _entries %}
             {% set _level = _e.sport_level %}
-            <div class="pitch-plinko-level-container m-pitch-plinko-level-container" data-level="{{ _level | level_display(yr) }}" data-level-label="{% if _level == '_combined' %}All Levels{% else %}{{ _level | level_display(yr) }}{% endif %}" data-chart-key="{{ yr }}-{{ loop.index0 }}" {% if not loop.first %}style="display:none;"{% endif %}>
+            <div class="pitch-plinko-level-container m-pitch-plinko-level-container" data-level="{{ _level | level_display(yr) }}" data-level-label="{{ _level | level_label(yr) }}" data-chart-key="{{ yr }}-{{ loop.index0 }}" {% if not loop.first %}style="display:none;"{% endif %}>
                 {% if is_pitcher %}
                 <div class="pitch-chart-grid m-pitch-chart-grid">
                     <section class="pitch-chart-section"><div class="pitch-usage-hand-root"></div></section>

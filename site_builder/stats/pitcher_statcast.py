@@ -7,7 +7,7 @@ from .advanced.woba import compute_pitch_woba
 from .batted_ball import batted_ball_metrics
 from .batted_ball.hr_fb import compute_hr_fb_pct
 from .core.pa_outcomes import compute_pa_outcome_totals
-from .core.pitches import aggregate_pitches, ensure_pre_strikes
+from .core.pitches import aggregate_pitches
 from .discipline import discipline_metrics
 from .pitching.extension import compute_avg_extension
 from .tables.bat_side_splits import compute_pitcher_bat_side_splits
@@ -17,10 +17,6 @@ def compute_pitcher_statcast(pitches: list[dict]) -> dict:
     """Season-level pitcher aggregates from pitch list."""
     if not pitches:
         return {}
-
-    # Ensure every pitch has a pre_strikes field (backfills cached data
-    # that predates the field being added to extract_pitch_logs).
-    ensure_pre_strikes(pitches)
 
     agg = aggregate_pitches(pitches)
     totals = compute_pa_outcome_totals(agg["pa_final"])

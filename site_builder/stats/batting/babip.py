@@ -6,11 +6,15 @@ so only SF needs adding back. (A BF-based denominator would systematically
 deflate BABIP — it under-subtracts HBP and SH.)
 """
 
+from ...util.numbers import ratio
+
 
 def compute_babip(hits, hr, ab, so, sac_flies=0):
+    # 任一必要計數缺值
     if any(v is None for v in [hits, hr, ab, so]):
         return None
     denom = ab - so - hr + (sac_flies or 0)
+    # 沒有場內球
     if denom <= 0:
         return None
-    return round((hits - hr) / denom, 3)
+    return ratio(hits - hr, denom)

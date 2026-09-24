@@ -1,12 +1,13 @@
 """Static site builder: reads SQLite data and renders Jinja2 templates to HTML."""
 
 import datetime
+import logging
 import re
 import shutil
 import sqlite3
 from pathlib import Path
 
-from ..constants import DEFAULT_ROSTER_FILE, STATIC_DIR
+from ..constants import DEFAULT_ROSTER_FILE, SEASON_YEAR, SITE_URL, STATIC_DIR
 from ..db.bundles import load_player_bundle
 from ..db.play_videos import load_video_map
 from ..db.players import warn_orphaned_players
@@ -18,7 +19,7 @@ from ..graph.season_trend import (
     build_pitcher_trend_by_year,
 )
 from ..league_constant.batting import BattingConstants, publishes_constants
-from ..levels import level_rank, resolve_tier
+from ..levels import COMBINED_LEVEL, is_mlb, level_rank
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
 from ..stats.advanced.xwpct import compute_xwpct
@@ -27,7 +28,6 @@ from ..stats.core.aggregate import aggregate_stats
 from ..stats.core.annotate import annotate_computed_stats, annotate_row
 from ..stats.core.career import (
     compute_career,
-    compute_season_combined,
     compute_year_groups,
 )
 from ..stats.core.innings import ip_to_outs
@@ -37,13 +37,13 @@ from ..util.dates import TW_TZ
 from ..util.units import height_to_cm, lbs_to_kg
 from .env import create_jinja_env
 from .pitch_log import write_pitch_log_files
+from .urls import RETIRED_INDEX_PATH, player_page_path
 from .seo import (
     RETIRED_SEO_DESCRIPTION,
     RETIRED_SEO_TITLE,
     SITE_DESCRIPTION,
     SITE_TITLE,
     index_structured_data,
-    player_canonical_path,
     player_description,
     player_display_name,
     player_structured_data,
@@ -51,6 +51,7 @@ from .seo import (
     write_sitemap,
 )
 
+logger = logging.getLogger(__name__)
 
 def _pick_display_stat(stats_current, player):
     """Pick the stat row to show on the player card / detail hero strip.
@@ -110,7 +111,7 @@ def _statcast_row_qualifies(player, s) -> bool:
         return True
     if player.is_pitcher or not publishes_constants(s.sport_level, s.year):
         return False
-    field = "wrc_plus_calc" if s.sport_level == "MLB" else "wrc_plus"
+    field = "wrc_plus_calc" if is_mlb(s.sport_level) else "wrc_plus"
     return s.get(field) is not None
 
 
@@ -143,8 +144,9 @@ def _merge_level_rows(rows):
       whichever row has it (same treatment as war/xfip below) — IP-weighting
       a constant would be meaningless, and re-resolving it from
       league_constant would be a second lookup for a number already stored;
-    - whole-season values that only ever live on one row of the group (WAR,
-      xwOBA, API wRC+) are picked up wherever they happen to sit.
+    - whole-season values (WAR, xFIP, API wRC+, xwOBA) are identical on every
+      MLB row of the year (``sync/advanced.py`` writes the season-total
+      sabermetrics to each club's row), so any non-null one is taken.
     """
     if len(rows) == 1:
         return rows[0]
@@ -169,17 +171,18 @@ def _merge_level_rows(rows):
             fip_weighted += fip * outs
             total_outs += outs
     if total_outs:
+        # 各列存的是未捨入 FIP（sync/advanced.py），加權結果同樣不捨入，由模板顯示時捨入
         fip = fip_weighted / total_outs
-        merged["fip"] = round(fip, 2)
+        merged["fip"] = fip
         merged["xwpct"] = compute_xwpct(fip, lg_era)
 
     for field in ("war", "xfip", "expected", "saber"):
         merged[field] = _first_not_none(rows, field)
 
-    # wRC+：API 的整季合計值（只有 MLB 有，且只寫在該組其中一列）直接取用；
+    # wRC+：API 的整季合計值（只有 MLB 有，該年每一隊的列都相同）直接取用；
     # 自算值取 annotate_wrc_plus() 以合併後打擊數據重算的 group 值——把各隊的
     # wRC+ 平均是錯的，wOBA 是比率，必須先加總計數再重算。
-    if rows[0].sport_level == "MLB":
+    if is_mlb(rows[0].sport_level):
         merged["wrc_plus"] = _first_not_none(rows, "wrc_plus")
         merged["wrc_plus_calc"] = _first_not_none(rows, "wrc_plus_calc_group")
     else:
@@ -225,9 +228,7 @@ def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
     """
     rows_by_year_tier: dict[int, dict[str, list]] = {}
     for s in stats:
-        tier = resolve_tier(s.sport_level)
-        tier_key = tier.key if tier else s.sport_level
-        rows_by_year_tier.setdefault(s.year, {}).setdefault(tier_key, []).append(s)
+        rows_by_year_tier.setdefault(s.year, {}).setdefault(s.sport_level, []).append(s)
 
     pooled: dict[int, list[dict]] | None = None
     statcast_by_year: dict[int, list] = {}
@@ -265,7 +266,7 @@ def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
             for key, empty in _COMBINED_EMPTY_DEFAULTS.items():
                 combined_sc.setdefault(key, empty())
             entries.insert(0, {
-                "sport_level": "_combined",
+                "sport_level": COMBINED_LEVEL,
                 "team_name": "合計",
                 "sc": combined_sc,
                 "stat": None,
@@ -321,11 +322,11 @@ def _bundle_css(static_out_dir: Path):
 
 def build_static_site(
     db_path: str,
-    year: int,
     output_dir: str,
     base_url: str = "/",
     roster_file: str | None = None,
     update_constants: bool = False,
+    site_url: str = SITE_URL,
 ):
     """Build the complete static site from SQLite data.
 
@@ -336,9 +337,14 @@ def build_static_site(
     ``update_constants`` forces a fresh scrape of tjstats.ca for the wRC+
     park-factor/league-constant cache, overwriting any cached values for the
     seasons involved (see ``league_constant.batting``).
+
+    ``base_url`` 是站內連結前綴（本機預覽用 ``/``）；``site_url`` 是對外正式網址，
+    只用於 canonical/og:url/sitemap/robots/JSON-LD，本機 build 也指向正式站。
     """
     if roster_file is None:
         roster_file = str(DEFAULT_ROSTER_FILE)
+    # 「當季」與 sync 端同一個定義（constants.SEASON_YEAR）
+    year = SEASON_YEAR
 
     roster_ids: set[int] = {
         p["mlb_id"] for p in parse_roster_from_file(roster_file)
@@ -355,7 +361,7 @@ def build_static_site(
         # Flatten the CSS @import waterfall into a single style.css request.
         _bundle_css(out_dir / "static")
 
-    env = create_jinja_env(base_url=base_url)
+    env = create_jinja_env(base_url=base_url, site_url=site_url)
     normalized_base_url = env.globals["base_url"]
     absolute_url = env.globals["absolute_url"]
 
@@ -428,15 +434,10 @@ def build_static_site(
             if log.date:
                 last_game_date = log.date
                 break  # logs are already sorted descending
-        # Year that `player.level` (the badge) corresponds to: the most recent
-        # season row (stats are sorted -year, level_order). Drives era-aware
-        # display so e.g. a 2026 High-A badge reads "A+".
-        level_year = stats[0].year if stats else year
         player_data.append(
             {
                 "player": player,
                 "stat": _pick_display_stat(stats_current, player),
-                "level_year": level_year,
                 "last_game_date": last_game_date,
             }
         )
@@ -491,13 +492,13 @@ def build_static_site(
         nav_active="retired",
         seo_title=RETIRED_SEO_TITLE,
         seo_description=RETIRED_SEO_DESCRIPTION,
-        canonical_url=absolute_url("retired/"),
+        canonical_url=absolute_url(RETIRED_INDEX_PATH),
         og_type="website",
     )
     # Write as retired/index.html (not retired.html) so the extension-less
     # /retired URL resolves on both GitHub Pages and a plain http.server
     # (which redirects /retired → /retired/ → index.html).
-    retired_dir = out_dir / "retired"
+    retired_dir = out_dir / RETIRED_INDEX_PATH
     retired_dir.mkdir(parents=True, exist_ok=True)
     (retired_dir / "index.html").write_text(retired_html, encoding="utf-8")
 
@@ -560,8 +561,10 @@ def build_static_site(
         stats_current = [s for s in all_stats if s.year == year and has_appearance(s)]
         stats_current.sort(key=lambda x: x.level_order)
         latest_team_stat = _pick_display_stat(stats_current, player)
+        # 本季合計直接取成績表的年度合計列，不另外重算（見 compute_year_groups）
         season_combined = (
-            compute_season_combined(all_stats, year) if stats_current else None
+            next((g["summary"] for g in stats_year_groups if g["year"] == year), None)
+            if stats_current else None
         )
 
         # Fielding data
@@ -620,17 +623,14 @@ def build_static_site(
             "available_statcast_years": available_statcast_years,
             "seo_title": f"{player_display_name(player)} 數據 | TwbExpats",
             "seo_description": player_description(player),
-            "canonical_url": absolute_url(player_canonical_path(player, is_retired)),
+            "canonical_url": absolute_url(player_page_path(player.mlb_id, is_retired)),
             "og_type": "profile",
             "structured_data": player_structured_data(absolute_url, player, is_retired),
             "nav_active": "retired" if is_retired else "index",
         }
 
         html = player_template.render(**context)
-        if is_retired:
-            player_dir = out_dir / "retired" / "player" / str(player.mlb_id)
-        else:
-            player_dir = out_dir / "player" / str(player.mlb_id)
+        player_dir = out_dir / player_page_path(player.mlb_id, is_retired)
         player_dir.mkdir(parents=True, exist_ok=True)
         (player_dir / "index.html").write_text(html, encoding="utf-8")
 
@@ -645,7 +645,7 @@ def build_static_site(
             "lastmod": now_utc8.date().isoformat(),
         },
         {
-            "loc": absolute_url("retired/"),
+            "loc": absolute_url(RETIRED_INDEX_PATH),
             "lastmod": now_utc8.date().isoformat(),
         },
     ]
@@ -653,7 +653,7 @@ def build_static_site(
         last_game_date = next((log.date for log in logs if log.date), None)
         sitemap_urls.append(
             {
-                "loc": absolute_url(player_canonical_path(player, player.mlb_id in retired_ids)),
+                "loc": absolute_url(player_page_path(player.mlb_id, player.mlb_id in retired_ids)),
                 "lastmod": (last_game_date or now_utc8.date()).isoformat(),
             }
         )
@@ -664,4 +664,4 @@ def build_static_site(
     (out_dir / ".nojekyll").write_text("", encoding="utf-8")
 
     conn.close()
-    print(f"Built {len(bundles)} player pages + index to {out_dir}")
+    logger.info("Built %d player pages + index to %s", len(bundles), out_dir)

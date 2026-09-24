@@ -95,7 +95,8 @@ module.
 from enum import StrEnum, auto
 from typing import Collection
 
-from ...constants import BUNT_SWING_CODES, BUNT_TRAJECTORIES
+from ...constants import BUNT_SWING_CODES, BUNT_TRAJECTORIES, SAC_BUNT_EVENTS
+from .pitches import iter_plate_appearances
 
 
 class Granularity(StrEnum):
@@ -138,11 +139,11 @@ REASON_GRANULARITY: dict[Reason, Granularity] = {
 
 
 def _flush_bunt_pa(group: list[dict]) -> None:
-    if not group:
-        return
+    # group 來自 iter_plate_appearances，保證非空
     last = group[-1]
     is_bunt_pa = bool(last.get("is_pa_final")) and (
-        last.get("pa_event") == "sac_bunt"
+        # 沒有 hitData 的比賽（部分 MiLB）軌跡為空，只能靠事件判斷觸擊
+        last.get("pa_event") in SAC_BUNT_EVENTS
         or last.get("trajectory") in BUNT_TRAJECTORIES
     )
     for p in group:
@@ -152,19 +153,18 @@ def _flush_bunt_pa(group: list[dict]) -> None:
 def annotate_atypical(pitches: list[dict]) -> None:
     """Pre-pass computing cross-pitch context atypical reasons need.
 
-    Must run over the complete, unsplit pitch list for one player — after
-    `core.pitches.ensure_pre_strikes` (order between the two doesn't
-    matter, but both must run before any filtering removes pitches), and
-    before `tables.splits.compute_pitch_splits` divides the list by
-    pitch_hand. Idempotent: safe to call more than once, always
-    recomputes.
+    Must run over the complete, unsplit pitch list for one player, before
+    any filtering removes pitches and before
+    `tables.splits.compute_pitch_splits` divides the list by pitch_hand.
+    Idempotent: safe to call more than once, always recomputes.
 
     Currently runs one grouping pass, `_flush_bunt_pa`, which computes
-    PA-level bunt-attempt membership (`Reason.BUNT_PA`) by grouping
-    pitches into PAs the same way `ensure_pre_strikes` does: walk in
-    order, reset at each `game_pk` boundary, a PA ends at the pitch where
-    `is_pa_final` is true. A trailing group with no `is_pa_final` pitch (a
-    truncated game log) is left unmarked rather than guessed at.
+    PA-level bunt-attempt membership (`Reason.BUNT_PA`) over the PAs
+    yielded by `core.pitches.iter_plate_appearances` (the single
+    definition of a PA boundary). A
+    trailing group with no `is_pa_final` pitch (a truncated game log) is
+    left unmarked rather than guessed at — `_flush_bunt_pa` requires the
+    last pitch to be `is_pa_final`.
 
     Extending this function: a future PA-granularity reason that needs
     its own cross-pitch context (see the module docstring's step 4, e.g.
@@ -173,22 +173,8 @@ def annotate_atypical(pitches: list[dict]) -> None:
     — each pass owns one `_<reason>` field it stamps onto every pitch in
     its group, and passes never need to know about each other.
     """
-    if not pitches:
-        return
-
-    group: list[dict] = []
-    last_game_pk = object()  # sentinel, never equals a real game_pk
-    for p in pitches:
-        gpk = p.get("game_pk")
-        if gpk != last_game_pk:
-            _flush_bunt_pa(group)
-            group = []
-            last_game_pk = gpk
-        group.append(p)
-        if p.get("is_pa_final"):
-            _flush_bunt_pa(group)
-            group = []
-    _flush_bunt_pa(group)  # trailing partial PA, if any
+    for pa in iter_plate_appearances(pitches):
+        _flush_bunt_pa(pa)
 
 
 def _matches(p: dict, reason: Reason) -> bool:

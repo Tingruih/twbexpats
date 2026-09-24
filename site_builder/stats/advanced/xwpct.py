@@ -17,6 +17,8 @@ via ``league_constant.pitching`` and passes it in, the same pattern
 
 from typing import Optional
 
+from ...util.numbers import round_half_up
+
 
 def compute_xwpct(
     fip: Optional[float], lg_era: Optional[float]
@@ -31,6 +33,6 @@ def compute_xwpct(
         return None
     try:
         xwpct = 1 / (1 + (fip / lg_era) ** 1.83)
-        return round(xwpct, 3)
+        return round_half_up(xwpct, 3)
     except (ValueError, ZeroDivisionError):
         return None

@@ -95,13 +95,13 @@
     <div class="mc-grid">
         {{ mcell('H/9', s.h_per_9|floatformat(1)) }}
         {{ mcell('HR/9', s.hr_per_9|floatformat(2)) }}
-        {{ mcell('K%', s.k_pct|pct_fmt) }}
-        {{ mcell('BB%', s.bb_pct|pct_fmt) }}
-        {{ mcell('Strike%', s.strike_pct|num_dash) }}
-        {{ mcell('AVG', s.p_avg|num_dash) }}
-        {{ mcell('OBP', s.p_obp|num_dash) }}
-        {{ mcell('SLG', s.p_slg|num_dash) }}
-        {{ mcell('OPS', s.p_ops|num_dash) }}
+        {{ mcell('K%', s.p_k_pct|pct_fmt) }}
+        {{ mcell('BB%', s.p_bb_pct|pct_fmt) }}
+        {{ mcell('Strike%', s.strike_pct|floatformat(3)) }}
+        {{ mcell('AVG', s.p_avg|floatformat(3)) }}
+        {{ mcell('OBP', s.p_obp|floatformat(3)) }}
+        {{ mcell('SLG', s.p_slg|floatformat(3)) }}
+        {{ mcell('OPS', s.p_ops|floatformat(3)) }}
         {{ mcell('BABIP', s.p_babip|floatformat(3)) }}
         {{ mcell('GO/AO', s.p_go_ao|floatformat(2)) }}
         {{ mcell('P/PA', s.pitches_per_pa|floatformat(2)) }}
@@ -117,7 +117,7 @@
         {{ mcell('XBH', s.xbh|num_dash) }}
         {{ mcell('AB/HR', s.ab_per_hr|floatformat(1)) }}
         {{ mcell('GO/AO', s.go_ao|floatformat(2)) }}
-        {{ mcell('SB%', s.sb_pct|num_dash) }}
+        {{ mcell('SB%', s.sb_pct|floatformat(3)) }}
         {{ mcell('P/PA', s.p_per_pa|floatformat(2)) }}
         {{ mcell('IBB', s.ibb|num_dash) }}
         {{ mcell('HBP', s.hbp|num_dash) }}
@@ -191,10 +191,10 @@
             {% set entries = statcast_by_year[yr] %}
             {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
                球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
             {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
-            {% set is_total = entry.sport_level == '_combined' %}
+            {% set is_total = entry.sport_level == COMBINED_LEVEL %}
             {% set sc = entry.sc %}
             {% set ss_row = entry.stat %}
             <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
@@ -252,10 +252,10 @@
             {% set entries = statcast_by_year[yr] %}
             {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
                球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
             {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
-            {% set is_total = entry.sport_level == '_combined' %}
+            {% set is_total = entry.sport_level == COMBINED_LEVEL %}
             {% set sc = entry.sc %}
             <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
                 <header class="mc-hd">
@@ -294,10 +294,10 @@
             {% set entries = statcast_by_year[yr] %}
             {# 層級卡在前、合計卡移到該年度最後（entries 以 _combined 開頭是
                球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-            {% set has_total = entries[0].sport_level == '_combined' %}
+            {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
             {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
             {% for entry in level_entries %}
-            {% set is_total = entry.sport_level == '_combined' %}
+            {% set is_total = entry.sport_level == COMBINED_LEVEL %}
             {% set sc = entry.sc %}
             {% if sc.bbe is not none %}
             <article class="mc-card{% if is_total %} mc-card-total{% endif %}">
@@ -368,7 +368,7 @@
             {% set _level = _e.sport_level %}
             <div class="arsenal-level-container" id="m-arsenal-{{ yr }}-{{ _level }}"
                  data-level="{{ _level | level_display(yr) }}"
-                 data-level-label="{% if _level == '_combined' %}All Levels{% else %}{{ _level | level_display(yr) }}{% endif %}"
+                 data-level-label="{{ _level | level_label(yr) }}"
                  {% if not loop.first %}style="display: none;"{% endif %}>
 
                 {% if is_pitcher %}

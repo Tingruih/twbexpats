@@ -5,337 +5,256 @@
 game_logs 現算（pitches_json 已經在 sync 階段抓好，逐場再彙整一次的成本很低），
 所以不走 compute_*（sync 時算好存進 season_stats）那條路，是單一 build-time 入口。
 
-投手與打者版本都支援數據/年度/層級三維篩選，並共用分組與跨層級組裝邏輯。
+每一點都是「季初至該場」的累積值，組成方式分三層：
+
+  - 每場的原料 ``_Totals.of_game``：box score 計數、該場的 ``aggregate_pitches``
+    與打席小計。每場只彙整自己的球，單一層級序列與 All Levels 序列共用。
+  - 總帳 ``_Totals.add``：逐場合併原料，數字相加、清單串接。
+  - 公式表 ``TrendMetric``：每個指標直接呼叫 stats/ 的 compute_*，拿總帳當輸入。
+
+這裡刻意不寫任何數據公式。逐球分類與其他球無關，所以「每場各自彙整再合併」
+與「整季的球一次彙整」得到同一份資料，交給同一個 compute_* 就會得到與球季值
+相同的結果；stats/ 改了定義，走勢圖自動跟著改。
+
+MLB Stats API gameLog 的 AVG/ERA 等是逐層級累積值，球員升降層級時會歸零；
+這裡自己從計數累積，All Levels 序列跨層級才會連續。
 """
 
-from ..levels import level_display, level_rank
-from ..stats.batted_ball.sweet_spot import is_sweet_spot
+from dataclasses import dataclass
+from typing import Callable, Optional
+
+from ..levels import ALL_LEVELS, level_display, level_label, level_rank
 from ..stats.advanced.woba import compute_pitch_woba
+from ..stats.batted_ball.barrel import compute_barrel_pct
+from ..stats.batted_ball.exit_velocity import compute_avg_ev
+from ..stats.batted_ball.hard_hit import compute_hard_hit_pct
+from ..stats.batted_ball.launch_angle import collect_la_values
+from ..stats.batted_ball.sweet_spot import compute_sweet_spot_pct
 from ..stats.batting.avg import compute_avg
 from ..stats.batting.bb_pct import compute_bb_pct
 from ..stats.batting.k_pct import compute_k_pct
-from ..stats.core.pitches import aggregate_pitches
 from ..stats.core.pa_outcomes import compute_pa_outcome_totals
+from ..stats.core.pitches import aggregate_pitches
+from ..stats.discipline.csw_pct import compute_csw_pct
+from ..stats.discipline.o_swing_pct import compute_o_swing_pct
+from ..stats.discipline.swstr_pct import compute_swstr_pct
+from ..stats.discipline.whiff_pct import compute_whiff_pct
+from ..stats.discipline.z_contact_pct import compute_z_contact_pct
 from ..stats.pitching.era import compute_era
-from ..util.numbers import ratio
 
-def _neumaier_add(total: float, compensation: float, x: float) -> tuple:
-    """One step of streaming Neumaier (compensated) summation.
+# gameLog 端點每場的 stat 物件（存於 game_logs.stats_json）中逐場相加的計數欄位。
+# 投手列才有 battersFaced/earnedRuns/outs、打者列才有 plateAppearances，缺的欄位記 0
+_BOX_FIELDS = (
+    "hits",
+    "atBats",
+    "strikeOuts",
+    "baseOnBalls",
+    "battersFaced",
+    "plateAppearances",
+    "earnedRuns",
+    "outs",
+)
 
-    CPython's built-in ``sum()`` has used compensated summation for floats
-    since 3.12, so a plain running ``total += x`` here can round differently
-    than the old code's ``sum(full_list)`` at the last decimal (verified:
-    ``sum([...]) != naive accumulation`` on real exit-velocity data). This
-    matches ``sum()`` bit-for-bit so switching to an incremental running
-    total (needed to keep exit velocity O(N) — see the class docstring)
-    doesn't change any displayed number.
+
+def _merge(acc: dict, part: dict) -> None:
+    """把 *part* 併進 *acc*：數字相加、清單串接到 *acc* 自己的清單後面。
+
+    其他型別無法判斷該怎麼跨場合併，直接丟錯：aggregate_pitches 日後若新增
+    dict 之類的欄位，要在這裡明確決定合併方式，而不是被默默算錯。
     """
-    t = total + x
-    if abs(total) >= abs(x):
-        compensation += (total - t) + x
-    else:
-        compensation += (x - t) + total
-    return t, compensation
+    for key, value in part.items():
+        if isinstance(value, list):
+            acc[key].extend(value)
+        elif isinstance(value, (int, float)):
+            acc[key] += value
+        else:
+            raise TypeError(f"不知道如何逐場合併 {key!r}（{type(value).__name__}）")
 
 
-PITCHER_TREND_STAT_OPTIONS = [
-    ("era", "ERA"),
-    ("avg", "AVG"),
-    ("k_pct", "K%"),
-    ("bb_pct", "BB%"),
-    ("whiff_pct", "Whiff%"),
-    ("csw_pct", "CSW%"),
-    ("swstr_pct", "SwStr%"),
-    ("chase_pct", "Chase%"),
-    ("z_contact_pct", "Z-Contact%"),
-    ("hard_hit_pct", "HardHit%"),
-    ("barrel_pct", "Barrel%"),
-    ("exit_velocity", "Exit Velocity"),
-]
+@dataclass
+class _Totals:
+    """一場或季初至今多場的累積總帳。
 
-BATTER_TREND_STAT_OPTIONS = [
-    ("avg", "AVG"),
-    ("k_pct", "K%"),
-    ("bb_pct", "BB%"),
-    ("woba", "wOBA"),
-    ("exit_velocity", "Exit Velocity"),
-    ("hard_hit_pct", "HardHit%"),
-    ("barrel_pct", "Barrel%"),
-    ("sweet_spot_pct", "SweetSpot%"),
-    ("whiff_pct", "Whiff%"),
-    ("chase_pct", "Chase%"),
-    ("z_contact_pct", "Z-Contact%"),
-    ("swstr_pct", "SwStr%"),
-]
-
-
-def _compute_pitcher_cumulative_metrics(games: list) -> list:
-    """Season-to-date (cumulative through each game) values, aligned by index
-    with *games* (already sorted chronologically, one level/year, OR every
-    level merged together for the "_all" entry — see ``_build_all_levels_entry``).
-
-    MLB Stats API gameLog rows give AVG/ERA/etc. as a cumulative rate stat,
-    but that cumulative figure only tracks *that one level's* stint (it
-    resets when a player is promoted/demoted). Using it directly would make
-    ERA/AVG jump or reset to a tiny noisy sample right at every level change
-    in the merged "_all" sequence. So — same as the raw counting fields
-    (strikeOuts/baseOnBalls/battersFaced) below — we accumulate earnedRuns/
-    outs/hits/atBats ourselves across whatever *games* we're given, so the
-    resulting ERA/AVG stay continuous whether *games* is one level or the
-    cross-level merge.
-
-    ``aggregate_pitches`` is only ever called on *one game's own* pitches
-    here, never on the season-to-date pile — the classification counts it
-    returns are then folded into running totals. Re-running it on the whole
-    pile every game (the previous approach) reclassifies every earlier pitch
-    once per remaining game of the season, i.e. quadratic in total pitch
-    count; a career's worth of games made this measurably slow at build
-    time. The rate stats below (whiff%, CSW%, etc.) are pure count ratios —
-    see ``stats/discipline/*.py`` and ``stats/batted_ball/{hard_hit,barrel}.py``
-    — so folding counts in incrementally gives byte-identical numbers.
+    三本帳分開放：``box`` 的 "hits" 是 box score 安打，``pa`` 的 "hits" 是由
+    逐球打席結果推得的安打，同名但來源不同，放在同一個 dict 會互相覆蓋。
     """
-    running_so = 0
-    running_bb = 0
-    running_bf = 0
-    running_er = 0
-    running_outs = 0
-    running_hits = 0
-    running_ab = 0
-    running_swings = 0
-    running_whiffs = 0
-    running_called = 0
-    running_total = 0
-    running_out_zone = 0
-    running_out_zone_swings = 0
-    running_in_zone_swings = 0
-    running_in_zone_contact = 0
-    running_barrels = 0
-    running_hard_hits = 0
-    running_ev_sum = 0.0
-    running_ev_c = 0.0
-    running_bbe_n = 0
-    out = []
-    for log in games:
+
+    box: dict  # _BOX_FIELDS 的計數
+    agg: dict  # aggregate_pitches 的輸出
+    pa: dict   # compute_pa_outcome_totals 的輸出（wOBA 分子分母）
+
+    @classmethod
+    def empty(cls) -> "_Totals":
+        return cls(
+            box=dict.fromkeys(_BOX_FIELDS, 0),
+            agg=aggregate_pitches([]),
+            pa=compute_pa_outcome_totals([]),
+        )
+
+    @classmethod
+    def of_game(cls, log) -> "_Totals":
         s = log.stats_json or {}
-        running_so += s.get("strikeOuts") or 0
-        running_bb += s.get("baseOnBalls") or 0
-        running_bf += s.get("battersFaced") or 0
-        running_er += s.get("earnedRuns") or 0
-        running_outs += s.get("outs") or 0
-        running_hits += s.get("hits") or 0
-        running_ab += s.get("atBats") or 0
+        agg = aggregate_pitches(log.pitches_json or [])
+        return cls(
+            box={f: s.get(f) or 0 for f in _BOX_FIELDS},
+            agg=agg,
+            # 打席小計逐場算好再相加：若每場都對季初至今的全部打席重跑，成本會隨
+            # 場數平方成長。代價是 woba_num 的浮點相加順序與球季值一次算完不同，
+            # 最後一位可能不同，顯示只取到小數第三位
+            pa=compute_pa_outcome_totals(agg["pa_final"]),
+        )
 
-        if log.pitches_json:
-            agg = aggregate_pitches(log.pitches_json)
-            running_swings += len(agg["swings"])
-            running_whiffs += len(agg["whiffs"])
-            running_called += len(agg["called"])
-            running_total += agg["total"]
-            running_out_zone += len(agg["out_zone"])
-            running_out_zone_swings += len(agg["out_zone_swings"])
-            running_in_zone_swings += len(agg["in_zone_swings"])
-            running_in_zone_contact += len(agg["in_zone_contact"])
-            running_barrels += agg["barrels"]
-            running_hard_hits += agg["hard_hits"]
-            for p in agg["bbe_ev"]:
-                running_ev_sum, running_ev_c = _neumaier_add(running_ev_sum, running_ev_c, p["ev"])
-                running_bbe_n += 1
-
-        out.append({
-            "era": compute_era(running_er, running_outs / 3.0),
-            "avg": compute_avg(running_hits, running_ab),
-            "k_pct": compute_k_pct(running_so, running_bf),
-            "bb_pct": compute_bb_pct(running_bb, running_bf),
-            "whiff_pct": ratio(running_whiffs, running_swings),
-            "csw_pct": ratio(running_called + running_whiffs, running_total),
-            "swstr_pct": ratio(running_whiffs, running_total),
-            "chase_pct": ratio(running_out_zone_swings, running_out_zone),
-            "z_contact_pct": ratio(running_in_zone_contact, running_in_zone_swings),
-            "hard_hit_pct": ratio(running_hard_hits, running_bbe_n),
-            "barrel_pct": ratio(running_barrels, running_bbe_n),
-            "exit_velocity": round((running_ev_sum + running_ev_c) / running_bbe_n, 1) if running_bbe_n else None,
-        })
-    return out
+    def add(self, other: "_Totals") -> None:
+        # 只會併進 empty() 建出的總帳；各場 of_game 的清單不會被改動，可重複使用
+        _merge(self.box, other.box)
+        _merge(self.agg, other.agg)
+        _merge(self.pa, other.pa)
 
 
-def _compute_batter_cumulative_metrics(games: list) -> list:
-    """Return season-to-date batter metrics aligned with chronological games.
+@dataclass(frozen=True)
+class TrendMetric:
+    """走勢圖的一個指標：前端選單的 key/label，以及如何從總帳算出數值。
 
-    Same incremental-count approach as ``_compute_pitcher_cumulative_metrics``
-    (see its docstring) — ``aggregate_pitches``/``compute_pa_outcome_totals``
-    only ever see one game's own pitches, never the season-to-date pile.
+    ``compute`` 只負責把總帳的哪一部分交給 stats/ 的哪個 compute_*，不在這裡
+    寫公式。需要看每一筆的指標（如平均初速）從串接後的清單整份重算，與球季值
+    走同一個函式；每季最多幾百顆擊球，每場重算的成本很小。
     """
-    running_hits = running_ab = running_so = running_bb = running_pa = 0
-    running_swings = 0
-    running_whiffs = 0
-    running_called = 0
-    running_total = 0
-    running_out_zone = 0
-    running_out_zone_swings = 0
-    running_in_zone_swings = 0
-    running_in_zone_contact = 0
-    running_barrels = 0
-    running_hard_hits = 0
-    running_ev_sum = 0.0
-    running_ev_c = 0.0
-    running_bbe_n = 0
-    running_woba_num = 0.0
-    running_woba_den = 0
-    running_sweet_spot_n = 0
-    running_la_n = 0
-    out = []
-    for log in games:
-        s = log.stats_json or {}
-        running_hits += s.get("hits") or 0
-        running_ab += s.get("atBats") or 0
-        running_so += s.get("strikeOuts") or 0
-        running_bb += s.get("baseOnBalls") or 0
-        running_pa += s.get("plateAppearances") or 0
 
-        if log.pitches_json:
-            agg = aggregate_pitches(log.pitches_json)
-            running_swings += len(agg["swings"])
-            running_whiffs += len(agg["whiffs"])
-            running_called += len(agg["called"])
-            running_total += agg["total"]
-            running_out_zone += len(agg["out_zone"])
-            running_out_zone_swings += len(agg["out_zone_swings"])
-            running_in_zone_swings += len(agg["in_zone_swings"])
-            running_in_zone_contact += len(agg["in_zone_contact"])
-            running_barrels += agg["barrels"]
-            running_hard_hits += agg["hard_hits"]
-            for p in agg["bbe_ev"]:
-                running_ev_sum, running_ev_c = _neumaier_add(running_ev_sum, running_ev_c, p["ev"])
-                running_bbe_n += 1
-            for p in agg["in_play"]:
-                la = p.get("la")
-                if la is not None:
-                    running_la_n += 1
-                    if is_sweet_spot(la):
-                        running_sweet_spot_n += 1
-            totals = compute_pa_outcome_totals(agg["pa_final"])
-            running_woba_num += totals["woba_num"]
-            running_woba_den += totals["woba_den"]
-
-        out.append({
-            "avg": compute_avg(running_hits, running_ab),
-            "k_pct": compute_k_pct(running_so, running_pa),
-            "bb_pct": compute_bb_pct(running_bb, running_pa),
-            "woba": compute_pitch_woba(
-                {"woba_num": running_woba_num, "woba_den": running_woba_den}
-            ),
-            "exit_velocity": round((running_ev_sum + running_ev_c) / running_bbe_n, 1) if running_bbe_n else None,
-            "hard_hit_pct": ratio(running_hard_hits, running_bbe_n),
-            "barrel_pct": ratio(running_barrels, running_bbe_n),
-            "sweet_spot_pct": ratio(running_sweet_spot_n, running_la_n),
-            "whiff_pct": ratio(running_whiffs, running_swings),
-            "chase_pct": ratio(running_out_zone_swings, running_out_zone),
-            "z_contact_pct": ratio(running_in_zone_contact, running_in_zone_swings),
-            "swstr_pct": ratio(running_whiffs, running_total),
-        })
-    return out
+    key: str
+    label: str
+    compute: Callable[[_Totals], Optional[float]]
 
 
-def _group_games_by_level(year_logs: list, year: int, metrics_seq_fn) -> dict:
-    """Group a year's game logs by level, sort chronologically, compute
-    season-to-date metrics for each level's game sequence via *metrics_seq_fn*.
+_AVG = TrendMetric("avg", "AVG", lambda t: compute_avg(t.box["hits"], t.box["atBats"]))
+_WHIFF = TrendMetric("whiff_pct", "Whiff%", lambda t: compute_whiff_pct(t.agg))
+_SWSTR = TrendMetric("swstr_pct", "SwStr%", lambda t: compute_swstr_pct(t.agg))
+_CHASE = TrendMetric("chase_pct", "Chase%", lambda t: compute_o_swing_pct(t.agg))
+_Z_CONTACT = TrendMetric("z_contact_pct", "Z-Contact%", lambda t: compute_z_contact_pct(t.agg))
+_HARD_HIT = TrendMetric("hard_hit_pct", "HardHit%", lambda t: compute_hard_hit_pct(t.agg))
+_BARREL = TrendMetric("barrel_pct", "Barrel%", lambda t: compute_barrel_pct(t.agg))
+_EXIT_VELOCITY = TrendMetric(
+    "exit_velocity", "Exit Velocity", lambda t: compute_avg_ev(t.agg["bbe_ev"])
+)
 
-    Grouping/sorting is deliberately kept separate from "how to compute
-    metrics for a level's games" so a future batter trend builder can reuse
-    this without depending on pitcher-specific stat logic. *metrics_seq_fn*
-    takes the whole chronologically-sorted games list (not one game at a
-    time) since the metrics are cumulative and therefore stateful.
+# 順序即前端選單順序
+PITCHER_TREND_METRICS = (
+    TrendMetric("era", "ERA", lambda t: compute_era(t.box["earnedRuns"], t.box["outs"])),
+    _AVG,
+    TrendMetric(
+        "k_pct", "K%", lambda t: compute_k_pct(t.box["strikeOuts"], t.box["battersFaced"])
+    ),
+    TrendMetric(
+        "bb_pct", "BB%", lambda t: compute_bb_pct(t.box["baseOnBalls"], t.box["battersFaced"])
+    ),
+    _WHIFF,
+    TrendMetric("csw_pct", "CSW%", lambda t: compute_csw_pct(t.agg)),
+    _SWSTR,
+    _CHASE,
+    _Z_CONTACT,
+    _HARD_HIT,
+    _BARREL,
+    _EXIT_VELOCITY,
+)
+
+BATTER_TREND_METRICS = (
+    _AVG,
+    TrendMetric(
+        "k_pct", "K%", lambda t: compute_k_pct(t.box["strikeOuts"], t.box["plateAppearances"])
+    ),
+    TrendMetric(
+        "bb_pct", "BB%",
+        lambda t: compute_bb_pct(t.box["baseOnBalls"], t.box["plateAppearances"]),
+    ),
+    TrendMetric("woba", "wOBA", lambda t: compute_pitch_woba(t.pa)),
+    _EXIT_VELOCITY,
+    _HARD_HIT,
+    _BARREL,
+    TrendMetric(
+        "sweet_spot_pct", "SweetSpot%",
+        lambda t: compute_sweet_spot_pct(collect_la_values(t.agg["in_play"])),
+    ),
+    _WHIFF,
+    _CHASE,
+    _Z_CONTACT,
+    _SWSTR,
+)
+
+PITCHER_TREND_STAT_OPTIONS = [(m.key, m.label) for m in PITCHER_TREND_METRICS]
+BATTER_TREND_STAT_OPTIONS = [(m.key, m.label) for m in BATTER_TREND_METRICS]
+
+
+def _cumulative_points(games: list, metrics, badge_year: Optional[int] = None) -> list:
+    """依序把每場併進總帳，每場結束時對總帳算一次全部指標。
+
+    *games* 是依日期排序的 ``(log, _Totals)``。*badge_year* 有值時（All Levels
+    序列）每點附上該場的層級，讓前端標示這一點屬於哪個層級。
     """
-    by_raw_level: dict = {}
-    for log in year_logs:
-        by_raw_level.setdefault(log.sport_level, []).append(log)
+    running = _Totals.empty()
+    points = []
+    for log, totals in games:
+        running.add(totals)
+        point = {"date": log.date.strftime("%m/%d"), "date_key": log.date.isoformat()}
+        if badge_year is not None:
+            point["level_label"] = level_display(log.sport_level, badge_year)
+        point.update({m.key: m.compute(running) for m in metrics})
+        points.append(point)
+    return points
+
+
+def _build_year_entry(year_logs: list, year: int, metrics) -> dict:
+    """一個球季：每個層級一條序列，打過多個層級時再加一條跨層級的 All Levels 序列。
+
+    All Levels 是把全部比賽依日期合併後用同一本總帳累積，而不是把各層級序列
+    接起來（那樣每次升降層級都會歸零）。
+    """
+    # 先排序再分組：穩定排序下，分組後各層級內的順序與各自排序相同
+    games = sorted(
+        ((log, _Totals.of_game(log)) for log in year_logs), key=lambda g: g[0].date
+    )
+
+    # 以 tier key 分組；同一年每個 tier key 對應唯一的 level_display 字串，
+    # 所以下面用顯示字串當 dict 鍵不會互相覆蓋
+    by_level: dict = {}
+    for game in games:
+        by_level.setdefault(game[0].sport_level, []).append(game)
 
     year_entry = {}
-    for raw_level in sorted(by_raw_level, key=level_rank):
-        level_key = level_display(raw_level, year)
-        games = sorted(by_raw_level[raw_level], key=lambda g: g.date)
-        metrics_seq = metrics_seq_fn(games)
+    for tier_key in sorted(by_level, key=level_rank):
+        level_key = level_display(tier_key, year)
         year_entry[level_key] = {
             "level_label": level_key,
-            "games": [
-                {
-                    "date": g.date.strftime("%m/%d"),
-                    "date_key": g.date.isoformat(),
-                    **m,
-                }
-                for g, m in zip(games, metrics_seq)
-            ],
+            "games": _cumulative_points(by_level[tier_key], metrics),
+        }
+    if len(year_entry) > 1:
+        year_entry[ALL_LEVELS] = {
+            "level_label": level_label(ALL_LEVELS, year),
+            "games": _cumulative_points(games, metrics, badge_year=year),
         }
     return year_entry
 
 
-def _build_all_levels_entry(year_logs: list, year: int, metrics_seq_fn) -> dict:
-    """True cross-level season-to-date entry: merge every level's games by
-    date and accumulate metrics with a single running total, instead of
-    stitching together per-level cumulative sequences that each reset to
-    zero (which would make the line jump on every promotion/demotion).
+def _build_trend_by_year(logs_by_year: dict, metrics) -> dict:
+    """year -> level_display 字串（或 ALL_LEVELS）-> {"level_label", "games": [...]}。
 
-    Each game keeps its own ``level_label`` so the frontend can badge which
-    level a given point belongs to.
+    只採計有日期的例行賽 game log；整季沒有可用比賽的年份不輸出。
     """
-    all_games = sorted(year_logs, key=lambda g: g.date)
-    metrics_seq = metrics_seq_fn(all_games)
-    return {
-        "level_label": "All Levels",
-        "games": [
-            {
-                "date": g.date.strftime("%m/%d"),
-                "date_key": g.date.isoformat(),
-                "level_label": level_display(g.sport_level, year),
-                **m,
-            }
-            for g, m in zip(all_games, metrics_seq)
-        ],
-    }
+    result = {}
+    for year in sorted(logs_by_year, reverse=True):
+        year_logs = [
+            log for log in logs_by_year[year]
+            if log.date and not log.is_postseason
+        ]
+        if not year_logs:
+            continue
+        result[year] = _build_year_entry(year_logs, year, metrics)
+    return result
 
 
 def build_pitcher_trend_by_year(logs_by_year: dict) -> dict:
-    """year -> level_display string -> {"level_label", "games": [...]}.
-
-    Also includes an "_all" key (when more than one level was played that
-    year) holding a genuinely continuous cross-level cumulative sequence —
-    see ``_build_all_levels_entry``.
-    """
-    result = {}
-    for year in sorted(logs_by_year, reverse=True):
-        year_logs = [
-            log for log in logs_by_year[year]
-            if log.date and not log.is_postseason
-        ]
-        if not year_logs:
-            continue
-        year_entry = _group_games_by_level(
-            year_logs, year, _compute_pitcher_cumulative_metrics
-        )
-        if len(year_entry) > 1:
-            year_entry["_all"] = _build_all_levels_entry(
-                year_logs, year, _compute_pitcher_cumulative_metrics
-            )
-        result[year] = year_entry
-    return result
+    """投手走勢圖 payload，指標見 ``PITCHER_TREND_METRICS``。"""
+    return _build_trend_by_year(logs_by_year, PITCHER_TREND_METRICS)
 
 
 def build_batter_trend_by_year(logs_by_year: dict) -> dict:
-    """Build the filtered batter trend payload for every available season."""
-    result = {}
-    for year in sorted(logs_by_year, reverse=True):
-        year_logs = [
-            log for log in logs_by_year[year]
-            if log.date and not log.is_postseason
-        ]
-        if not year_logs:
-            continue
-        year_entry = _group_games_by_level(
-            year_logs, year, _compute_batter_cumulative_metrics
-        )
-        if len(year_entry) > 1:
-            year_entry["_all"] = _build_all_levels_entry(
-                year_logs, year, _compute_batter_cumulative_metrics
-            )
-        result[year] = year_entry
-    return result
+    """打者走勢圖 payload，指標見 ``BATTER_TREND_METRICS``。"""
+    return _build_trend_by_year(logs_by_year, BATTER_TREND_METRICS)

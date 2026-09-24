@@ -46,13 +46,13 @@
                             <td class="num">{{ sm.h_per_9|floatformat(1) }}</td>
                             <td class="num">{{ sm.hr_per_9|floatformat(2) }}</td>
                             <td class="num">{{ sm.k_bb_ratio|floatformat(2) }}</td>
-                            <td class="num">{{ sm.k_pct|pct_fmt }}</td>
-                            <td class="num">{{ sm.bb_pct|pct_fmt }}</td>
-                            <td class="num">{{ sm.strike_pct|num_dash }}</td>
-                            <td class="num">{{ sm.p_avg|num_dash }}</td>
-                            <td class="num">{{ sm.p_obp|num_dash }}</td>
-                            <td class="num">{{ sm.p_slg|num_dash }}</td>
-                            <td class="num">{{ sm.p_ops|num_dash }}</td>
+                            <td class="num">{{ sm.p_k_pct|pct_fmt }}</td>
+                            <td class="num">{{ sm.p_bb_pct|pct_fmt }}</td>
+                            <td class="num">{{ sm.strike_pct|floatformat(3) }}</td>
+                            <td class="num">{{ sm.p_avg|floatformat(3) }}</td>
+                            <td class="num">{{ sm.p_obp|floatformat(3) }}</td>
+                            <td class="num">{{ sm.p_slg|floatformat(3) }}</td>
+                            <td class="num">{{ sm.p_ops|floatformat(3) }}</td>
                             <td class="num">{{ sm.p_babip|floatformat(3) }}</td>
                             <td class="num">{{ sm.p_go_ao|floatformat(2) }}</td>
                             <td class="num">{{ sm.pitches_per_pa|floatformat(2) }}</td>
@@ -64,7 +64,7 @@
                             <td class="num">{{ sm.xbh|num_dash }}</td>
                             <td class="num">{{ sm.ab_per_hr|floatformat(1) }}</td>
                             <td class="num">{{ sm.go_ao|floatformat(2) }}</td>
-                            <td class="num">{{ sm.sb_pct|num_dash }}</td>
+                            <td class="num">{{ sm.sb_pct|floatformat(3) }}</td>
                             <td class="num">{{ sm.p_per_pa|floatformat(2) }}</td>
                             <td class="num">{{ sm.ibb|num_dash }}</td>
                             <td class="num">{{ sm.hbp|num_dash }}</td>
@@ -92,13 +92,13 @@
                             <td class="num">{{ stat.h_per_9|floatformat(1) }}</td>
                             <td class="num">{{ stat.hr_per_9|floatformat(2) }}</td>
                             <td class="num">{{ stat.k_bb_ratio|floatformat(2) }}</td>
-                            <td class="num">{{ stat.k_pct|pct_fmt }}</td>
-                            <td class="num">{{ stat.bb_pct|pct_fmt }}</td>
-                            <td class="num">{{ stat.strike_pct|num_dash }}</td>
-                            <td class="num">{{ stat.p_avg|num_dash }}</td>
-                            <td class="num">{{ stat.p_obp|num_dash }}</td>
-                            <td class="num">{{ stat.p_slg|num_dash }}</td>
-                            <td class="num">{{ stat.p_ops|num_dash }}</td>
+                            <td class="num">{{ stat.p_k_pct|pct_fmt }}</td>
+                            <td class="num">{{ stat.p_bb_pct|pct_fmt }}</td>
+                            <td class="num">{{ stat.strike_pct|floatformat(3) }}</td>
+                            <td class="num">{{ stat.p_avg|floatformat(3) }}</td>
+                            <td class="num">{{ stat.p_obp|floatformat(3) }}</td>
+                            <td class="num">{{ stat.p_slg|floatformat(3) }}</td>
+                            <td class="num">{{ stat.p_ops|floatformat(3) }}</td>
                             <td class="num">{{ stat.p_babip|floatformat(3) }}</td>
                             <td class="num">{{ stat.p_go_ao|floatformat(2) }}</td>
                             <td class="num">{{ stat.pitches_per_pa|floatformat(2) }}</td>
@@ -110,7 +110,7 @@
                             <td class="num">{{ stat.xbh|num_dash }}</td>
                             <td class="num">{{ stat.ab_per_hr|floatformat(1) }}</td>
                             <td class="num">{{ stat.go_ao|floatformat(2) }}</td>
-                            <td class="num">{{ stat.sb_pct|num_dash }}</td>
+                            <td class="num">{{ stat.sb_pct|floatformat(3) }}</td>
                             <td class="num">{{ stat.p_per_pa|floatformat(2) }}</td>
                             <td class="num">{{ stat.ibb|num_dash }}</td>
                             <td class="num">{{ stat.hbp|num_dash }}</td>
@@ -159,10 +159,10 @@
                     {% set entries = statcast_by_year[yr] %}
                     {# 層級列在前、合計列移到該年度最後（entries 以 _combined 開頭是
                        球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-                    {% set has_total = entries[0].sport_level == '_combined' %}
+                    {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
                     {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
                     {% for entry in level_entries %}
-                    {% set is_total = entry.sport_level == '_combined' %}
+                    {% set is_total = entry.sport_level == COMBINED_LEVEL %}
                     {% set sc = entry.sc %}
                     {% set ss_row = entry.stat %}
                     <tr class="{% if is_total %}year-summary-row sc-total-row {% endif %}{% if yr == selected_year %}highlight-row{% endif %}">
@@ -226,10 +226,10 @@
                     {% set entries = statcast_by_year[yr] %}
                     {# 層級列在前、合計列移到該年度最後（entries 以 _combined 開頭是
                        球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-                    {% set has_total = entries[0].sport_level == '_combined' %}
+                    {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
                     {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
                     {% for entry in level_entries %}
-                    {% set is_total = entry.sport_level == '_combined' %}
+                    {% set is_total = entry.sport_level == COMBINED_LEVEL %}
                     {% set sc = entry.sc %}
                     <tr class="{% if is_total %}year-summary-row sc-total-row {% endif %}{% if yr == selected_year %}highlight-row{% endif %}">
                         <td><strong>{{ yr }}</strong></td>
@@ -282,10 +282,10 @@
                     {% set entries = statcast_by_year[yr] %}
                     {# 層級列在前、合計列移到該年度最後（entries 以 _combined 開頭是
                        球種／Plinko／位移圖依賴的約定，這裡只改顯示順序） #}
-                    {% set has_total = entries[0].sport_level == '_combined' %}
+                    {% set has_total = entries[0].sport_level == COMBINED_LEVEL %}
                     {% set level_entries = entries[1:] + entries[:1] if has_total else entries %}
                     {% for entry in level_entries %}
-                    {% set is_total = entry.sport_level == '_combined' %}
+                    {% set is_total = entry.sport_level == COMBINED_LEVEL %}
                     {% set sc = entry.sc %}
                     {% if sc.bbe is not none %}
                     <tr class="{% if is_total %}year-summary-row sc-total-row {% endif %}{% if yr == selected_year %}highlight-row{% endif %}">
@@ -352,7 +352,7 @@
             {% set _level = _e.sport_level %}
             <div class="arsenal-level-container" id="arsenal-{{ yr }}-{{ _level }}"
                  data-level="{{ _level | level_display(yr) }}"
-                 data-level-label="{% if _level == '_combined' %}All Levels{% else %}{{ _level | level_display(yr) }}{% endif %}"
+                 data-level-label="{{ _level | level_label(yr) }}"
                  {% if not loop.first %}style="display: none;"{% endif %}>
                 {% if is_pitcher %}
                 {% set splits = sc.pitcher_bat_side_splits if sc.pitcher_bat_side_splits else {} %}

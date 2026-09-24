@@ -55,7 +55,7 @@
                                 <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
                                 <td class="num">{{ s.homeRuns|default_if_none("0") }}</td>
                                 <td class="num">{{ s.hitByPitch|default_if_none("0") }}</td>
-                                <td class="num">{{ s.era|num_dash }}</td>
+                                <td class="num">{{ s.era|floatformat(2) }}</td>
                                 <td>{% if s.wins %}W{% elif s.losses %}L{% elif s.saves %}S{% elif s.holds %}H{% else %}-{% endif %}</td>
                             {% else %}
                                 <td class="num">{{ s.atBats|default_if_none("0") }}</td>
@@ -69,8 +69,8 @@
                                 <td class="num">{{ s.strikeOuts|default_if_none("0") }}</td>
                                 <td class="num">{{ s.stolenBases|default_if_none("0") }}</td>
                                 <td class="num">{{ s.caughtStealing|default_if_none("0") }}</td>
-                                <td class="num">{{ s.avg|num_dash }}</td>
-                                <td class="num">{{ s.ops|num_dash }}</td>
+                                <td class="num">{{ s.avg|floatformat(3) }}</td>
+                                <td class="num">{{ s.ops|floatformat(3) }}</td>
                             {% endif %}
                         </tr>
                         {% if log.pitch_data_url %}

@@ -41,12 +41,8 @@ def annotate_row(s):
     values are never overwritten.  Works for both per-row and summary rows,
     and for both batters and pitchers (all fields guarded by None-checks).
     """
-    # ── IP as real fractional innings (needed for pitcher /9 rates) ──
-    ip_actual = None
-    if s.get("ip") is not None:
-        ip_actual = ip_to_outs(s["ip"]) / 3.0
-    elif s.get("outs"):
-        ip_actual = s["outs"] / 3.0
+    # ── outs 是所有投手率的分母（見 core/innings.py 為何不用浮點局數） ──
+    outs = ip_to_outs(s["ip"]) if s.get("ip") is not None else s.get("outs")
 
     # ─────────────────────────── BATTER fields ───────────────────────────
 
@@ -61,7 +57,7 @@ def annotate_row(s):
         _fill(s, "xbh", compute_xbh(s.get("doubles"), s.get("triples"), s.get("hr")))
 
     if s.get("iso") is None:
-        _fill(s, "iso", compute_iso(s.get("slg"), s.get("avg")))
+        _fill(s, "iso", compute_iso(s.get("tb"), s.get("hits"), s.get("ab")))
 
     if s.get("babip") is None:
         _fill(s, "babip", compute_babip(
@@ -93,29 +89,32 @@ def annotate_row(s):
         _fill(s, "pitches_per_pa", compute_p_per_pa(s.get("pitches"), s.get("bf")))
 
     # /9 rate stats require IP
-    if ip_actual and ip_actual > 0:
+    if outs and outs > 0:
         if s.get("k_per_9") is None:
-            _fill(s, "k_per_9", compute_k_per_9(s.get("so"), ip_actual))
+            _fill(s, "k_per_9", compute_k_per_9(s.get("so"), outs))
         if s.get("bb_per_9") is None:
-            _fill(s, "bb_per_9", compute_bb_per_9(s.get("bb"), ip_actual))
+            _fill(s, "bb_per_9", compute_bb_per_9(s.get("bb"), outs))
         if s.get("h_per_9") is None:
-            _fill(s, "h_per_9", compute_h_per_9(s.get("p_hits"), ip_actual))
+            _fill(s, "h_per_9", compute_h_per_9(s.get("p_hits"), outs))
         if s.get("hr_per_9") is None:
-            _fill(s, "hr_per_9", compute_hr_per_9(s.get("p_hr"), ip_actual))
+            _fill(s, "hr_per_9", compute_hr_per_9(s.get("p_hr"), outs))
         if s.get("p_per_ip") is None:
-            _fill(s, "p_per_ip", compute_p_per_ip(s.get("pitches"), ip_actual))
+            _fill(s, "p_per_ip", compute_p_per_ip(s.get("pitches"), outs))
         if s.get("rs_per_9") is None:
-            _fill(s, "rs_per_9", compute_rs_per_9(s.get("run_support"), ip_actual))
+            _fill(s, "rs_per_9", compute_rs_per_9(s.get("run_support"), outs))
 
     if s.get("k_bb_ratio") is None:
         _fill(s, "k_bb_ratio", compute_k_bb_ratio(s.get("so"), s.get("bb")))
 
-    # Pitcher K% / BB% use BF as denominator
-    if s.get("k_pct") is None:
-        _fill(s, "k_pct", compute_k_pct(s.get("so"), s.get("bf")))
+    # Pitcher K% / BB% use BF as denominator (FanGraphs: SO / TBF, BB / TBF)。
+    # 用 p_ 前綴獨立存放：season_stats 同一列會同時帶 hitting 與 pitching
+    # 兩組數據（sync/players.py 把兩個 group 寫進同一份 stat_json），若與打者
+    # 共用 k_pct / bb_pct，上面的打者公式會先佔住欄位，投手值就寫不進來。
+    if s.get("p_k_pct") is None:
+        _fill(s, "p_k_pct", compute_k_pct(s.get("so"), s.get("bf")))
 
-    if s.get("bb_pct") is None:
-        _fill(s, "bb_pct", compute_bb_pct(s.get("bb"), s.get("bf")))
+    if s.get("p_bb_pct") is None:
+        _fill(s, "p_bb_pct", compute_bb_pct(s.get("bb"), s.get("bf")))
 
     if s.get("strike_pct") is None:
         _fill(s, "strike_pct", compute_strike_pct(s.get("strikes"), s.get("pitches")))

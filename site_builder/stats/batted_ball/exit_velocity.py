@@ -1,6 +1,6 @@
 """Exit velocity — average, maximum, and 90th-percentile EV over BBEs."""
 
-from ...util.numbers import mean_round
+from ...util.numbers import mean_round, round_half_up
 
 
 def compute_avg_ev(bbe_ev: list[dict]):
@@ -10,7 +10,7 @@ def compute_avg_ev(bbe_ev: list[dict]):
 def compute_max_ev(bbe_ev: list[dict]):
     if not bbe_ev:
         return None
-    return round(max(p["ev"] for p in bbe_ev), 1)
+    return round_half_up(max(p["ev"] for p in bbe_ev), 1)
 
 
 def compute_ev90(bbe_ev: list[dict]):
@@ -22,4 +22,4 @@ def compute_ev90(bbe_ev: list[dict]):
     if not ev_values:
         return None
     idx = min(int(len(ev_values) * 0.9), len(ev_values) - 1)
-    return round(ev_values[idx], 1)
+    return round_half_up(ev_values[idx], 1)

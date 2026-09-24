@@ -3,7 +3,9 @@
 from ..constants import PLINKO_COUNT_LABELS, PLINKO_COUNTS, PLINKO_EDGES
 from ..stats.core.pitches import (
     count_label,
-    is_unknown_pitch_type,
+    filter_known_pitch_events,
+    pitch_type_key,
+    pitch_type_shares,
     post_count_tuple,
     pre_count_tuple,
 )
@@ -34,32 +36,21 @@ def compute_pitch_plinko(
     valid_counts = set(PLINKO_COUNTS)
     split_keys = {key for key, _ in split_specs}
 
-    candidates = []
-    for p in pitches:
-        if p.get(split_field) not in split_keys:
-            continue
-        ptype = p.get("pitch_type") or "UN"
-        if is_unknown_pitch_type(ptype, p.get("pitch_name")):
-            continue
-        if pre_count_tuple(p) not in valid_counts:
-            continue
-        candidates.append(p)
+    # 之後的迴圈都只走 candidates，所以球數合法與否只在這裡檢查一次
+    candidates = [
+        p for p in filter_known_pitch_events(pitches)
+        if p.get(split_field) in split_keys and pre_count_tuple(p) in valid_counts
+    ]
 
     total_type_counts: dict[str, int] = {}
     for p in candidates:
-        ptype = p.get("pitch_type") or "UN"
+        ptype = pitch_type_key(p)
         total_type_counts[ptype] = total_type_counts.get(ptype, 0) + 1
 
-    ordered_types = sorted(total_type_counts, key=lambda t: total_type_counts[t], reverse=True)
     total = len(candidates)
-    pitch_types = [
-        {
-            "type": t,
-            "count": total_type_counts[t],
-            "pct": ratio(total_type_counts[t], total, digits=4),
-        }
-        for t in ordered_types
-    ]
+    pitch_types = pitch_type_shares(total_type_counts, total)
+    # 各節點同顆數的球種依整體用量排序，讓每一格的球種順序一致
+    ordered_types = [pt["type"] for pt in pitch_types]
 
     splits = []
     edge_keys = set(PLINKO_EDGES)
@@ -73,11 +64,8 @@ def compute_pitch_plinko(
         edge_counts = {edge: 0 for edge in PLINKO_EDGES}
 
         for p in split_pitches:
-            pre_count = pre_count_tuple(p)
-            if pre_count not in valid_counts:
-                continue
-            pre_label = count_label(pre_count)
-            ptype = p.get("pitch_type") or "UN"
+            pre_label = count_label(pre_count_tuple(p))
+            ptype = pitch_type_key(p)
             bucket = node_data[pre_label]
             bucket["pitches"] += 1
             bucket["type_counts"][ptype] = bucket["type_counts"].get(ptype, 0) + 1
@@ -94,21 +82,14 @@ def compute_pitch_plinko(
             label = count_label(count)
             bucket = node_data[label]
             node_total = bucket["pitches"]
-            node_pitch_types = [
-                {
-                    "type": t,
-                    "count": bucket["type_counts"].get(t, 0),
-                    "pct": ratio(bucket["type_counts"].get(t, 0), node_total, digits=4),
-                }
-                for t in ordered_types
-                if bucket["type_counts"].get(t, 0)
-            ]
-            node_pitch_types.sort(key=lambda pt: pt.get("count", 0), reverse=True)
+            node_type_counts = {
+                t: bucket["type_counts"][t] for t in ordered_types if t in bucket["type_counts"]
+            }
             nodes.append({
                 "count": label,
                 "pitches": node_total,
                 "pct": ratio(node_total, split_total, digits=4),
-                "pitch_types": node_pitch_types,
+                "pitch_types": pitch_type_shares(node_type_counts, node_total),
             })
 
         splits.append({

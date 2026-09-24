@@ -22,7 +22,7 @@
                     </div>
                 </header>
                 <div class="mc-hero">
-                    <div class="mc-hero-cell"><span>{{ f.fielding_pct|num_dash }}</span><b>FLD%</b></div>
+                    <div class="mc-hero-cell"><span>{{ f.fielding_pct|floatformat(3) }}</span><b>FLD%</b></div>
                     <div class="mc-hero-cell"><span>{{ f.innings|num_dash }}</span><b>INN</b></div>
                     <div class="mc-hero-cell"><span>{{ f.errors|num_dash }}</span><b>E</b></div>
                     <div class="mc-hero-cell"><span>{{ f.dp|num_dash }}</span><b>DP</b></div>

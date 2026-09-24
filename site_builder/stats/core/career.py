@@ -1,23 +1,28 @@
 """Career and per-year aggregations over season-stat rows."""
 
+from ...levels import is_milb, is_mlb, level_display
 from .aggregate import aggregate_stats
 from .annotate import annotate_row
+
+
+def _teams_display(stats) -> str:
+    """「層級 球隊」以 / 串接；層級依該列年份顯示（2020 年以前為舊制名稱）。"""
+    return " / ".join(f"{level_display(s.sport_level, s.year)} {s.team_name}" for s in stats)
 
 
 def compute_career(stats, level_filter=None):
     """Aggregate counting stats across multiple seasons and compute rates."""
     if level_filter == "mlb":
-        stats = [s for s in stats if s.sport_level == "MLB"]
+        stats = [s for s in stats if is_mlb(s.sport_level)]
     elif level_filter == "milb":
-        stats = [s for s in stats if s.sport_level != "MLB"]
+        stats = [s for s in stats if is_milb(s.sport_level)]
 
     if not stats:
         return None
 
     career = aggregate_stats(stats)
 
-    teams = [f"{s.sport_level} {s.team_name}" for s in stats]
-    career["teams_display"] = " / ".join(teams)
+    career["teams_display"] = _teams_display(stats)
 
     years_set = sorted(set(s.year for s in stats))
     if len(years_set) > 1:
@@ -28,21 +33,6 @@ def compute_career(stats, level_filter=None):
         career["years_range"] = ""
 
     return career
-
-
-def compute_season_combined(stats, year):
-    """Aggregate counting stats for a single year across teams."""
-    stats = [s for s in stats if s.year == year]
-    if not stats:
-        return None
-
-    combined = aggregate_stats(stats)
-
-    teams = [f"{s.sport_level} {s.team_name}" for s in stats]
-    combined["teams_display"] = " / ".join(teams)
-    combined["year"] = year
-
-    return combined
 
 
 def compute_year_groups(all_stats):
@@ -62,6 +52,9 @@ def compute_year_groups(all_stats):
 
     ERA and WHIP on the summary row are computed from total outs (IP via
     ip_to_outs) so cross-team ERA is always accurate.
+
+    summary 是全站唯一的「單一年度合計列」：成績表的年度列與 bio 卡的本季合計
+    （render/pages.py 的 season_combined）讀的是同一個物件，所以欄位必定一致。
     """
     years = sorted({s.year for s in all_stats}, reverse=True)
     groups = []
@@ -72,6 +65,7 @@ def compute_year_groups(all_stats):
 
         summary = aggregate_stats(yr_stats)
         summary["year"] = yr
+        summary["teams_display"] = _teams_display(yr_stats)
 
         # np alias for template compatibility
         summary["np"] = summary.get("pitches")

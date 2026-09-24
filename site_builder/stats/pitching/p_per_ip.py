@@ -1,7 +1,11 @@
-"""P/IP — pitches per inning (real fractional innings)."""
+"""P/IP — pitches per inning: pitches × 3 / outs."""
+
+from ...util.numbers import ratio
 
 
-def compute_p_per_ip(pitches, ip_actual):
-    if pitches is None or not ip_actual or ip_actual <= 0:
+def compute_p_per_ip(pitches, outs):
+    # 投球數缺值或沒有投球局數
+    if pitches is None or not outs or outs <= 0:
         return None
-    return round(pitches / ip_actual, 1)
+    # 兩位小數對應 API pitchesPerInning
+    return ratio(3 * pitches, outs, 2)

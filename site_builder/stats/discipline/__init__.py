@@ -18,9 +18,10 @@ def discipline_metrics(agg: dict) -> dict:
     """Build the plate-discipline metrics dict from aggregate_pitches output.
 
     Includes each rate's own denominator count (``*_den``) alongside the
-    percentage — ``combine.py`` needs the true denominator to weight a
-    cross-level average correctly; ``total_pitches`` is only the right
-    weight for the rates whose denominator actually is total pitches.
+    percentage, so a reader can tell how large each rate's sample is
+    (``total_pitches`` is only the sample size for rates whose denominator
+    actually is total pitches). Cross-level totals do not average these
+    rates: they are recomputed from the pooled pitches (``stats/tables``).
     """
     return {
         "swing_pct": compute_swing_pct(agg),

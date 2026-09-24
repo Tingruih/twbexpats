@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from ..levels import is_mlb
 from ..util.json import dumps_json
 
 
@@ -52,13 +53,13 @@ def write_pitch_log_files(logs_by_year: dict, out_dir: Path,
     for y_key in logs_by_year:
         for log in logs_by_year[y_key]:
             if log.pitches_json:
-                is_mlb = log.sport_level == "MLB"
-                video_map = (videos_by_game or {}).get(log.game_id) if is_mlb else None
+                mlb_game = is_mlb(log.sport_level)
+                video_map = (videos_by_game or {}).get(log.game_id) if mlb_game else None
                 pitch_display = [
                     summarize_pitch_for_display(
                         p,
                         video_map=video_map,
-                        include_video=is_mlb,
+                        include_video=mlb_game,
                     )
                     for p in log.pitches_json
                 ]

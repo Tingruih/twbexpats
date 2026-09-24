@@ -1,11 +1,13 @@
 """Custom Jinja2 filters."""
 
 import json
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
+from jinja2 import Undefined
 from markupsafe import Markup
 
 from ..constants import PITCH_TYPE_ZH
+from ..util.numbers import round_half_up, safe_float
 
 
 def pitch_legend(rows):
@@ -32,13 +34,20 @@ def pitch_legend(rows):
 
 
 def floatformat(value, digits=2):
-    """Format a numeric value with fixed decimal places, or '-' for None."""
-    if value is None:
+    """Format a numeric value with fixed decimal places (half-up), or '-' for None.
+
+    顯示值可能已被 API 捨入過一次（例如 K/9 給兩位、這裡顯示一位）；用
+    round_half_up 至少讓 9.45 顯示成 9.5，而不是 f-string 依二進位值給的 9.4。
+    """
+    # 樣板取不存在的 key（例如投手頁混入的打擊逐場紀錄沒有 era）
+    if isinstance(value, Undefined):
         return "-"
-    try:
-        return f"{float(value):.{int(digits)}f}"
-    except Exception:
+    number = safe_float(value)
+    # 缺值或無法解析（例如 API 的 "-.--"、".---"）
+    if number is None:
         return "-"
+    digits = int(digits)
+    return f"{round_half_up(number, digits):.{digits}f}"
 
 
 def default_if_none(value, fallback="-"):
@@ -74,13 +83,14 @@ def pct_fmt(value, digits=1):
     Returns '-' for None.  Commonly used for Statcast percentages stored as
     0.XXX in the database.
     """
+    # 缺值
     if value is None:
         return "-"
     try:
-        places = Decimal("1").scaleb(-int(digits))
-        pct = (Decimal(str(value)) * Decimal("100")).quantize(
-            places, rounding=ROUND_HALF_UP
-        )
-        return f"{pct:.{int(digits)}f}%"
-    except Exception:
+        # 以十進位乘 100，避免 0.1235 * 100 的浮點尾差落在平手值下方
+        scaled = Decimal(str(value)) * 100
+    except ArithmeticError:
+        # 無法解析成數字
         return "-"
+    digits = int(digits)
+    return f"{round_half_up(scaled, digits):.{digits}f}%"

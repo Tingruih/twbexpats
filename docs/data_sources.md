@@ -38,7 +38,7 @@
 | `latest_transaction`, `transactions_json` | 🔵 API | 取 `transactions` 陣列，僅按日期排序、抽欄位 |
 | `roster_status`, `roster_status_code`, `roster_is_active` | 🔵 API | 取 `rosterEntries[0].status` |
 | `team_id`, `current_team_name` | 🔵 API | 取 `currentTeam` |
-| `current_team_level` | 🟢 計算（對照表） | 另呼叫 `/teams/{team_id}` 取得 `sportId`，用 `levels.py` 的固定對照表轉成 `MLB/AAA/AA/A+/A` 等代碼；純查表，非數學運算 |
+| `current_team_level` | 🟢 計算（對照表） | 另呼叫 `/teams/{team_id}` 取得 `sportId`，經 `levels.sport_to_tier_key()` 轉成 tier key（`MLB/AAA/AA/A+/A/ROK` 等）；純查表，非數學運算 |
 | `status_category`（active/injured/restricted/inactive/other） | 🟢 計算 | `helpers.py categorize_roster_status()`（64行），依 `roster_status_code` 對照固定代碼集合分類 |
 | `height_cm` | 🟢 計算 | `helpers.py height_to_cm()`（190行）：`(呎×12+吋) × 2.54` |
 | `weight_kg` | 🟢 計算 | `helpers.py lbs_to_kg()`（200行）：`磅 × 0.453592` |
@@ -122,8 +122,8 @@
 | `p_per_ip` | `pitches / IP實際局數` |
 | `rs_per_9` | `run_support × 9 / IP實際局數` |
 | `k_bb_ratio` | `so / bb` |
-| `k_pct` | `so / bf` |
-| `bb_pct` | `bb / bf` |
+| `p_k_pct` | `so / bf` |
+| `p_bb_pct` | `bb / bf` |
 | `strike_pct` | `strikes / pitches` |
 | `p_babip` | `(p_hits − p_hr) / (p_ab − so − p_hr + p_sac_flies)`。註：改用 `p_ab`（對方打數）而非 `bf` 當分母，因為 `bf`≈PA 只扣掉 BB 卻漏扣 HBP／犧牲觸擊，會系統性低估 BABIP |
 | `p_go_ao` | `p_ground_outs / p_air_outs` |
@@ -139,7 +139,7 @@
 ### 2.4 MLB 進階指標：FIP / xFIP / WAR（🔵 API，僅 MLB）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=pitching&season={year}`
-對應：`api.py get_player_sabermetrics()`（352–371行）→ `sync.py _merge_statcast_into_season()` 第1095–1101行
+對應：`api/stats.py get_player_sabermetrics()` → `sync/advanced.py _season_total_saber()` → `_mlb_advanced_fields()`
 
 | 欄位 | 來源 |
 |---|---|
@@ -147,13 +147,16 @@
 | `xfip` | API `sabermetrics.xfip` |
 | `war` | API `sabermetrics.war` |
 
-> 只取整季合計 split（`splits[]` 中沒有 `team` 的那筆，轉隊時帶 `numTeams`），見 `sync/statcast.py _season_total_saber()`；各隊 split 不使用。
+> 只取整季合計 split（`splits[]` 中沒有 `team` 的那筆，轉隊時帶 `numTeams`），見 `sync/advanced.py _season_total_saber()`；各隊 split 不使用。
+> 一次只查一年（`season={year}`）：`seasons=a,b` 多年查詢對轉隊年份不回整季合計 split（Yu Chang 2022、623913 2019 實測），會讓整年缺值。
+
+> 抓取頻率（`db/season_fetches.py`）：當季每次重抓；過去球季成功抓過一次就登記在 `season_fetches`，之後改用 `stat_json.saber` 重算欄位，不再打 API。`--full-history` 強制全部重抓。
 
 > 這三個指標常被誤以為是自製算法，但 **MLB 層級是 API 直接算好回傳的**，程式沒有重算。只有 MiLB（API 無此端點）才會走 2.5 的自製公式。
 
 ### 2.5 MiLB 版 FIP / xWPCT（🟢 計算，僅 MiLB）
 
-`statcast.py compute_fip()`（1339–1368行）、`compute_xwpct()`（1371–1380行），因 MLB API 沒有 MiLB 的 sabermetrics 端點，程式自行計算：
+`stats/advanced/fip.py compute_fip()`、`stats/advanced/xwpct.py compute_xwpct()`，由 `sync/advanced.py _milb_fip_fields()` 對每一列 MiLB 投手季度呼叫（不需要逐球資料）。因 MLB API 沒有 MiLB 的 sabermetrics 端點，程式自行計算；2005 年以前 MiLB 的球隊合計沒有 `earnedRuns`，常數解不出，FIP / xWPCT 留空：
 
 ```
 FIP = (13×HR + 3×(BB+HBP) − 2×K) / IP實際局數 + cFIP
@@ -177,6 +180,8 @@ xWPCT（Pythagenpat 1.83）= 1 / (1 + (FIP / 聯盟RA9)^1.83)
 | `xslg` | `slg` | 對方期望長打率 |
 | `xwoba` | `woba` | 對方期望 wOBA |
 | `xwobacon` | `wobaCon` | 對方期望「有擊中球」wOBA |
+
+> 抓取頻率同 2.4（`db/season_fetches.py`）：當季每次重抓，過去球季抓過一次即登記；2015 年以前 API 沒有資料，成功回應後同樣登記，不會每次重抓。
 
 > MiLB 呼叫此端點一律回傳 0.0（API 本身限制），因此只對 MLB 賽季有效，程式不會為 MiLB 另外計算 x 系列指標。
 
@@ -317,10 +322,10 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 ### 3.5 MLB 進階指標：WAR（🔵 API）與 wRC+（🔵 API｜🟢 計算 雙軌）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=hitting&season={year}`
-對應：`sync.py _merge_statcast_into_season()` 第1102–1112行
+對應：`sync/advanced.py _mlb_advanced_fields()`
 
 - `war`：🔵 直接取 API `sabermetrics.war`
-- `wrc_plus`：🔵 直接取 API `sabermetrics.wRcPlus`（MLB 賽季合計值，取自沒有 `team` 的整季 split（`_season_total_saber()`）；換隊球員只寫入該年度第一筆記錄，避免重複顯示）
+- `wrc_plus`：🔵 取 API `sabermetrics.wRcPlus` 四捨五入成整數（MLB 賽季合計值，取自沒有 `team` 的整季 split（`_season_total_saber()`）；換隊球員該年每一隊的 MLB 列都寫同一份）
 
 同時程式會**額外自行計算一份 wRC+ 存成 `wrc_plus_calc`**（不覆蓋 API 值），用於跟 API 版本對照 / 給 MiLB 使用：
 
@@ -391,7 +396,7 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
 **端點**：`GET /people/{mlb_id}/stats?stats=gameLog&season={year}&group=hitting,pitching`
 對應：`api.py get_game_logs()`，直接把該場的 `stats` dict 原封存成 `game_logs.stats_json`（🔵 API，欄位與第二、三節的 yearByYear 欄位同名）。
 
-逐場的**逐球**資料（`pitches_json`）來自 `GET /game/{game_pk}/withMetrics`，經 `extract_pitch_logs()` 萃取，欄位詳見第 2.7 節「原始輸入」說明，展開頁面用 `summarize_pitch_for_display()`（1388–1406行）做顯示用投影，未做二次計算。
+逐場的**逐球**資料（`pitches_json`）來自 `GET /game/{game_pk}/withMetrics`，只在 `gameData.status.abstractGameState == "Final"` 時才萃取寫入（進行中、延遲、暫停皆為 `Live`，見 `/api/v1/gameStatus`；未完賽的比賽不寫入、下次重抓，見 `sync/statcast.py::_fetch_and_extract_game()`），經 `extract_pitch_logs()` 萃取，欄位詳見第 2.7 節「原始輸入」說明，展開頁面用 `summarize_pitch_for_display()`（1388–1406行）做顯示用投影，未做二次計算。
 
 ---
 
@@ -406,7 +411,7 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
   - `slg = Σtb / Σab`；`ops = obp + slg`
   - `era = Σearned_runs / IP實際局數 × 9`
   - `whip = (Σp_hits + Σbb) / IP實際局數`
-- 供 `compute_career()`（363–386行）、`compute_season_combined()`（389–401行）、`compute_year_groups()`（647–691行）三個函式使用
+- 供 `stats/core/career.py` 的 `compute_career()`、`compute_year_groups()` 兩個函式使用（bio 卡的本季合計直接取 `compute_year_groups()` 的當年 `summary`）
 - 彙總完成後仍會呼叫 `_compute_advanced_stats()` 補上 ISO/BABIP/K%/BB%/FIP 相關欄位等衍生指標
 
 ---
@@ -546,7 +551,7 @@ perceived_velo ≈ start_speed × (聯盟平均 extension / 該投手 extension)
 
 ### 10.3 回填既有比賽資料的注意事項
 
-`sync_statcast()` 的判斷邏輯是「`pitches_json` 非空就跳過重抓」（`site_builder/sync/statcast.py` 第410行 `needs_fetch = pitches_json in (None, "[]")`），所以**已經抓過的歷史比賽不會自動補上這批新欄位**——新欄位只會出現在下次爬到的「新比賽」裡。如果要讓歷史比賽也補齊，需要先把對應的 `game_logs.pitches_json` 清空（例如 `UPDATE game_logs SET pitches_json='[]', hit_coord_checked=0`）再重跑 `python build.py statcast`，這樣會強迫重新呼叫 playByPlay 端點重新萃取。目前沒有現成指令做這件事，如果需要我可以加一個 `--reextract` 選項。
+`sync_statcast()` 只抓 `game_logs.pbp_version < PBP_EXTRACT_VERSION` 的比賽（`sync/statcast.py::_games_to_fetch()`），所以**已經抓過的歷史比賽不會自動補上新欄位**。要讓歷史比賽補齊，把 `site_builder/constants.py` 的 `PBP_EXTRACT_VERSION` 加 1，下次 `statcast` 會每場重抓剛好一次。
 
 ---
 

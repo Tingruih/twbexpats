@@ -31,7 +31,7 @@
                         <td class="num">{{ f.putouts|num_dash }}</td>
                         <td class="num">{{ f.assists|num_dash }}</td>
                         <td class="num">{{ f.errors|num_dash }}</td>
-                        <td class="num">{{ f.fielding_pct|num_dash }}</td>
+                        <td class="num">{{ f.fielding_pct|floatformat(3) }}</td>
                         <td class="num">{{ f.dp|num_dash }}</td>
                         <td class="num">{{ f.tp|num_dash }}</td>
                         <td class="num">{{ f.range_factor_game|num_dash }}</td>

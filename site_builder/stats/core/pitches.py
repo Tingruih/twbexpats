@@ -5,7 +5,7 @@ Everything here operates on lists of pitch dicts as produced by
 ``game_logs.pitches_json`` — that function defines the dict schema.
 """
 
-from typing import Optional
+from typing import Iterator, Optional
 
 from ..batted_ball.barrel import is_barrel
 from ..batted_ball.hard_hit import is_hard_hit
@@ -21,6 +21,7 @@ from ...constants import (
     UNKNOWN_PITCH_TOKENS,
     WHIFF_CODES,
 )
+from ...util.numbers import ratio
 
 
 # ── Result-code classification ──
@@ -76,6 +77,40 @@ def filter_known_pitch_events(pitches: list[dict]) -> list[dict]:
     ]
 
 
+def pitch_type_key(p: dict) -> str:
+    # API 沒給球種代碼時歸入 "UN"，讓這些球仍有一個分組可放
+    return p.get("pitch_type") or "UN"
+
+
+def group_by_pitch_type(pitches: list[dict]) -> dict[str, list[dict]]:
+    """``{pitch_type: [pitch, ...]}``，保留各球種第一次出現的順序。"""
+    by_type: dict[str, list[dict]] = {}
+    for p in pitches:
+        by_type.setdefault(pitch_type_key(p), []).append(p)
+    return by_type
+
+
+def pitch_type_shares(type_counts: dict[str, int], total: int) -> list[dict]:
+    """``[{type, count, pct}]``，依顆數由多到少；同顆數維持 ``type_counts`` 的順序。
+
+    ``pct`` 以 ``total`` 為分母取 4 位小數，``total`` 為 0 時是 None（見 ``ratio``）。
+    """
+    ordered = sorted(type_counts, key=lambda t: type_counts[t], reverse=True)
+    return [
+        {"type": t, "count": type_counts[t], "pct": ratio(type_counts[t], total, digits=4)}
+        for t in ordered
+    ]
+
+
+def pitch_type_display_name(pitches: list[dict], pitch_type: str) -> str:
+    """同一球種中第一個非空的 ``pitch_name``；整組都沒有時退回球種代碼。
+
+    不能只看第一球：舊快取或 playByPlay 偶有 ``details.type.description``
+    為空的球，只看第一球會讓同一球種在不同表格顯示成代碼或全名兩種樣子。
+    """
+    return next((p["pitch_name"] for p in pitches if p.get("pitch_name")), pitch_type)
+
+
 # ── Ball-strike count helpers ──
 
 
@@ -106,43 +141,32 @@ def count_label(count: tuple[int, int]) -> str:
     return f"{count[0]}-{count[1]}"
 
 
-def ensure_pre_strikes(pitches: list[dict]) -> None:
-    """Annotate pre-pitch count fields on pitches that lack them.
+# ── Plate-appearance grouping ──
 
-    Walks the list in order, grouped by ``game_pk``. Within each game the
-    pitches are assumed to be in chronological PA order (as produced by
-    ``extract_pitch_logs``). The first pitch of each PA starts at 0-0;
-    subsequent pitches inherit the previous pitch's post-pitch count.
 
-    Always recomputes for pitches missing the field, even when other pitches
-    in the same list already have it (handles mixed old/new cached data).
+def iter_plate_appearances(pitches: list[dict]) -> Iterator[list[dict]]:
+    """依序把逐球列表切成一個個打席，每次 yield 一個非空的 list。
+
+    打席邊界的唯一定義：換 ``game_pk`` 或遇到 ``is_pa_final`` 為真的那一球。
+    假設同一場內已按時間順序排列（``extract_pitch_logs`` 的輸出順序）。
+    結尾沒有 ``is_pa_final`` 的殘段（被截斷的 game log）也會 yield，
+    是否採信由呼叫端決定。
     """
-    if not pitches:
-        return
-    # Fast path: if ALL pitches already have the fields, nothing to do.
-    if all("pre_balls" in p and "pre_strikes" in p for p in pitches):
-        return
-
-    pre_balls = 0
-    pre_strikes = 0
-    last_game_pk = None
+    group: list[dict] = []
+    last_game_pk = object()  # sentinel，不會等於任何真實 game_pk
     for p in pitches:
         gpk = p.get("game_pk")
         if gpk != last_game_pk:
-            # New game boundary — reset to start of a fresh PA.
-            pre_balls = 0
-            pre_strikes = 0
+            if group:
+                yield group
+            group = []
             last_game_pk = gpk
-
-        p["pre_balls"] = pre_balls
-        p["pre_strikes"] = pre_strikes
-
+        group.append(p)
         if p.get("is_pa_final"):
-            pre_balls = 0
-            pre_strikes = 0  # next pitch starts a new PA
-        else:
-            pre_balls = p.get("balls", 0) or 0
-            pre_strikes = p.get("strikes", 0) or 0
+            yield group
+            group = []
+    if group:
+        yield group
 
 
 # ── Single-pass aggregation ──

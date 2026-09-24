@@ -48,12 +48,7 @@
 
 ### 7–9. （已修，見附錄 A）
 
-### 10. Rate stat 缺值仍以空字串寫入，會阻擋衍生重算
-
-- 目前位置：`site_builder/sync/field_maps.py`、`site_builder/stats/core/annotate.py`、`site_builder/stats/pitching/opponent_slash.py`
-- 證據：`win_pct`、`strike_pct`、`p_avg`、`p_obp`、`p_slg`、`p_ops`、`p_sb_pct`、`sb_pct`、`cs_pct` 仍使用 `str(stat.get(..., ""))`；重算端多數仍以 `is None` 判斷是否補算。
-- 影響：API 缺值時存成 `""`，後續即使可由計數欄位重算，也不會補。
-- 建議修法：寫入端改 `_str_or_none()`；或重算端明確把 `None`/`""` 都視為缺值。
+### 10. （已修，見附錄 A）
 
 ### 11. `ci` 有寫入但未納入 career/combined counting fields
 
@@ -69,29 +64,12 @@
 - 影響：若安打數存在但 BB 缺值，WHIP 會被靜默低估。
 - 建議修法：`hits_allowed` 與 `bb` 都必須非 `None` 才計算。
 
-### 13. 投手/打者 K%、BB% 仍共用 `k_pct` / `bb_pct`
-
-- 目前位置：`site_builder/stats/core/annotate.py`、`src/templates/tabs/tab_advanced.j2`、`src/templates/mobile/sections/m_advanced.j2`
-- 證據：打者與投手分支都填同一組 key；模板投手分支也讀 `k_pct` / `bb_pct`。
-- 影響：投打雙修球員若打者公式先填值，投手 K%/BB% 會被 None guard 擋住而顯示打擊 K%/BB%。
-- 建議修法：投手改用 `p_k_pct` / `p_bb_pct`，模板同步讀新欄位。
+### 13. （已修，見附錄 A）
 
 ### 14. （已修，見附錄 A）
 
-### 15. `compute_season_combined()` 仍未補算 advanced derived fields
+### 15. （已修，見附錄 A）
 
-- 目前位置：`site_builder/stats/core/career.py`
-- 證據：`compute_season_combined()` 只呼叫 `aggregate_stats()`，設定 `teams_display` / `year` 後直接 return；同檔 `compute_year_groups()` 的 summary row 則有呼叫 `annotate_row(summary)`。
-- 影響：Bio 的本季合計列可能缺 `iso`、`babip`、`k_pct`、`bb_pct`、`ab_per_hr`、`p_per_pa` 等衍生欄位；與年份 summary 路徑不一致。
-- 建議修法：return 前補 `annotate_row(combined)`，並設定需要的 template alias（如 `np`）。
-
-### 16. Batted-ball trajectory / spray rate 分母仍用所有 in-play
-
-- 目前位置：`site_builder/stats/batted_ball/__init__.py`
-- 證據：`gb_pct`、`ld_pct`、`fb_pct`、`pu_pct`、`air_pct` 用 `n_ip`；`pull_pct`、`straight_pct`、`oppo_pct`、`pull_air_pct` 也用 `n_ip`。
-- 影響：未知 trajectory 或無法判斷方向的擊球會稀釋比例。MiLB 缺測多時偏差更明顯。
-- 建議修法：trajectory 類用 classified denominator；spray 類用 `spray_total`。
-- 備註：`barrel_pct` 單層級分母已改成 `len(bbe_ev)`，該部分已修。
 
 ### 17. EV90 percentile index 仍有 off-by-one
 
@@ -282,6 +260,7 @@
 - 影響：賽季進行中的 wRC+ 分母偏舊。tjstats.ca 是否在季中重算這些數字尚未實測，所以嚴重程度未定。
 - 建議修法：先實測（抽一年，對照已快取值與現場值）確認 tjstats.ca 季中是否真的會變；若會，把 `batting.py` 的政策改成 `ACCUMULATES_IN_SEASON`（`policy.py` 已經有這個選項，改一行即可）。
 - 備註：2026-07-30 抽出 `league_constant/` 套件時發現——把兩條供應鏈的快取政策攤成具名 enum 之後才看得出這個差異。
+- 2026-09-24 實測：tjstats.ca 現場的 2025、2026 league constants（13 個聯盟）與 MLB/AAA park factors 和 DB 快取完全一致；但 2026 的 lg_R/PA 與 MLB Stats API 球季至今實際值對不上（例：FSL tjstats 0.129 / 實際 0.1424、Eastern 0.142 / 0.1351，MLB 0.118 / 0.1183 則吻合），表示 tjstats 頁面本身季中沒有跟著更新，每天重抓也拿不到新數字，因此維持 `FINAL_ONCE_PUBLISHED`。仍未確認的是：tjstats 是否在球季結束後才發布最終值；若是，需要在換季後對上一季跑一次 `--update-constants`。
 
 ### 47. `stats/advanced/woba.py` 與 `api/tjstats.py` 目前沒有測試覆蓋
 
@@ -297,7 +276,58 @@
 - 影響：若 xWPCT 的語意是「相對所屬聯盟平均的中立預期勝率」，目前做法會系統性高估低得分聯盟、低估高得分聯盟，AAA、A、ROK 等同層級含多個聯盟時尤其明顯。若產品刻意要保留各聯盟得分環境的絕對差異，現況可視為設計選擇而非計算 bug，但欄位說明必須明確標示它不是 league-neutral 指標。
 - 建議修法：先確定指標語意。若要 league-relative，xWPCT 應使用與 FIP constant 同一筆 `own_league.lg_era`，僅在聯盟無法解析時退回 level-wide，並新增「各聯盟平均 FIP 對應 xWPCT = .500」測試；若要 level-wide absolute comparison，則保留現行分母，但更新 tooltip／文件說明基準，並另行評估球場與聯盟 run environment 調整，避免把環境差異誤當投手能力。
 
+### 49. Statcast 球種表的「全部」在 DB 裡存兩份（頂層欄位與 splits["all"]）
+
+- 目前位置：`site_builder/stats/pitcher_statcast.py`、`site_builder/stats/batter_statcast.py`、`site_builder/render/pages.py::_COMBINED_EMPTY_DEFAULTS`、`src/templates/tabs/tab_advanced.j2`、`src/templates/mobile/sections/m_advanced.j2`
+- 背景：2026-09-24 已修掉「打者球種表算兩次」——`compute_batter_statcast()` 原本頂層 `vs_pitch_types` / `vs_pitch_groups` / `pitch_group_usage_by_count` 各自重算一次，`compute_batter_pitch_hand_splits()` 的 `"all"` 又算一次；現在與投手端一致，只算一次分組，頂層欄位直接指向 `"all"` 那份物件（`tests/test_stats_tables.py::test_top_level_tables_reuse_all_split` 用 `assertIs` 鎖住）。**計算只剩一次，但儲存仍是兩份**。
+- 證據：`season_stats.stat_json.statcast` 以 `util/json.py::dumps_json()`（`json.dumps`）序列化。JSON 沒有「引用」的概念，同一個 Python 物件被兩個 key 指到，就會被完整寫出兩次；讀回來後也變成兩個互不相干的 list/dict。重複的 key：
+  - 投手：`pitch_arsenal`、`pitch_outcomes`、`pitch_usage_by_count` ＝ `pitcher_bat_side_splits["all"]` 的同名欄位
+  - 打者：`vs_pitch_types`、`vs_pitch_groups`、`pitch_group_usage_by_count` ＝ `batter_pitch_hand_splits["all"]` 的同名欄位
+- 規模（2026-09-24 本機 DB 實測）：644 列有 statcast，`stat_json` 合計約 5.81 MB，其中頂層這六個重複欄位約 0.53 MB（約 9.1%；投手 0.35 MB、打者 0.18 MB）。
+- 影響：
+  1. DB 與 build 時讀取的 JSON 多約一成體積（DB 放在 Google Drive、每天由 GitHub Action 下載上傳）。
+  2. 對新資料來說頂層那份**畫面用不到**：樣板優先讀 `*_splits["all"]`，只有 splits 不存在時才退回頂層欄位（相容舊資料）。有人只改頂層欄位的讀取端時，畫面不會有任何變化，容易誤判。
+  3. 以後若有人在 sync 之後單獨改寫其中一份（例如手動修補 DB、或新增只更新頂層的程式），兩份「全部」會不一致，而且沒有檢查會攔下來。
+- 為什麼這次沒一起修：要真正只存一份，必須拿掉頂層六個 key，連帶牽動：
+  1. 投手與打者兩個 `compute_*_statcast()` 的回傳結構（`docs/functions_list.md` §3.8、`docs/db_schema.md` 的 `statcast` 說明要同步改）。
+  2. `tab_advanced.j2` / `m_advanced.j2` 的「splits 不存在時退回頂層」分支要刪，改成只讀 splits；`src/templates/partials/chart_data.j2` 也要一併確認。
+  3. `render/pages.py::_COMBINED_EMPTY_DEFAULTS` 的對應項目要刪。
+  4. 舊 DB 列：沒有 splits、只有頂層欄位的舊資料（splits 出現前寫入的列）會在樣板改完後變成空表。必須先確認全庫每一列 statcast 都已有 splits，或跑一次 `python build.py statcast` 全量重算後再改樣板。依 CLAUDE.md 規則 2，不在 `site_builder` 內寫回補代碼。
+  5. 其他讀頂層 key 的地方（例如未來的 API/匯出）要先全庫搜尋確認沒有。
+- 建議修法：
+  1. 先用唯讀查詢確認 DB 內所有 statcast 列都有 `pitcher_bat_side_splits` / `batter_pitch_hand_splits`，沒有的先重跑 statcast。
+  2. 樣板改成只讀 `splits["all"]`，刪除退回頂層的分支。
+  3. 兩個 `compute_*_statcast()` 刪除頂層六個 key；`_COMBINED_EMPTY_DEFAULTS` 同步刪除。
+  4. 更新 `docs/functions_list.md`、`docs/db_schema.md`、`docs/fields.md` 中提到頂層 key 的說明（例如 `docs/fields.md` 的 `sc.vs_pitch_types[]`）。
+  5. 全站 build 前後逐檔比對 HTML（扣除時間戳）應無差異。
+- 優先度：低。數字正確、只是體積與維護成本；DB 體積真的成為問題（例如 Drive 上傳時間）再處理即可。
+
+### 50. 二刀流球員的 P/PA 被投球數據覆蓋（`pitches_per_pa` 打擊/投球共用同一個 key）
+
+- 目前位置：`site_builder/sync/field_maps.py::apply_advanced_fields()`、`site_builder/stats/core/annotate.py::annotate_row()`
+- 證據：`apply_advanced_fields()` 的打擊組與投球組都把 API `pitchesPerPlateAppearance` 寫進同一個 `stat_json.pitches_per_pa`；season_stats 同一列會同時帶兩組數據（`sync/players.py` 依序寫入兩個 group），後寫者覆蓋先寫者。`annotate_row()` 又把 `pitches_per_pa` 當作打者 `p_per_pa` 的來源（「prefer pitches_per_pa alias」）。
+- 規模（2026-09-25 本機 DB）：59 列同時有打席（`pa > 0`）與面對打者數（`bf > 0`）且有 `pitches_per_pa`。例：806823 2025 ACL Reds 存 3.878（= 投手 pitches / BF），打者實際 `pitches_seen / PA` 為 4.33，進階打擊表顯示的是投手值。多數是早年 MiLB 投手偶爾上場打擊，但真正的二刀流球員會受影響。
+- 影響：打者 P/PA 顯示成投手的每打席用球數；投手端讀 `pitches_per_pa` 則可能拿到打者值（視寫入順序）。
+- 建議修法：投球組改寫 `p_pitches_per_pa`（比照 `p_k_pct` / `p_babip` 的 `p_` 前綴慣例），`annotate_row()` 投手分支與樣板改讀新 key，打者分支維持讀 `pitches_per_pa`；更新 `docs/fields.md`、`docs/db_schema.md`。舊資料需重跑 `python build.py sync` 才會拆開（依 CLAUDE.md 規則 2 不寫回補代碼）。
+
+### 51. `sync/players.py` 寫入依 API 回傳順序「後蓋前」，結果取決於請求/回傳順序
+
+- 目前位置：`site_builder/sync/players.py::_write_player_to_db()`
+- 證據（2026-09-25 端到端比對）：把 `api/stats.py` 的「MLB 一次 + `leagueListId=milb_all` 一次」換成官方 `leagueListId=mlb_milb` 一次取回，名冊 103 位球員的 API splits 逐筆相同，但寫進全新 DB 後有差異，全部來自下列依順序覆蓋的寫法：
+  - `game_logs`：同一場比賽同時有 hitting 與 pitching split（投手上場打擊），`ON CONFLICT(player_mlb_id, game_id)` 讓後寫的 split 蓋掉前者，`stats_json` 只留其中一組。比對中 199 場受影響；本機 DB 5,470 筆投手逐場紀錄中有 377 筆沒有投球數據（部分可能是真的只打擊的比賽）。
+  - `season_stats.stat_json.gp`：hitting / pitching 兩組都寫 `gp`，後寫者勝（例：499614 2013 Frisco 打擊 125 場、投球 1 場，換順序後存成 1）。
+  - `season_stats.stat_json.pitches_per_pa`：見 #50。
+  - `players.team`：最近一季有兩列同層級時，`highest_level_row()` 平手取決於列的寫入順序（例：526269 2024 AAA Iowa Cubs / Piratas de Campeche）。
+- 影響：目前順序固定所以結果穩定，但數值不一定是對的那組（投手逐場顯示成打擊數據、`gp` 顯示打擊或投球場數不一定）；且任何改變請求順序的重構（例如改用 `mlb_milb` 讓請求數減半）都會改變寫入結果，因此 `api/stats.py` 目前刻意維持兩次請求。
+- 建議修法：`game_logs.stats_json` 依 group 分開存（或 hitting/pitching 各一個 key）；`gp` 明確規定取投球或打擊（或分成 `gp` / `p_gp`）；`highest_level_row()` 平手時加穩定的次要排序（如出賽數、球隊名）。修完後即可安全改用 `mlb_milb`（refresh 請求約 208 → 130、完整 sync 約 1,940 → 970）。舊資料需重跑 `python build.py sync`（依 CLAUDE.md 規則 2 不寫回補代碼）。
+
 ## 附錄 A — 已確認已修 / 不再列入未修 bug
+
+**#10** Rate stat 以字串寫入：`win_pct`、`strike_pct`、`p_avg`、`p_obp`、`p_slg`、`p_ops`、`p_sb_pct`、`sb_pct`、`cs_pct`（`sync/field_maps.py`）與 `fielding_pct`（`sync/players.py`）改用 `safe_float` 寫入，API 佔位字 `.---`/`-.--`、缺值、`null` 都存 `None`；`compute_win_pct` / `compute_strike_pct` / `compute_sb_pct` / `annotate_opponent_slash` 改回傳 float，`stats/core/formatting.py::fmt_avg` 已刪除。實測原本描述的「阻擋重算」在當時 DB 中為 0 列（`""` 的列連計數也缺、`.---` 分母為零，重算同樣無值），實際影響是顯示：修正前網站上有 84 格 `.---`、10 格 `-.--`（逐場 ERA）直接顯示，且同表混用 `.250` 與 `0.250`（23,751 對 10,594 格）。樣板改以 `floatformat(3)`（逐場 ERA 為 `floatformat(2)`）統一顯示成 `0.250`、缺值 `-`；`floatformat` 也接受舊字串與 Jinja `Undefined`，所以舊 DB 列不重跑 sync 也能正確顯示，重跑 `python build.py sync` 後 DB 型別才全部變成 float。
+
+**#13** 投手/打者 K%、BB% 共用 `k_pct` / `bb_pct`：`annotate_row()` 的投手分支改寫 `p_k_pct` / `p_bb_pct`（分母 BF），`tab_advanced.j2` 與 `m_advanced.j2` 的投手分支同步改讀新欄位；打者維持 `k_pct` / `bb_pct`（分母 PA）。修正前 DB 中有 52 列投手季度同時有打擊紀錄，進階表顯示的是打擊三振率（例：王建民 2006 MLB 顯示 75.0%，實際投手 K% 8.4%）。
+
+**#15** Bio 本季合計缺 advanced derived fields：`compute_season_combined()` 已刪除，單一年度合計只由 `compute_year_groups()` 的 `summary` 產生（`aggregate_stats` → `np` → `annotate_row`，並帶 `teams_display`）；`render/pages.py` 的 `season_combined` 直接取當年那一組的 `summary`，bio 卡與成績表年度列是同一個物件。`teams_display` 字串改由 `career.py::_teams_display()` 單一產生（`compute_career` 共用）。改前改後全站 build 輸出（扣除時間戳）逐檔比對無差異。
 
 **#30** 首頁/退役頁頭像仍缺原生 lazy：`index.j2`/`retired.j2` 的 `<img data-src=...>` 改為 `<img src=... loading="lazy">`；原本靠 `avatar-fallback.js` 手刻「先載可視內、Promise.all 等全部完成才載可視外」的批次邏輯已刪除（該邏輯會讓第二批延遲近 1 秒），改交給瀏覽器原生 lazy-loading 排程。球員頁（`player_detail.j2`/`m_hero.j2`）的 hero 大頭照相反：因為一定在首屏可見、常是 LCP 元素，`loading="lazy"` 反而會被瀏覽器降低請求優先權（實測 initialPriority Low vs Medium、請求晚發 ~130ms），故改為 `fetchpriority="high"` 維持 eager 載入。`width`/`height` 尺寸屬性防 CLS 仍未補，不在本次範圍內。
 

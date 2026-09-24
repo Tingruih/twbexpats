@@ -1,9 +1,10 @@
 """SLG — slugging percentage: TB / AB."""
 
+from ...util.numbers import ratio
+
 
 def compute_slg(tb, ab):
-    if not ab or ab <= 0:
+    # 沒有打數，或壘打數缺值
+    if not ab or ab <= 0 or tb is None:
         return None
-    if tb is None:
-        return None
-    return round(tb / ab, 3)
+    return ratio(tb, ab)
