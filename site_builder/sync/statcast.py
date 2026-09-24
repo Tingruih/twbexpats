@@ -1,22 +1,48 @@
-"""Pipeline B: play-by-play fetch + Statcast aggregation into season_stats."""
+"""Pipeline B：playByPlay 逐球資料抓取 → game_logs 快取 → Statcast 聚合。
+
+``sync_statcast`` 依序執行：
+  1. ``_games_to_fetch``：找出 ``pbp_version`` 落後的 (球員, 比賽)
+  2. ``_fetch_games``：每場比賽只抓一次 live feed，平行抽取所有相關球員
+  3. ``_write_pitch_logs``：寫回 game_logs，完賽的比賽才標記版本
+  4. ``_aggregate_statcast``：重算名冊每位球員每個 (年, 層級) 的 Statcast，
+     寫進對應層級的 season_stats 列
+  5. ``sync_season_advanced``（``sync/advanced.py``）：FIP / WAR / wRC+ / xWPCT
+  6. ``fetch_highlight_videos``：MLB 精華影片
+
+第 4 步每次都重算全部歷史，不只本次新抓的比賽：公式調整後才會套用到舊資料。
+但其中的 expectedStatistics 與第 5 步的 sabermetrics / FIP 常數是外部 API 數據，
+依 ``db/season_fetches.py`` 的規則只抓當季與未抓過的過去球季。
+
+逐球資料是否需要（重）抓，只看 ``game_logs.pbp_version < PBP_EXTRACT_VERSION``：
+  - 比賽已完賽且抽取成功：寫入資料並標記目前版本，之後不再抓
+  - 比賽進行中或暫停：照樣寫入目前抽到的部分資料，但不標記版本，下次重抓
+  - live feed 抓取失敗：什麼都不寫，下次重抓
+  - ``extract.py`` 改了欄位：把 ``PBP_EXTRACT_VERSION`` 加 1，每場重抓剛好一次
+"""
 
 import datetime
 import logging
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from ..api import (
+    FetchError,
     get_game_content,
     get_game_play_by_play,
-    get_game_sport_level,
     get_player_expected_stats,
-    get_player_sabermetrics,
 )
 from ..api.content import extract_play_videos
-from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS
+from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS, PBP_EXTRACT_VERSION
 from ..db.game_logs import load_all_pitches_for_player
+from ..db.season_fetches import (
+    EXPECTED_STATS,
+    FetchedSet,
+    load_fetched,
+    mark_fetched,
+    needs_fetch,
+)
 from ..db.play_videos import (
     content_fetch_candidates,
     mark_content_processed,
@@ -25,124 +51,271 @@ from ..db.play_videos import (
 from ..db.schema import init_db
 from ..db.season_stats import save_season_row
 from ..league_constant.pitching import PitchingConstants
-from ..levels import resolve_tier, sport_obj_to_abbr
+from ..levels import MLB_KEY, is_mlb, sport_to_tier_key
+from ..positions import BATTER, PITCHER, is_pitcher_position, primary_role
 from ..roster import build_roster_map
-from ..stats.advanced.fip import compute_fip
-from ..stats.advanced.xwpct import compute_xwpct
 from ..stats.batter_statcast import compute_batter_statcast
 from ..stats.pitcher_statcast import compute_pitcher_statcast
 from ..util.json import dumps_json, loads_json_dict, loads_json_list
+from ..util.log import describe_exc
 from ..util.numbers import safe_float, safe_int
+from .advanced import sync_season_advanced
 from .extract import extract_pitch_logs
 
 logger = logging.getLogger(__name__)
 
 
+class FetchedGame(NamedTuple):
+    """一場比賽的抽取結果；``pitches`` / ``events`` 以 mlb_id 為 key。
+
+    ``is_final`` 為 False 時資料只到抓取當下為止（比賽進行中或暫停）。
+    """
+
+    pitches: dict[int, list[dict]]
+    events: dict[int, list[dict]]
+    sport_level: str
+    is_final: bool
+
+
+def _load_positions(cur, roster_ids: list[int]) -> dict[int, str]:
+    """``{mlb_id: position}``；players 表還沒有該球員時為空字串。"""
+    positions: dict[int, str] = {}
+    for mlb_id in roster_ids:
+        cur.execute("SELECT position FROM players WHERE mlb_id = ?", (mlb_id,))
+        row = cur.fetchone()
+        positions[mlb_id] = (row[0] if row else "") or ""
+    return positions
+
+
+# ── Phase 1 ──────────────────────────────────────────────────────────────
+
+
+def _games_to_fetch(
+    cur, roster_ids: list[int], positions: dict[int, str]
+) -> dict[int, list[tuple[int, str]]]:
+    """``{game_pk: [(mlb_id, position), ...]}``，``pbp_version`` 落後需要抓的比賽。
+
+    以「球員 × 比賽」為單位判斷，球員後來才加入名冊也能補抓。
+    """
+    placeholders = ",".join("?" * len(roster_ids))
+    cur.execute(
+        f"SELECT game_id, player_mlb_id FROM game_logs "
+        f"WHERE player_mlb_id IN ({placeholders}) AND pbp_version < ?",
+        [*roster_ids, PBP_EXTRACT_VERSION],
+    )
+    game_to_players: dict[int, list[tuple[int, str]]] = {}
+    for gpk, mlb_id in cur.fetchall():
+        game_to_players.setdefault(gpk, []).append((mlb_id, positions.get(mlb_id, "")))
+    return game_to_players
+
+
+# ── Phase 2 ──────────────────────────────────────────────────────────────
+
+
 def _fetch_and_extract_game(
     game_pk: int, players_in_game: list[tuple[int, str]]
-) -> tuple[dict[int, list[dict]], dict[int, list[dict]], str]:
-    """Fetch one game's live feed and extract pitches + non-pitch events for
-    every relevant player.
+) -> Optional[FetchedGame]:
+    """抓一場比賽的 live feed，為 ``players_in_game`` 的每位球員抽取逐球與非投球事件。
 
-    Args:
-        game_pk: the game primary key.
-        players_in_game: list of (mlb_id, position) tuples — players we
-                         care about that appeared in this game.
-
-    Returns:
-        A 3-tuple of:
-          - {mlb_id: [pitch_dict, ...]}  (may be empty per player)
-          - {mlb_id: [event_dict, ...]}  (pickoff/stepoff, may be empty per player)
-          - sport_level string (e.g. "MLB", "AAA") extracted from the live feed,
-            or "" if unavailable.
+    層級取自 ``gameData.teams.home.sport``；live feed 抓不到時回 None。
     """
     game_data = get_game_play_by_play(game_pk)
-    out: dict[int, list[dict]] = {}
-    events_out: dict[int, list[dict]] = {}
+    # live feed 抓取失敗
     if not game_data:
-        return out, events_out, ""
-    sport_obj = (
-        game_data.get("gameData", {})
-        .get("teams", {})
-        .get("home", {})
-        .get("sport", {})
-    )
-    sport_level: str = sport_obj_to_abbr(sport_obj)
+        return None
+    game_info = game_data.get("gameData", {})
+    # gameData.status.abstractGameState：進行中、延遲、暫停（codedGameState T/U）
+    # 都是 "Live"；Final / Game Over / 提前結束才是 "Final"。排程在美西晚間執行，
+    # 常抓到進行中的比賽，這時只有前幾局的資料（見 _write_pitch_logs 如何處理）。
+    is_final = game_info.get("status", {}).get("abstractGameState") == "Final"
+    sport_obj = game_info.get("teams", {}).get("home", {}).get("sport", {})
+    fetched = FetchedGame({}, {}, sport_to_tier_key(sport_obj), is_final)
     for mlb_id, position in players_in_game:
-        role = "pitcher" if position == "P" else "batter"
+        role = primary_role(position)
         pitches, events = extract_pitch_logs(game_data, mlb_id, role)
         if not pitches:
-            # try the opposite role as fallback (two-way / misconfigured roster)
-            alt = "batter" if role == "pitcher" else "pitcher"
+            # 二刀流或名冊守位設錯：改用另一個角色再抽一次
+            alt = BATTER if role == PITCHER else PITCHER
             pitches, events = extract_pitch_logs(game_data, mlb_id, alt)
-        out[mlb_id] = pitches
-        events_out[mlb_id] = events
-    return out, events_out, sport_level
+        fetched.pitches[mlb_id] = pitches
+        fetched.events[mlb_id] = events
+    return fetched
 
 
-def _same_level(a: str, b: str) -> bool:
-    """兩個層級字串是否指向同一個 Tier。
+def _fetch_games(
+    game_to_players: dict[int, list[tuple[int, str]]]
+) -> dict[int, FetchedGame]:
+    """平行抓取每場比賽，回 ``{game_pk: FetchedGame}``；抓取失敗的比賽不在結果內。"""
+    fetched: dict[int, FetchedGame] = {}
+    failed = 0
+    total = len(game_to_players)
+    with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
+        future_to_gpk = {
+            executor.submit(_fetch_and_extract_game, gpk, players): gpk
+            for gpk, players in game_to_players.items()
+        }
+        for i, future in enumerate(as_completed(future_to_gpk), 1):
+            gpk = future_to_gpk[future]
+            # 兩種失敗都不放進 fetched：不寫任何東西，pbp_version 不變，下次重抓
+            try:
+                game = future.result()
+            except FetchError as e:
+                failed += 1
+                logger.warning(
+                    "  live feed fetch failed for game_pk=%s: %s", gpk, describe_exc(e)
+                )
+                game = None
+            except Exception:
+                failed += 1
+                logger.exception("  Statcast extract failed for game_pk=%s", gpk)
+                game = None
+            if game is not None:
+                fetched[gpk] = game
+            if i % 25 == 0 or i == total:
+                logger.info("  [%d/%d] games fetched", i, total)
+    in_progress = sum(1 for g in fetched.values() if not g.is_final)
+    if in_progress:
+        logger.info("  %d game(s) not final yet; partial data saved, will re-fetch", in_progress)
+    if failed:
+        logger.warning("  %d/%d game(s) failed to fetch; will retry next run", failed, total)
+    return fetched
 
-    game_logs.sport_level 存的是現代縮寫（``A``、``A+``），season_stats
-    對 2020 年以前的球季卻存舊制名稱（``A(Full)``、``A(Adv)``、``A(Short)``），
-    直接用字串相等比對永遠不成立，整份 statcast 會被靜默丟棄。
-    改用 levels.resolve_tier() 收斂世代拼寫後再比；任一邊無法解析時
-    退回字串比對，行為與舊版一致。
+
+# ── Phase 3 ──────────────────────────────────────────────────────────────
+
+
+def _write_pitch_logs(conn, fetched: dict[int, FetchedGame]) -> int:
+    """把抽取結果寫回 game_logs，回寫入的 (球員, 比賽) 數。
+
+    未完賽的比賽照樣寫入目前的部分資料（網站先顯示），但 ``pbp_version``
+    保持原值，``_games_to_fetch`` 下次會再選到，完賽後覆寫成完整資料。
     """
-    if not a or not b:
-        return False
-    tier_a = resolve_tier(a)
-    tier_b = resolve_tier(b)
-    if tier_a and tier_b:
-        return tier_a.key == tier_b.key
-    return a == b
+    cur = conn.cursor()
+    written = 0
+    for gpk, game in fetched.items():
+        version = PBP_EXTRACT_VERSION if game.is_final else None
+        for mlb_id, pitches in game.pitches.items():
+            cur.execute(
+                "UPDATE game_logs SET pitches_json = ?, events_json = ?, "
+                # live feed 沒給層級時保留主同步已寫入的 sport_level
+                "sport_level = CASE WHEN ? != '' THEN ? ELSE sport_level END, "
+                "pbp_version = COALESCE(?, pbp_version) "
+                "WHERE player_mlb_id = ? AND game_id = ?",
+                (
+                    dumps_json(pitches),
+                    dumps_json(game.events.get(mlb_id) or []),
+                    game.sport_level, game.sport_level,
+                    version,
+                    mlb_id, gpk,
+                ),
+            )
+            written += 1
+    conn.commit()
+    return written
 
 
-def _pitches_need_hit_coord_backfill(pitches: list[dict]) -> bool:
-    in_play = [p for p in pitches if p.get("is_in_play")]
-    if not in_play:
-        return False
-    return all(
-        p.get("hit_coord_x") is None or p.get("hit_coord_y") is None
-        for p in in_play
-    )
+# ── Phase 4 ──────────────────────────────────────────────────────────────
 
 
-def _merge_statcast_into_season(
+def _parse_expected_stats(exp_groups: list) -> dict[tuple[int, str], dict]:
+    """``/people/{id}/stats?stats=expectedStatistics`` → ``{(year, level): {xba, ...}}``。
+
+    這個端點每年只回一筆整季 split（轉隊球員也不分隊，已對 Yu Chang 2022
+    驗證），不會有 sabermetrics 那種逐隊覆寫問題。
+    """
+    expected: dict[tuple[int, str], dict] = {}
+    for grp in exp_groups:
+        for sp in grp.get("splits", []):
+            yr = safe_int(sp.get("season"))
+            if not yr:
+                continue
+            stat = sp.get("stat", {})
+            fields = {
+                "xba": safe_float(stat.get("avg")),
+                "xslg": safe_float(stat.get("slg")),
+                "xwoba": safe_float(stat.get("woba")),
+                "xwobacon": safe_float(stat.get("wobaCon")),
+            }
+            # MiLB 一律回 0.0（API 不提供），全為 0/缺值即視為沒有資料
+            if not any(fields.values()):
+                continue
+            # 只查 MLB 端點，splits[].sport 缺漏時也必定是 MLB
+            level = sport_to_tier_key(sp.get("sport")) or MLB_KEY
+            expected[(yr, level)] = fields
+    return expected
+
+
+def _compute_player_statcast(
+    mlb_id: int,
+    db_path: str,
+    position: str,
+    fetched: FetchedSet,
+    full_history: bool,
+) -> tuple[int, Optional[dict], list[int]]:
+    """平行 worker：讀逐球快取 → 抓 expectedStatistics → 逐 (年, 層級) 聚合。
+
+    自開唯讀 SQLite 連線，不寫 DB。回
+    ``(mlb_id, {(year, level): {"statcast": ..., "expected_stats": ...}}, 成功抓取的年份)``，
+    沒有任何逐球資料時回 ``(mlb_id, None, [])``。expectedStatistics 依
+    ``db/season_fetches.py`` 的規則只抓當季與未登記的過去球季；沒抓的年份
+    ``expected_stats`` 為 None，``_attach_statcast`` 會保留既有值。
+    """
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        pitches_by_year_level = load_all_pitches_for_player(conn.cursor(), mlb_id)
+    finally:
+        conn.close()
+    # 沒有任何逐球資料
+    if not pitches_by_year_level:
+        return mlb_id, None, []
+
+    is_pitcher = is_pitcher_position(position)
+    # expectedStatistics 對 MiLB 一律回 0，只查有 MLB 逐球資料的年份
+    mlb_years = sorted({
+        yr for yr, lvl in pitches_by_year_level
+        if is_mlb(lvl) and needs_fetch(fetched, mlb_id, yr, force=full_history)
+    })
+    expected: dict[tuple[int, str], dict] = {}
+    fetched_years: list[int] = []
+    if mlb_years:
+        try:
+            expected = _parse_expected_stats(get_player_expected_stats(
+                mlb_id, years=mlb_years, group="pitching" if is_pitcher else "hitting",
+            ))
+            # 回應裡沒有的年份（2015 年以前沒有 expected stats）也算抓過
+            fetched_years = mlb_years
+        except FetchError as e:
+            # 不寫 expected 也不登記，_attach_statcast 保留既有值，下次重試
+            logger.warning(
+                "expectedStatistics fetch failed for %s years=%s: %s",
+                mlb_id, mlb_years, describe_exc(e),
+            )
+
+    compute = compute_pitcher_statcast if is_pitcher else compute_batter_statcast
+    return mlb_id, {
+        (yr, lvl): {
+            "statcast": compute(pitches),
+            "expected_stats": expected.get((yr, lvl)),
+        }
+        for (yr, lvl), pitches in pitches_by_year_level.items()
+    }, fetched_years
+
+
+def _attach_statcast(
     cur,
     mlb_id: int,
     year: int,
-    position: str,
+    level: str,
     statcast_data: dict,
-    fip_constants_lookup,
-    sport_level: str = "",
-    sabermetrics: Optional[dict] = None,
-    expected_stats: Optional[dict] = None,
-):
-    """Merge computed Statcast + sabermetrics + expected-stats into season_stats.
+    expected_stats: Optional[dict],
+) -> None:
+    """把一個 (年, 層級) 的 Statcast 與 expected stats 寫進對應層級的 season_stats 列。
 
-    ``statcast_data`` is written only to rows whose sport_level matches
-    ``sport_level`` (when provided and non-empty). This ensures that players
-    who played at multiple levels in the same year get per-level Statcast data
-    rather than the same season-aggregate written to every row.
-
-    When ``sport_level`` is empty (legacy data with unresolved levels):
-      - If there is exactly ONE season_stats row for the year, write to it.
-      - If there are MULTIPLE rows, skip writing statcast to prevent the bug
-        where identical combined data appears for every level.
-
-    ``sabermetrics`` (MLB-only) and ``expected_stats`` are also written only
-    to the row whose sport_level matches ``sport_level`` (not broadcast to all
-    rows). This prevents shuttle-player rows at MiLB levels from receiving
-    MLB-derived aggregate stats.
-
-    ``fip_constants_lookup(sport_level, year) -> {league_name: LeagueFipConstant}``
-    resolves the per-league FIP constant and the level-wide league ERA.  Pass
-    ``league_constant.pitching.PitchingConstants(conn, ...).for_level`` — the
-    resolver memoizes across a whole sync run so the same (level, year) isn't
-    re-fetched for every player.  The MLB branch below calls it too (with
-    sport_level="MLB"), purely to get the level-wide lg_era for xWPCT — MLB's
-    own FIP still comes from the sabermetrics endpoint, not from this lookup.
+    同年打過多個層級的球員，每個層級各拿自己的數據。``level`` 為空字串
+    （``load_all_pitches_for_player`` 無法判定層級的舊資料）時，只在該年
+    只有一列時寫入，否則無從判斷該寫哪一列，直接略過。
+    轉隊球員同層級有多列時，每一列都寫同一份整季聚合，
+    所以 ``render/pages.py`` 的 ``_merge_level_rows`` 不需要合併 Statcast。
     """
     cur.execute(
         "SELECT team_name, league_name, sport_level, stat_json, fielding_json "
@@ -150,194 +323,70 @@ def _merge_statcast_into_season(
         (mlb_id, year),
     )
     rows = cur.fetchall()
-    if not rows:
-        return
+    if level:
+        # 兩邊都是 sport_to_tier_key() 寫入的 tier key，直接比字串
+        targets = [r for r in rows if r[2] == level]
+    else:
+        targets = rows if len(rows) == 1 else []
 
-    is_pitcher = position == "P"
-
-    # wRC+ 與 WAR 是整個賽季的合計數值，並非隸屬於某支球隊。
-    # 當球員在賽季中途轉隊時，資料庫同一年度會存在多筆 MLB 記錄（每支球隊各一筆）。
-    # 若將相同的合計數值寫入每一筆記錄，畫面上會出現重複的欄位，導致資料顯示錯誤。
-    # 因此使用旗標追蹤是否已寫入過，確保 wRC+ 與 WAR 只寫入該年度第一筆 MLB 記錄。
-    saber_written = False
-
-    for row in rows:
-        team_name = row[0]
-        league_name = row[1]
-        row_sport_level = row[2]
-        stat_doc = loads_json_dict(row[3])
-        fielding_doc = loads_json_list(row[4])
-
-        # Write statcast only to the matching level row.
-        # If sport_level is empty (unresolved legacy data), only write when
-        # there is a single row for the year (unambiguous).
-        if sport_level:
-            if _same_level(row_sport_level, sport_level):
-                stat_doc["statcast"] = statcast_data
-        elif len(rows) == 1:
-            stat_doc["statcast"] = statcast_data
-        # else: multiple rows + unknown level → skip to avoid duplicates
-
-        # Attach sabermetrics (MLB only) — only write to the matching sport_level row.
-        # Sabermetrics are always fetched from the MLB endpoint; broadcasting them
-        # to MiLB rows of the same year would be misleading.
-        if sabermetrics and row_sport_level == "MLB":
-            if not sport_level or _same_level(row_sport_level, sport_level):
-                stat_doc["saber"] = sabermetrics
-
-        # Attach expected stats — only write to the matching sport_level row.
-        # MiLB expected stats are all 0.0 (API limitation), so valid data only
-        # arrives for MLB rows; still guard by sport_level match for correctness.
+    for team_name, league_name, row_level, stat_json, fielding_json in targets:
+        stat_doc = loads_json_dict(stat_json)
+        stat_doc["statcast"] = statcast_data
         if expected_stats:
-            if sport_level and _same_level(row_sport_level, sport_level):
-                stat_doc["expected"] = expected_stats
-            elif not sport_level and len(rows) == 1:
-                stat_doc["expected"] = expected_stats
-
-        # Compute FIP (MiLB path) if we have enough inputs
-        if is_pitcher and row_sport_level and row_sport_level != "MLB":
-            ip = stat_doc.get("ip")
-            league_constants = fip_constants_lookup(row_sport_level, year)
-            # The "" entry is the level-wide aggregate: FIP prefers the
-            # pitcher's own league and falls back to it, while xWPCT always
-            # uses its lg_era (the stat is measured against the level
-            # average, not one league inside it).
-            level_wide = league_constants.get("")
-            own_league = league_constants.get(league_name) or level_wide
-            fip_val = compute_fip(
-                hr=stat_doc.get("p_hr"),
-                bb=stat_doc.get("bb"),
-                hbp=stat_doc.get("p_hbp"),
-                k=stat_doc.get("so"),
-                ip=safe_float(ip),
-                c_fip=own_league.fip_constant if own_league else None,
-            )
-            if fip_val is not None:
-                # Store FIP rounded for display, but feed the raw value into
-                # xwpct so the downstream stat isn't computed off a truncated FIP.
-                stat_doc["fip"] = round(fip_val, 2)
-                lg_era = level_wide.lg_era if level_wide else None
-                stat_doc["lg_era"] = lg_era
-                stat_doc["xwpct"] = compute_xwpct(fip_val, lg_era)
-        elif is_pitcher and row_sport_level == "MLB" and sabermetrics:
-            fip_val = safe_float(sabermetrics.get("fip"))
-            if fip_val is not None:
-                stat_doc["fip"] = round(fip_val, 2)
-                stat_doc["xfip"] = safe_float(sabermetrics.get("xfip"))
-                stat_doc["war"] = safe_float(sabermetrics.get("war"))
-                # MLB FIP comes from the API, but its xWPCT denominator still
-                # has to be the league ERA we compute ourselves.
-                level_wide = fip_constants_lookup("MLB", year).get("")
-                lg_era = level_wide.lg_era if level_wide else None
-                stat_doc["lg_era"] = lg_era
-                stat_doc["xwpct"] = compute_xwpct(fip_val, lg_era)
-        elif not is_pitcher and row_sport_level == "MLB" and sabermetrics:
-            if not saber_written:
-                # API 回傳的 sabermetrics 是整季合計，與球隊無關。
-                # 只將 WAR 與 wRC+ 寫入該年度遇到的第一筆 MLB 記錄，
-                # 避免轉隊球員的每支球隊記錄都出現相同數值。
-                # 寫入完畢後將旗標設為 True，後續同年度的 MLB 記錄不再寫入。
-                stat_doc["war"] = safe_float(sabermetrics.get("war"))
-                wrc_plus_val = safe_int(sabermetrics.get("wRcPlus"))
-                if wrc_plus_val is not None:
-                    stat_doc["wrc_plus"] = wrc_plus_val
-                saber_written = True
-
+            stat_doc["expected"] = expected_stats
         save_season_row(
-            cur, mlb_id, year, team_name,
-            league_name, row_sport_level, stat_doc, fielding_doc,
+            cur, mlb_id, year, team_name, league_name, row_level,
+            stat_doc, loads_json_list(fielding_json),
         )
 
 
-def _compute_player_statcast_bundle(
-    mlb_id: int,
+def _aggregate_statcast(
+    conn,
     db_path: str,
-    position: str,
-) -> tuple[int, Optional[dict]]:
-    """Parallel worker: load pitches + fetch API stats + compute statcast.
-
-    Opens its own SQLite connection for reads; performs no DB writes.
-    Returns (mlb_id, {(year, sport_level): {statcast, sabermetrics, expected_stats}})
-    or (mlb_id, None) when the player has no pitch data.
-    """
-    conn = sqlite3.connect(db_path, timeout=30)
+    roster_map: dict,
+    positions: dict[int, str],
+    *,
+    full_history: bool = False,
+) -> None:
+    """平行重算名冊每位球員的 Statcast，主執行緒依序寫回 season_stats。"""
+    logger.info("  aggregating statcast per player-year-level (%d workers) ...", GAME_FETCH_WORKERS)
     cur = conn.cursor()
-    try:
-        pitches_by_year_level = load_all_pitches_for_player(cur, mlb_id)
-        if not pitches_by_year_level:
-            return mlb_id, None
-
-        years = sorted({k[0] for k in pitches_by_year_level.keys()})
-
-        cur.execute(
-            "SELECT COUNT(*) FROM season_stats WHERE player_mlb_id = ? AND sport_level = 'MLB'",
-            (mlb_id,),
-        )
-        has_mlb_stats = (cur.fetchone() or [0])[0] > 0
-    finally:
-        conn.close()
-
-    is_pitcher = position == "P"
-    saber_by_year: dict[int, dict] = {}
-    expected_by_year: dict[tuple, dict] = {}
-
-    if has_mlb_stats:
-        try:
-            target_group = "pitching" if is_pitcher else "hitting"
-            saber_groups = get_player_sabermetrics(mlb_id, years=years)
-            for grp in saber_groups:
-                if grp.get("group", {}).get("displayName", "").lower() != target_group:
-                    continue
-                for sp in grp.get("splits", []):
-                    yr = safe_int(sp.get("season"))
-                    if yr:
-                        saber_by_year[yr] = sp.get("stat", {})
-        except Exception as e:
-            logger.warning("sabermetrics fetch failed for %s: %s", mlb_id, e)
-
-    try:
-        group = "pitching" if is_pitcher else "hitting"
-        exp_groups = get_player_expected_stats(mlb_id, years=years, group=group)
-        for grp in exp_groups:
-            for sp in grp.get("splits", []):
-                yr = safe_int(sp.get("season"))
-                if yr:
-                    stat = sp.get("stat", {})
-                    xba = safe_float(stat.get("avg"))
-                    xslg = safe_float(stat.get("slg"))
-                    xwoba = safe_float(stat.get("woba"))
-                    xwobacon = safe_float(stat.get("wobaCon"))
-                    if not any([xba, xslg, xwoba, xwobacon]):
-                        continue
-                    split_sport_level = (
-                        sp.get("sport", {}).get("abbreviation", "") or "MLB"
-                    )
-                    expected_by_year[(yr, split_sport_level)] = {
-                        "xba": xba,
-                        "xslg": xslg,
-                        "xwoba": xwoba,
-                        "xwobacon": xwobacon,
-                    }
-    except Exception as e:
-        logger.warning("expectedStats fetch failed for %s: %s", mlb_id, e)
-
-    results: dict[tuple, dict] = {}
-    for (yr, lvl), pitches in pitches_by_year_level.items():
-        if is_pitcher:
-            statcast_data = compute_pitcher_statcast(pitches)
-        else:
-            statcast_data = compute_batter_statcast(pitches)
-        results[(yr, lvl)] = {
-            "statcast": statcast_data,
-            "sabermetrics": saber_by_year.get(yr),
-            "expected_stats": expected_by_year.get((yr, lvl)),
+    # 在主執行緒讀一次，worker 只讀不寫
+    fetched = load_fetched(cur, EXPECTED_STATS)
+    with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
+        future_to_id = {
+            executor.submit(
+                _compute_player_statcast, mlb_id, db_path, positions.get(mlb_id, ""),
+                fetched, full_history,
+            ): mlb_id
+            for mlb_id in roster_map
         }
+        for future in as_completed(future_to_id):
+            mlb_id = future_to_id[future]
+            name = roster_map[mlb_id].get("name_tw", str(mlb_id))
+            try:
+                _, results, fetched_years = future.result()
+                if not results:
+                    continue
+                for (yr, lvl), data in results.items():
+                    _attach_statcast(
+                        cur, mlb_id, yr, lvl, data["statcast"], data["expected_stats"]
+                    )
+                mark_fetched(cur, EXPECTED_STATS, mlb_id, fetched_years)
+                conn.commit()
+                logger.info("    %s: aggregated %d season-level(s)", name, len(results))
+            except Exception:
+                logger.exception("  Statcast aggregation failed for %s", name)
 
-    return mlb_id, results
+
+# ── Phase 6 ──────────────────────────────────────────────────────────────
 
 
 def fetch_highlight_videos(conn, roster_ids, *, now_iso=None) -> int:
-    """Fetch MLB /content play highlight mp4 URLs and cache them by play_id."""
+    """抓 MLB ``/content`` 的精華影片 mp4 URL，以 play_id 快取；回寫入影片數。
+
+    Baseball Savant 影片由前端按需解析，不在這裡預抓歷史 playId。
+    """
     now_iso = now_iso or datetime.datetime.now(datetime.timezone.utc).isoformat()
     cur = conn.cursor()
     retry_cutoff = (
@@ -347,7 +396,7 @@ def fetch_highlight_videos(conn, roster_ids, *, now_iso=None) -> int:
     if not candidates:
         return 0
 
-    print(f"Statcast: fetching highlight content for {len(candidates)} MLB game(s) ...")
+    logger.info("Statcast: fetching highlight content for %d MLB game(s) ...", len(candidates))
     contents: dict[int, dict] = {}
     with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
         future_to_gpk = {
@@ -356,11 +405,16 @@ def fetch_highlight_videos(conn, roster_ids, *, now_iso=None) -> int:
         }
         for future in as_completed(future_to_gpk):
             game_pk = future_to_gpk[future]
+            # 失敗的比賽不放進 contents、不標記已處理：標成「0 部影片」的話，
+            # 超過 CONTENT_RETRY_DAYS 的比賽就永遠不會再抓
             try:
                 contents[game_pk] = future.result()
-            except Exception as exc:
-                logger.warning("content fetch failed for game_pk=%s: %s", game_pk, exc)
-                contents[game_pk] = {}
+            except FetchError as exc:
+                logger.warning(
+                    "content fetch failed for game_pk=%s: %s", game_pk, describe_exc(exc)
+                )
+            except Exception:
+                logger.exception("content fetch failed for game_pk=%s", game_pk)
 
     written = 0
     for game_pk, content in contents.items():
@@ -369,259 +423,62 @@ def fetch_highlight_videos(conn, roster_ids, *, now_iso=None) -> int:
         mark_content_processed(cur, game_pk, len(videos), now_iso)
         written += len(videos)
     conn.commit()
-    print(f"  saved {written} play video(s) across {len(candidates)} game(s)")
+    logger.info(
+        "  saved %d play video(s) across %d/%d game(s)", written, len(contents), len(candidates)
+    )
     return written
+
+
+# ── 入口 ──────────────────────────────────────────────────────────────────
 
 
 def sync_statcast(
     db_path: str,
     roster_file: str,
-    year: int,
     only_player: Optional[int] = None,
     update_constants: bool = False,
+    full_history: bool = False,
 ):
-    """Fetch playByPlay for every un-processed game and compute Statcast.
+    """抓取缺少的 playByPlay、重算 Statcast 與進階數據（流程見模組 docstring）。
 
-    Pipeline:
-      1. Load roster map (mlb_id -> player config from roster.json).
-      2. For each player: collect all (game_pk, date) from game_logs where
-         pitches_json is empty AND game_pk is not in playbyplay_processed.
-      3. Group by game_pk (one fetch per unique game, parallelised).
-      4. Extract pitches for every roster player in that game.
-      5. Write pitches_json back to game_logs (per-player row), mark game_pk
-         as processed.
-      6. For each affected player-year, recompute Statcast aggregates and
-         merge into season_stats.stat_json. Also fetch sabermetrics (MLB)
-         and expectedStatistics (all levels).
-
-    ``update_constants`` forces a fresh fetch of the MiLB FIP constants for
-    *past* seasons too (see league_constant.pitching) — the current season's
-    constants are always fetched fresh regardless, since its league totals
-    keep changing as games are played.
+    當季的外部數據不論旗標每次都重抓。``update_constants``（``--update-constants``）
+    強制重抓過去球季的投手 FIP 常數（見 league_constant.pitching）；
+    ``full_history``（``--full-history``）強制重抓過去球季的 expectedStatistics
+    與 sabermetrics。
     """
-    db_file = Path(db_path)
-    conn = sqlite3.connect(db_file)
+    conn = sqlite3.connect(Path(db_path))
     init_db(conn)
     cur = conn.cursor()
-
-    pitching_constants = PitchingConstants(conn, force_refresh=update_constants)
 
     roster_map = build_roster_map(roster_file)
     if only_player is not None:
         roster_map = {k: v for k, v in roster_map.items() if k == only_player}
-
     if not roster_map:
-        print("Statcast: no matching players in roster")
+        logger.info("Statcast: no matching players in roster")
         conn.close()
         return
+    roster_ids = list(roster_map)
+    positions = _load_positions(cur, roster_ids)
 
-    # Pull position for each roster player from the DB (fallback to empty)
-    positions: dict[int, str] = {}
-    for mlb_id in roster_map:
-        cur.execute("SELECT position FROM players WHERE mlb_id = ?", (mlb_id,))
-        row = cur.fetchone()
-        positions[mlb_id] = (row[0] if row else "") or ""
-
-    # ── Phase 0: backfill sport_level for historical game_logs ──
-    # Historical rows written before sport_level tracking was added will have
-    # sport_level=''. Find them (scoped to the current roster selection), fetch
-    # the level from a lightweight live-feed call, and fill it in.  Once
-    # filled, subsequent runs skip this entirely.
-    placeholders = ",".join("?" * len(roster_map))
-    cur.execute(
-        f"SELECT DISTINCT game_id FROM game_logs "
-        f"WHERE player_mlb_id IN ({placeholders}) AND sport_level = '' "
-        f"AND pitches_json != '[]' AND pitches_json != 'null' AND pitches_json IS NOT NULL",
-        list(roster_map.keys()),
+    game_to_players = _games_to_fetch(cur, roster_ids, positions)
+    logger.info(
+        "Statcast: %d players, %d unique games to fetch (%d player-game rows to update)",
+        len(roster_ids), len(game_to_players), sum(map(len, game_to_players.values())),
     )
-    backfill_game_ids = [row[0] for row in cur.fetchall() if row[0] is not None]
+    if not game_to_players:
+        logger.info("  no new games to fetch; recomputing statcast from existing pitch data ...")
 
-    if backfill_game_ids:
-        print(
-            f"Statcast: backfilling sport_level for {len(backfill_game_ids)} "
-            f"historical game(s) ..."
-        )
-        backfill_levels: dict[int, str] = {}
-        with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
-            future_to_gpk = {
-                executor.submit(get_game_sport_level, gpk): gpk
-                for gpk in backfill_game_ids
-            }
-            for future in as_completed(future_to_gpk):
-                gpk = future_to_gpk[future]
-                try:
-                    lvl = future.result()
-                    backfill_levels[gpk] = lvl
-                except Exception as e:
-                    logger.warning(
-                        "backfill sport_level failed for game_pk=%s: %s", gpk, e
-                    )
-        for gpk, lvl in backfill_levels.items():
-            if lvl:
-                cur.execute(
-                    "UPDATE game_logs SET sport_level = ? "
-                    "WHERE game_id = ? AND sport_level = ''",
-                    (lvl, gpk),
-                )
-        conn.commit()
-        filled = sum(1 for v in backfill_levels.values() if v)
-        print(f"  backfilled sport_level for {filled}/{len(backfill_game_ids)} games")
+    fetched = _fetch_games(game_to_players)
+    logger.info("  wrote pitch logs for %d player-games", _write_pitch_logs(conn, fetched))
 
-    # ── Phase 1: build list of (game_pk, [players in game]) to fetch ──
-    game_to_players: dict[int, list[tuple[int, str]]] = {}
-    target_count = 0  # count of player-game rows needing pitch data
+    _aggregate_statcast(conn, db_path, roster_map, positions, full_history=full_history)
 
-    for mlb_id in roster_map:
-        cur.execute(
-            "SELECT game_id, pitches_json, hit_coord_checked FROM game_logs "
-            "WHERE player_mlb_id = ?",
-            (mlb_id,),
-        )
-        for gpk, pitches_json, hit_coord_checked in cur.fetchall():
-            if gpk is None:
-                continue
-            needs_fetch = pitches_json in (None, "[]")
-            if not needs_fetch and not hit_coord_checked:
-                needs_fetch = _pitches_need_hit_coord_backfill(
-                    loads_json_list(pitches_json)
-                )
-            if not needs_fetch:
-                continue
-            target_count += 1
-            game_to_players.setdefault(gpk, []).append((mlb_id, positions.get(mlb_id, "")))
-
-    total_games = len(game_to_players)
-    print(
-        f"Statcast: {len(roster_map)} players, {total_games} unique games to fetch "
-        f"({target_count} player-game rows to update)"
+    pitching_constants = PitchingConstants(conn, force_refresh=update_constants)
+    sync_season_advanced(
+        conn, roster_ids, positions, pitching_constants, full_history=full_history
     )
-    if total_games == 0:
-        print("  no new games to fetch; recomputing statcast from existing pitch data ...")
 
-    # ── Phase 2: parallel fetch + extract ──
-    extracted: dict[tuple[int, int], list[dict]] = {}  # (player_id, game_pk) -> pitches
-    extracted_events: dict[tuple[int, int], list[dict]] = {}  # (player_id, game_pk) -> events
-    game_sport_levels: dict[int, str] = {}  # game_pk -> sport_level
-    with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
-        future_to_gpk = {
-            executor.submit(_fetch_and_extract_game, gpk, players): gpk
-            for gpk, players in game_to_players.items()
-        }
-        for i, future in enumerate(as_completed(future_to_gpk), 1):
-            gpk = future_to_gpk[future]
-            try:
-                result, events_result, sport_level = future.result()
-                game_sport_levels[gpk] = sport_level
-                for mlb_id, pitches in result.items():
-                    extracted[(mlb_id, gpk)] = pitches
-                for mlb_id, events in events_result.items():
-                    extracted_events[(mlb_id, gpk)] = events
-                if i % 25 == 0 or i == total_games:
-                    print(f"  [{i}/{total_games}] games fetched")
-            except Exception as e:
-                print(f"  game {gpk} failed: {e}")
-                logger.exception("Statcast fetch failed for game_pk=%s", gpk)
-
-    # ── Phase 3: write pitch logs back to DB ──
-    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
-    affected_years_by_player: dict[int, set[int]] = {}
-
-    for (mlb_id, gpk), pitches in extracted.items():
-        # Look up the game's date so we know which year is affected
-        cur.execute(
-            "SELECT date FROM game_logs WHERE player_mlb_id = ? AND game_id = ?",
-            (mlb_id, gpk),
-        )
-        row = cur.fetchone()
-        if not row:
-            continue
-        date_str = row[0] or ""
-        yr = None
-        if len(date_str) >= 4:
-            try:
-                yr = int(date_str[:4])
-            except ValueError:
-                pass
-
-        lvl = game_sport_levels.get(gpk, "")
-        events = extracted_events.get((mlb_id, gpk), [])
-        # Empty pitch list means the player didn't appear at the plate in this
-        # game (AB=0, PA=0: defensive sub, pinch runner, DNP).  Write JSON null
-        # instead of '[]' so Phase 1's needs_fetch check won't mistake it for
-        # "not yet fetched" and trigger an infinite re-fetch loop.
-        stored_pitches = dumps_json(pitches) if pitches else "null"
-        # events_json has no needs_fetch dependency on a sentinel value, so an
-        # empty event list is simply written as "[]".
-        stored_events = dumps_json(events) if events else "[]"
-        # Only overwrite sport_level when we got a valid one from the live
-        # feed; otherwise preserve whatever the main sync already stored.
-        if lvl:
-            cur.execute(
-                "UPDATE game_logs SET pitches_json = ?, events_json = ?, sport_level = ?, "
-                "hit_coord_checked = 1 WHERE player_mlb_id = ? AND game_id = ?",
-                (stored_pitches, stored_events, lvl, mlb_id, gpk),
-            )
-        else:
-            cur.execute(
-                "UPDATE game_logs SET pitches_json = ?, events_json = ?, hit_coord_checked = 1 "
-                "WHERE player_mlb_id = ? AND game_id = ?",
-                (stored_pitches, stored_events, mlb_id, gpk),
-            )
-        if yr is not None:
-            affected_years_by_player.setdefault(mlb_id, set()).add(yr)
-
-    # Mark games as processed
-    for gpk in game_to_players:
-        cur.execute(
-            "INSERT OR REPLACE INTO playbyplay_processed (game_pk, processed_at) "
-            "VALUES (?, ?)",
-            (gpk, now),
-        )
-    conn.commit()
-    print(f"  wrote pitch logs for {len(extracted)} player-games")
-
-    # ── Phase 4: parallel compute + API fetch, then sequential DB write ──
-    print(f"  aggregating statcast per player-year-level ({GAME_FETCH_WORKERS} workers) ...")
-    with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
-        future_to_mlb_id = {
-            executor.submit(
-                _compute_player_statcast_bundle,
-                mlb_id,
-                str(db_file),
-                positions.get(mlb_id, ""),
-            ): mlb_id
-            for mlb_id in roster_map
-        }
-        for future in as_completed(future_to_mlb_id):
-            mlb_id = future_to_mlb_id[future]
-            name = roster_map[mlb_id].get("name_tw", str(mlb_id))
-            try:
-                _, results = future.result()
-                if not results:
-                    continue
-                position = positions.get(mlb_id, "")
-                for (yr, lvl), data in results.items():
-                    _merge_statcast_into_season(
-                        cur,
-                        mlb_id=mlb_id,
-                        year=yr,
-                        position=position,
-                        statcast_data=data["statcast"],
-                        fip_constants_lookup=pitching_constants.for_level,
-                        sport_level=lvl,
-                        sabermetrics=data["sabermetrics"],
-                        expected_stats=data["expected_stats"],
-                    )
-                conn.commit()
-                print(f"    {name}: aggregated {len(results)} season-level(s)")
-            except Exception as e:
-                print(f"  error for {name}: {e}")
-                logger.exception("Statcast aggregation failed for %s", name)
-
-    # ── Phase 5: StatsAPI highlight videos (MLB games only) ──
-    # Baseball Savant videos are resolved client-side on demand so refresh does
-    # not spend minutes prefetching historical playIds.
-    fetch_highlight_videos(conn, list(roster_map.keys()))
+    fetch_highlight_videos(conn, roster_ids)
 
     conn.close()
-    print("Statcast sync complete")
+    logger.info("Statcast sync complete")

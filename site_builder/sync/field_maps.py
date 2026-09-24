@@ -4,6 +4,9 @@ from ..util.numbers import safe_float, safe_int
 
 
 def apply_yearbyyear_fields(stat_doc: dict, group_name: str, stat: dict):
+    # 比率欄位一律存 float：API 以字串給值，分母為零時給 ".---" / "-.--"、
+    # 舊 MiLB 資料可能整欄缺，safe_float 全部收斂成 None，
+    # annotate_row 的 is None 檢查才能補算；顯示格式由 render 的 floatformat 決定
     if group_name == "pitching":
         stat_doc.update(
             {
@@ -26,8 +29,8 @@ def apply_yearbyyear_fields(stat_doc: dict, group_name: str, stat: dict):
                 "k_bb_ratio": safe_float(stat.get("strikeoutWalkRatio")),
                 "hr_per_9": safe_float(stat.get("homeRunsPer9")),
                 "p_per_ip": safe_float(stat.get("pitchesPerInning")),
-                "win_pct": str(stat.get("winPercentage", "")),
-                "strike_pct": str(stat.get("strikePercentage", "")),
+                "win_pct": safe_float(stat.get("winPercentage")),
+                "strike_pct": safe_float(stat.get("strikePercentage")),
                 "p_ground_outs": safe_int(stat.get("groundOuts")),
                 "p_air_outs": safe_int(stat.get("airOuts")),
                 "runs_allowed": safe_int(stat.get("runs")),
@@ -55,11 +58,11 @@ def apply_yearbyyear_fields(stat_doc: dict, group_name: str, stat: dict):
                 "irs": safe_int(stat.get("inheritedRunnersScored")),
                 "p_sac_bunts": safe_int(stat.get("sacBunts")),
                 "p_sac_flies": safe_int(stat.get("sacFlies")),
-                "p_avg": str(stat.get("avg", "")),
-                "p_obp": str(stat.get("obp", "")),
-                "p_slg": str(stat.get("slg", "")),
-                "p_ops": str(stat.get("ops", "")),
-                "p_sb_pct": str(stat.get("stolenBasePercentage", "")),
+                "p_avg": safe_float(stat.get("avg")),
+                "p_obp": safe_float(stat.get("obp")),
+                "p_slg": safe_float(stat.get("slg")),
+                "p_ops": safe_float(stat.get("ops")),
+                "p_sb_pct": safe_float(stat.get("stolenBasePercentage")),
                 "p_babip": safe_float(stat.get("babip")),
                 "p_go_ao": safe_float(stat.get("groundOutsToAirouts")),
                 "qs": safe_int(stat.get("qualityStarts")),
@@ -97,8 +100,8 @@ def apply_yearbyyear_fields(stat_doc: dict, group_name: str, stat: dict):
                 "ci": safe_int(stat.get("catchersInterference")),
                 "babip": safe_float(stat.get("babip")),
                 "go_ao": safe_float(stat.get("groundOutsToAirouts")),
-                "sb_pct": str(stat.get("stolenBasePercentage", "")),
-                "cs_pct": str(stat.get("caughtStealingPercentage", "")),
+                "sb_pct": safe_float(stat.get("stolenBasePercentage")),
+                "cs_pct": safe_float(stat.get("caughtStealingPercentage")),
                 "ab_per_hr": safe_float(stat.get("atBatsPerHomeRun")),
             }
         )

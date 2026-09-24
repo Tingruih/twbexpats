@@ -7,6 +7,10 @@ from ..util.json import loads_json_list
 def load_all_pitches_for_player(cur, mlb_id: int) -> dict[tuple, list[dict]]:
     """Return {(year, sport_level): [pitch_dict, ...]} merged across all cached games.
 
+    ``sport_level`` is the tier key on both game_logs and season_stats (both
+    written through ``levels.sport_to_tier_key``), so the empty-level fallback
+    below yields the same key as the rows that already carry one.
+
     When a game_logs row has an empty sport_level, we attempt to resolve it
     from season_stats.  If the player only appeared at one level in that year,
     the resolution is unambiguous; otherwise the pitches are grouped under
@@ -18,7 +22,8 @@ def load_all_pitches_for_player(cur, mlb_id: int) -> dict[tuple, list[dict]]:
     cur.execute(
         "SELECT date, sport_level, pitches_json FROM game_logs "
         "WHERE player_mlb_id = ? AND game_type = ? "
-        "AND pitches_json != '[]' AND pitches_json IS NOT NULL",
+        # '[]' = 尚未抓取，或該球員這場沒有打席/投球
+        "AND pitches_json != '[]'",
         (mlb_id, REGULAR_SEASON_GAME_TYPE),
     )
     by_year_level: dict[tuple, list[dict]] = {}

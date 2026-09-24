@@ -4,6 +4,8 @@
 ``game_logs.pitches_json`` — every downstream stat module reads these keys.
 """
 
+from ..positions import BATTER, PITCHER
+
 
 def _extract_runners(play: dict) -> list[dict]:
     """Condense a play's ``runners`` node (baserunning movement + defensive
@@ -135,7 +137,7 @@ def extract_pitch_logs(
     Args:
         game_data: raw JSON from ``game/{pk}/withMetrics``.
         player_id: MLB ID to filter for.
-        role: ``"pitcher"`` or ``"batter"`` — which side of the matchup to
+        role: ``positions.PITCHER`` or ``positions.BATTER`` — which side of the matchup to
               match on.
 
     Returns (pitches, nonpitch_events), both produced in the same walk.
@@ -159,7 +161,7 @@ def extract_pitch_logs(
 
         events = play.get("playEvents", [])
 
-        if role == "batter" and batter_id != player_id:
+        if role == BATTER and batter_id != player_id:
             # matchup.batter 只記錄「這個打席最後是誰打完的」，如果 player_id
             # 是中途被換下場的那個人（例如打到一半受傷、被代打換掉），
             # matchup.batter 記的會是後來上場的代打者，不是 player_id——
@@ -178,7 +180,7 @@ def extract_pitch_logs(
             )
             if not was_replaced_mid_pa:
                 continue
-        if role == "pitcher":
+        if role == PITCHER:
             # matchup.pitcher 是整個 play（打席）層級的欄位，記的是「這個
             # 打席結束時是誰在投」，如果打席中途換投手（例如雨延、傷退），
             # 換投手之前投的那幾球其實是另一個投手投的，用 matchup.pitcher
@@ -229,7 +231,7 @@ def extract_pitch_logs(
         # 都維持 None，下面逐球迴圈完全不受影響，行為跟修正前一樣。
         batter_takeover_idx = None
         batter_handoff_idx = None
-        if role == "batter":
+        if role == BATTER:
             for j, e in enumerate(events):
                 d = e.get("details") or {}
                 if d.get("eventType") != "offensive_substitution":
@@ -261,7 +263,7 @@ def extract_pitch_logs(
                     or pa_pitcher_id
                 )
 
-                if role == "pitcher" and event_pitcher_id != player_id:
+                if role == PITCHER and event_pitcher_id != player_id:
                     # 這球不是 player_id 投的（中途換投手，這球是另一個
                     # 投手投的）——不收進 player_id 的逐球清單，但球數
                     # 追蹤（pa_pre_balls/pa_pre_strikes）還是要照實際比賽

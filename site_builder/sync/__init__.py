@@ -3,6 +3,8 @@
 Submodules:
     players     — Pipeline A: profile / season stats / game logs sync
     statcast    — Pipeline B: play-by-play fetch + Statcast aggregation
+    advanced    — Pipeline C: FIP / WAR / wRC+ / xWPCT per season row
+                  (called from sync_statcast)
     extract     — pitch extraction from live-feed JSON (defines the pitch
                   dict schema cached in game_logs.pitches_json)
     field_maps  — MLB Stats API field → local column-name mappings

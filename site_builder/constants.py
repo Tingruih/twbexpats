@@ -32,6 +32,13 @@ TEMPLATE_DIR = SRC_DIR / "templates"
 STATIC_DIR = SRC_DIR / "static"
 DEFAULT_ROSTER_FILE = SRC_DIR / "data" / "roster.json"
 
+# 網站對外的正式網址（canonical、og:url、sitemap、robots、JSON-LD 的前綴），
+# 全站程式碼唯一寫死網域的地方（tests/test_site_url.py 會擋其他檔案寫死）。
+# CI 不讀這個值：.github/workflows/pages.yml 以 actions/configure-pages 的
+# base_url 傳 --site-url，GitHub 設定自訂網域後會自動跟著變。
+# 這裡只作為本機 build 與 promo 影片的預設值；換網域的完整清單見 docs/custom_domain.md
+SITE_URL = "https://tingruih.github.io/twbexpats/"
+
 # MLB Stats API request timeouts (seconds). The live feed payload is an order
 # of magnitude larger than every other endpoint, so it gets a longer budget.
 API_TIMEOUT = 15
@@ -61,6 +68,12 @@ API_POOL_MAXSIZE = 10
 PLAYER_FETCH_WORKERS = 20
 GAME_FETCH_WORKERS = 50
 
+# game_logs.pitches_json 的抽取版本。extract.py 新增或改變逐球欄位時加 1：
+# 每場比賽會重抓剛好一次並標記新版本，即使 API 仍沒有該欄位（例如 2019 年
+# 以前沒有落點座標）也不會再抓。未完賽的比賽不會標記版本，下次一定重抓。
+# 注意：加 1 會讓全部比賽（約 1.6 萬場、每場數 MB 的 withMetrics）重抓一次。
+PBP_EXTRACT_VERSION = 1
+
 # The /content highlight index can lag behind the live feed; retry games with
 # zero videos for this many days after game date.
 CONTENT_RETRY_DAYS = 14
@@ -79,6 +92,15 @@ def _auto_season_year() -> int:
 # backfilling a specific year); unset in normal operation.
 _env_season_year = os.environ.get("DEFAULT_SEASON_YEAR")
 SEASON_YEAR = int(_env_season_year) if _env_season_year else _auto_season_year()
+
+
+def is_season_in_progress(year: int) -> bool:
+    """*year* 是否仍在累積中（當季）：其數據每次執行都要重抓，不能視為定案。
+
+    league_constant.policy 與 db.season_fetches 共用這個判斷，確保「當季」
+    在所有快取規則裡是同一個定義。
+    """
+    return year >= SEASON_YEAR
 
 # ── Season rollover ──
 # There is deliberately no "annual constants" table in this file any more.
@@ -153,26 +175,68 @@ WOBA_EVENT_MAP = {
     "home_run": "home_run",
 }
 
+# ── 打席結束事件分類（playByPlay allPlays[].result.eventType）──
+# *_double_play 變體跟隨基本事件：API 只在記錄員已判定犧牲／三振成立時才發出
+# （Rule 9.08；推進失敗會標成 fielders_choice_out / double_play 等），
+# 所以比對某類事件時一律用這些集合，不要只比對基本字串
+STRIKEOUT_EVENTS = frozenset({"strikeout", "strikeout_double_play"})
+SAC_BUNT_EVENTS = frozenset({"sac_bunt", "sac_bunt_double_play"})
+SAC_FLY_EVENTS = frozenset({"sac_fly", "sac_fly_double_play"})
+HIT_EVENTS = frozenset({"single", "double", "triple", "home_run"})
+HOME_RUN_EVENT = "home_run"
+
 # TJStats wRC+ scale converting a wOBA gap back to runs.
 # Source: https://tjstats.ca/glossary/
 WOBA_SCALE = 1.24
 
-# Baserunning play events that occur during a batter's PA but do NOT
-# constitute a plate appearance outcome for the batter (e.g. caught stealing,
-# pickoff outs).  Pitches ending in these events must be excluded from batter
-# wOBA / AB / PA calculations.
+# Play-ending ``result.eventType`` values where the batter never finished the
+# PA: a runner play ended the inning or game mid-count (runner thrown out,
+# walk-off wild pitch), so the batter comes back up next inning or not at all.
+# The official box score charges no PA/AB for these (checked against
+# /game/{pk}/boxscore, e.g. game 507044's walk-off wild pitch on a 3-1 count),
+# so they are excluded from batter wOBA / AB / PA.
+#
+# Source: GET /api/v1/eventTypes, entries with plateAppearance=false that are
+# runner plays. Some plateAppearance=false codes are deliberately left out
+# because the batter DID put the ball in play and so completed the PA:
+# grounded_into_triple_play, runner_interference, fielder_interference.
+# Non-play codes (substitutions, mound_visit, injury, ...) never end a play,
+# so they are not listed either.
 NON_PA_EVENTS: frozenset[str] = frozenset({
+    # Caught stealing / pickoff outs
+    "caught_stealing",
     "caught_stealing_2b",
     "caught_stealing_3b",
     "caught_stealing_home",
+    "cs_double_play",
     "pickoff_caught_stealing_2b",
     "pickoff_caught_stealing_3b",
     "pickoff_caught_stealing_home",
     "pickoff_1b",
     "pickoff_2b",
     "pickoff_3b",
-    "game_advisory",
+    "runner_double_play",
+    # Runner thrown out on any other play (e.g. caught off base after a
+    # pitch, API description "X out at 2nd, catcher to shortstop")
+    "other_out",
+    # Runner advances that can end the game (walk-off) before the PA finishes
+    "stolen_base",
+    "stolen_base_2b",
+    "stolen_base_3b",
+    "stolen_base_home",
+    "wild_pitch",
+    "passed_ball",
+    "balk",
+    "forced_balk",  # pitch-clock disengagement violation, scored as a balk
+    "defensive_indiff",
+    "pickoff_error_1b",
+    "pickoff_error_2b",
+    "pickoff_error_3b",
+    "error",  # non-batted-ball error, e.g. errant pickoff throw
     "other_advance",
+    # Scorer ruling on a prior runner play; the batter's own result comes later
+    "os_ruling_pending_prior",
+    "game_advisory",
 })
 
 # ── Splits & chart definitions (shared by per-level compute and cross-level combine) ──
@@ -552,21 +616,30 @@ HIT_LOCATION_ZONE: dict[str, str] = {
 }
 
 # ── Counting stat fields summed in career / season-combined aggregations ──
-COUNTING_FIELDS = [
-    # ── Shared ──
-    "gp",
-    # ── Hitting ──
+# 依 API stat group 分組：stats.core.aggregate.sum_counting 以「該列這一組有沒有
+# 任何值」判斷某列缺值是「沒有這組數據（貢獻 0）」還是「有這組數據卻缺這一欄
+# （總和未知）」。例如 2005 年以前的 MiLB 投球列有 p_ab 卻沒有 p_tb。
+SHARED_COUNTING_FIELDS = ["gp"]
+HITTING_COUNTING_FIELDS = [
     "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "tb",
     "hit_bb", "h_so", "hbp", "ibb", "sb", "cs", "gdp", "lob",
     "sac_bunts", "sac_flies", "h_ground_outs", "h_air_outs", "pitches_seen",
+    # seasonAdvanced
     "gidpo", "roe", "wo", "xbh",
-    # ── Pitching ──
+]
+PITCHING_COUNTING_FIELDS = [
     "wins", "losses", "sv", "hld", "so", "bb", "gs", "bf",
     "earned_runs", "pitches", "svo", "outs", "cg", "sho", "strikes",
     "balks", "wp", "pickoffs", "gf", "ir", "irs", "qs",
     "runs_allowed", "p_hits", "p_hr", "p_hbp", "p_ibb",
     "p_sb", "p_cs", "p_gdp", "p_doubles", "p_triples", "p_tb", "p_ab",
     "p_ground_outs", "p_air_outs", "p_sac_bunts", "p_sac_flies",
-    # ── Advanced / derived counting ──
+    # seasonAdvanced
     "bqr", "bqr_s", "run_support", "p_gidpo",
 ]
+COUNTING_FIELD_GROUPS = [
+    SHARED_COUNTING_FIELDS,
+    HITTING_COUNTING_FIELDS,
+    PITCHING_COUNTING_FIELDS,
+]
+COUNTING_FIELDS = [f for group in COUNTING_FIELD_GROUPS for f in group]

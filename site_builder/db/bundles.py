@@ -4,12 +4,14 @@ import datetime
 import sqlite3
 
 from ..constants import REGULAR_SEASON_GAME_TYPE
-from ..levels import level_rank
+from ..levels import is_mlb
+from ..positions import is_pitcher_position
 from ..roster import categorize_roster_status
 from ..stats.core.selectors import has_appearance
 from ..util.dates import parse_date
 from ..util.json import loads_json_dict, loads_json_list
 from ..util.obj import Obj
+from .season_stats import load_player_season_rows
 
 
 def load_player_bundle(cur, player_row: sqlite3.Row):
@@ -17,7 +19,7 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
     player = Obj(dict(player_row))
     player.transactions_json = loads_json_list(player.transactions_json)
     player.next_game_json = loads_json_dict(player.next_game_json)
-    player.is_pitcher = player.position == "P"
+    player.is_pitcher = is_pitcher_position(player.position)
     player.birth_date = parse_date(player.birth_date)
 
     today = datetime.date.today()
@@ -39,26 +41,7 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
     player.status_display = player.roster_status or ("Active" if player.is_active else "Inactive")
 
     # Season stats
-    cur.execute(
-        "SELECT year, team_name, league_name, sport_level, stat_json, "
-        "       fielding_json "
-        "FROM season_stats WHERE player_mlb_id = ? ORDER BY year DESC",
-        (player.mlb_id,),
-    )
-    stats = []
-    for row in cur.fetchall():
-        data = Obj()
-        data.year = row[0]
-        data.team_name = row[1]
-        data.league_name = row[2]
-        data.sport_level = row[3]
-        stat_json = loads_json_dict(row[4])
-        data.update(stat_json)
-        data.fielding_json = loads_json_list(row[5])
-        data.level_order = level_rank(data.sport_level)
-        stats.append(data)
-
-    stats.sort(key=lambda s: (-s.year, s.level_order))
+    stats = load_player_season_rows(cur, player.mlb_id)
     player.latest_stat = stats[0] if stats else None
     player.available_years = sorted({s.year for s in stats}, reverse=True)
     # Drives headshot CDN tier selection: pick the level the player actually
@@ -66,14 +49,15 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
     # any level they've ever reached), so the tier tried first is the one
     # MLB most recently had a reason to update.
     latest_played = next((s for s in stats if has_appearance(s)), None)
-    player.latest_level_is_mlb = bool(latest_played and latest_played.level_order == 0)
+    player.latest_level_is_mlb = bool(latest_played and is_mlb(latest_played.sport_level))
 
     # Game logs — pitches_json may not exist on older DBs (before Statcast support)
     has_pitches_col = False
     try:
         cur.execute("SELECT pitches_json FROM game_logs LIMIT 0")
         has_pitches_col = True
-    except Exception:
+    except sqlite3.OperationalError:
+        # no such column：舊資料庫尚未跑過 init_db 的 migration
         pass
 
     if has_pitches_col:

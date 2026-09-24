@@ -18,7 +18,7 @@ open both and diff them by hand.
 
 from enum import Enum, auto
 
-from ..constants import SEASON_YEAR
+from ..constants import is_season_in_progress
 
 
 class RefreshPolicy(Enum):
@@ -34,12 +34,12 @@ def should_use_cache(
     """Whether *year*'s cached slice may be trusted instead of re-fetching.
 
     ``force_refresh`` (the ``--update-constants`` build.py flag) always wins.
-    Otherwise only ACCUMULATES_IN_SEASON cares about the year: a season at or
-    after ``constants.SEASON_YEAR`` is still accumulating, so its cached row
-    must never be treated as final.
+    Otherwise only ACCUMULATES_IN_SEASON cares about the year: a season for
+    which ``constants.is_season_in_progress`` holds is still accumulating, so
+    its cached row must never be treated as final.
     """
     if force_refresh:
         return False
-    if policy is RefreshPolicy.ACCUMULATES_IN_SEASON and year >= SEASON_YEAR:
+    if policy is RefreshPolicy.ACCUMULATES_IN_SEASON and is_season_in_progress(year):
         return False
     return True

@@ -3,6 +3,31 @@
 import sqlite3
 
 
+def _add_column(conn: sqlite3.Connection, table: str, column_ddl: str) -> None:
+    """``ALTER TABLE ... ADD COLUMN``，欄位已存在時略過。
+
+    只吞 "duplicate column name"：sqlite3 把「資料庫被鎖住」「磁碟已滿」也歸成
+    OperationalError，整類吞掉的話 migration 失敗會被當成欄位已存在。
+    """
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column_ddl}")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            raise
+
+
+def _drop_column(conn: sqlite3.Connection, table: str, column: str) -> None:
+    """``ALTER TABLE ... DROP COLUMN``（SQLite 3.35+），欄位不存在時略過。
+
+    與 ``_add_column`` 一樣只吞「欄位不存在」，其他 OperationalError 照常拋出。
+    """
+    try:
+        conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+    except sqlite3.OperationalError as e:
+        if "no such column" not in str(e):
+            raise
+
+
 def init_db(conn: sqlite3.Connection):
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS players (
@@ -12,6 +37,7 @@ def init_db(conn: sqlite3.Connection):
             name_tw TEXT NOT NULL DEFAULT '',
             team TEXT NOT NULL DEFAULT 'N/A',
             level TEXT NOT NULL DEFAULT 'Minors',
+            level_year INTEGER,
             position TEXT NOT NULL DEFAULT '',
             height TEXT NOT NULL DEFAULT '',
             weight INTEGER,
@@ -29,7 +55,8 @@ def init_db(conn: sqlite3.Connection):
             transactions_json TEXT NOT NULL DEFAULT '[]',
             next_game_json TEXT NOT NULL DEFAULT '{}',
             next_game_updated_at TEXT,
-            next_game_for_season INTEGER
+            next_game_for_season INTEGER,
+            history_synced INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS season_stats (
@@ -58,10 +85,10 @@ def init_db(conn: sqlite3.Connection):
             UNIQUE(player_mlb_id, game_id)
         );
 
-        CREATE TABLE IF NOT EXISTS playbyplay_processed (
-            game_pk INTEGER PRIMARY KEY,
-            processed_at TEXT NOT NULL
-        );
+        -- playbyplay_processed 以 game_pk 為單位記錄已抓過的比賽，球員後來才加入
+        -- 名冊時會漏抓；改由 game_logs.pbp_version 逐 (球員, 比賽) 判斷後不再讀取
+        -- （見 sync/statcast.py 的 _games_to_fetch）
+        DROP TABLE IF EXISTS playbyplay_processed;
 
         CREATE TABLE IF NOT EXISTS tjstats_park_factors (
             year INTEGER NOT NULL,
@@ -97,53 +124,36 @@ def init_db(conn: sqlite3.Connection):
     """)
     # Forward-migration: add pitches_json column if it does not yet exist
     # (needed for databases created before Statcast support).
-    try:
-        conn.execute("ALTER TABLE game_logs ADD COLUMN pitches_json TEXT NOT NULL DEFAULT '[]'")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    _add_column(conn, "game_logs", "pitches_json TEXT NOT NULL DEFAULT '[]'")
     # Forward-migration: add sport_level column to game_logs if it does not yet exist.
-    try:
-        conn.execute("ALTER TABLE game_logs ADD COLUMN sport_level TEXT NOT NULL DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    _add_column(conn, "game_logs", "sport_level TEXT NOT NULL DEFAULT ''")
     # Forward-migration: add roster_status_code/roster_is_active columns to players
     # if they do not yet exist (needed for richer status-pill classification).
-    try:
-        conn.execute("ALTER TABLE players ADD COLUMN roster_status_code TEXT NOT NULL DEFAULT ''")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    try:
-        conn.execute("ALTER TABLE players ADD COLUMN roster_is_active INTEGER NOT NULL DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass  # column already exists
-    # Forward-migration: track whether hit_coord backfill has been attempted for this
-    # player-game row. Prevents re-fetching games where the API genuinely has no
-    # hit coordinates (pre-2019 MLB, low-level MiLB).
-    try:
-        conn.execute(
-            "ALTER TABLE game_logs ADD COLUMN hit_coord_checked INTEGER NOT NULL DEFAULT 0"
-        )
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    _add_column(conn, "players", "roster_status_code TEXT NOT NULL DEFAULT ''")
+    _add_column(conn, "players", "roster_is_active INTEGER NOT NULL DEFAULT 0")
+    # Forward-migration: 逐球資料的抽取版本（見 constants.PBP_EXTRACT_VERSION）。
+    # 0 = 尚未抓到完賽資料。取代 hit_coord_checked：那是為了「補抓落點座標時，
+    # API 本來就沒有座標的比賽不要每次重抓」而加的一次性旗標，等同版本 0 → 1。
+    # 既有列的版本由一次性 SQL 設定，不在這裡回填（見 docs/db_schema.md §8）。
+    _add_column(conn, "game_logs", "pbp_version INTEGER NOT NULL DEFAULT 0")
+    _drop_column(conn, "game_logs", "hit_coord_checked")
     # Forward-migration: add events_json column to game_logs if it does not yet
     # exist (withMetrics non-pitch events: pickoff/stepoff).
-    try:
-        conn.execute(
-            "ALTER TABLE game_logs ADD COLUMN events_json TEXT NOT NULL DEFAULT '[]'"
-        )
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    _add_column(conn, "game_logs", "events_json TEXT NOT NULL DEFAULT '[]'")
     # Forward-migration: add lg_era to league_fip_constants if it does not
     # yet exist. Existing rows keep the DEFAULT 0, which
     # league_constant.pitching._load() treats as a cache miss (its
     # `lg_era > 0` filter), so they self-heal via one live refetch — no
     # backfill script needed.
-    try:
-        conn.execute(
-            "ALTER TABLE league_fip_constants ADD COLUMN lg_era REAL NOT NULL DEFAULT 0"
-        )
-    except sqlite3.OperationalError:
-        pass  # column already exists
+    _add_column(conn, "league_fip_constants", "lg_era REAL NOT NULL DEFAULT 0")
+    # Forward-migration: 全歷史同步（首次同步或 sync 指令）是否每個請求都成功。
+    # 既有列預設 1（視為已完成）；sync/players.py 在全歷史抓取有失敗時寫 0，
+    # 下次 refresh 會再走一次全歷史抓取（見 _run_pipeline）。
+    _add_column(conn, "players", "history_synced INTEGER NOT NULL DEFAULT 1")
+    # Forward-migration: players.level 對應的球季，level_display() 靠它決定
+    # 顯示 A+ 還是 A(Adv)。既有列為 NULL，下一次 sync/refresh 的
+    # level/team UPDATE（sync/players.py）會寫入。
+    _add_column(conn, "players", "level_year INTEGER")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS play_videos (
             game_pk INTEGER NOT NULL,
@@ -159,6 +169,17 @@ def init_db(conn: sqlite3.Connection):
             game_pk INTEGER PRIMARY KEY,
             processed_at TEXT NOT NULL,
             videos_found INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    # 過去球季的逐年抓取登記（見 db/season_fetches.py）。新表不需回填：
+    # 空表代表「全部沒抓過」，下一次執行會把每個過去球季各抓一次。
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS season_fetches (
+            source TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            year INTEGER NOT NULL,
+            fetched_at TEXT NOT NULL,
+            PRIMARY KEY (source, subject, year)
         )
     """)
     conn.commit()

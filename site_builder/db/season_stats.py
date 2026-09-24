@@ -2,7 +2,9 @@
 
 import sqlite3
 
-from ..util.json import dumps_json, loads_json
+from ..levels import level_rank
+from ..util.json import dumps_json, loads_json, loads_json_dict, loads_json_list
+from ..util.obj import Obj
 
 
 def load_season_row(cur, mlb_id: int, year: int, team_name: str) -> dict:
@@ -25,6 +27,33 @@ def load_season_row(cur, mlb_id: int, year: int, team_name: str) -> dict:
         "stat_json": loads_json(row[2], {}),
         "fielding_json": loads_json(row[3], []),
     }
+
+
+def load_player_season_rows(cur, mlb_id: int) -> list[Obj]:
+    """讀一位球員所有 season_stats 列，轉成 render 與 sync 共用的列物件。
+
+    ``stat_json`` 攤平到列上（與 ``year``/``team_name``/``sport_level`` 平級），
+    所以 ``has_appearance`` / ``highest_level_row`` 可以直接讀 ``.gp``、``.pa`` 等欄位。
+    依年度新到舊、同年層級高到低排序。
+    """
+    cur.execute(
+        "SELECT year, team_name, league_name, sport_level, stat_json, fielding_json "
+        "FROM season_stats WHERE player_mlb_id = ?",
+        (mlb_id,),
+    )
+    rows = []
+    for year, team_name, league_name, sport_level, stat_json, fielding_json in cur.fetchall():
+        data = Obj()
+        data.year = year
+        data.team_name = team_name
+        data.league_name = league_name
+        data.sport_level = sport_level
+        data.update(loads_json_dict(stat_json))
+        data.fielding_json = loads_json_list(fielding_json)
+        data.level_order = level_rank(sport_level)
+        rows.append(data)
+    rows.sort(key=lambda s: (-s.year, s.level_order))
+    return rows
 
 
 def save_season_row(

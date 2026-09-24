@@ -24,6 +24,7 @@ from ..api.tjstats import (
     fetch_league_constants,
     fetch_park_factors,
 )
+from ..levels import is_level
 from .policy import RefreshPolicy, should_use_cache
 
 _POLICY = RefreshPolicy.FINAL_ONCE_PUBLISHED
@@ -56,7 +57,8 @@ def publishes_constants(level: str, year: int) -> bool:
     for a row); the resolver applies it itself, so a lookup for an uncovered
     slice simply comes back empty rather than raising.
     """
-    return year >= _MIN_WRC_YEAR and level in _WRC_LEVELS
+    # is_level 也會驗證 TJSTATS_LEVEL_PARAMS 的 key 都是合法 tier key
+    return year >= _MIN_WRC_YEAR and is_level(level, *_WRC_LEVELS)
 
 
 def _load_park_factors(

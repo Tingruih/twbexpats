@@ -2,6 +2,8 @@
 
 import sqlite3
 
+from ..levels import MLB_KEY
+
 
 def save_play_videos(cur, game_pk: int, videos: list[dict], now_iso: str):
     for video in videos:
@@ -35,10 +37,10 @@ def content_fetch_candidates(cur, roster_ids, retry_cutoff_date: str) -> list[in
     cur.execute(
         "SELECT DISTINCT g.game_id FROM game_logs g "
         "LEFT JOIN game_content_processed c ON c.game_pk = g.game_id "
-        f"WHERE g.sport_level = 'MLB' AND g.player_mlb_id IN ({placeholders}) "
+        f"WHERE g.sport_level = ? AND g.player_mlb_id IN ({placeholders}) "
         "AND (c.game_pk IS NULL "
         "     OR (c.videos_found = 0 AND g.date >= ?))",
-        [*ids, retry_cutoff_date],
+        [MLB_KEY, *ids, retry_cutoff_date],
     )
     return [row[0] for row in cur.fetchall() if row[0] is not None]
 
