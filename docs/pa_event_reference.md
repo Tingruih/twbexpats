@@ -16,8 +16,11 @@
 程式碼中目前只手動列舉了兩個子集：
 
 - `WOBA_EVENT_MAP`（`site_builder/constants.py:136`）：計入 wOBA 的 6 種打席結果
-- `NON_PA_EVENTS`（`site_builder/constants.py:153`）：11 種「跑壘/場上事件」需從打者
-  wOBA/AB/PA 中排除
+- `NON_PA_EVENTS`（`site_builder/constants.py`）：打席未打完就結束的跑壘事件（盜壘／牽制出局、
+  `other_out`、暴投、捕逸、投手犯規等），需從打者 wOBA/AB/PA 中排除。取自下表
+  `plateAppearance = false` 的跑壘事件，但刻意不含 `grounded_into_triple_play`、
+  `runner_interference`、`fielder_interference`（打者已把球打進場內，打席有完成）。
+  另外，空白 `pa_event`（比賽在打席中途中止）也在 `pa_outcomes.py` 排除
 
 `pa_event` 完整合法值清單並未在本專案中定義，而是 MLB Stats API 的固定 enum。
 可透過官方 meta 端點取得權威清單：

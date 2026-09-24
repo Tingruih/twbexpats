@@ -147,6 +147,8 @@
 | `xfip` | API `sabermetrics.xfip` |
 | `war` | API `sabermetrics.war` |
 
+> 只取整季合計 split（`splits[]` 中沒有 `team` 的那筆，轉隊時帶 `numTeams`），見 `sync/statcast.py _season_total_saber()`；各隊 split 不使用。
+
 > 這三個指標常被誤以為是自製算法，但 **MLB 層級是 API 直接算好回傳的**，程式沒有重算。只有 MiLB（API 無此端點）才會走 2.5 的自製公式。
 
 ### 2.5 MiLB 版 FIP / xWPCT（🟢 計算，僅 MiLB）
@@ -318,7 +320,7 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 對應：`sync.py _merge_statcast_into_season()` 第1102–1112行
 
 - `war`：🔵 直接取 API `sabermetrics.war`
-- `wrc_plus`：🔵 直接取 API `sabermetrics.wRcPlus`（MLB 賽季合計值，換隊球員只寫入該年度第一筆記錄，避免重複顯示）
+- `wrc_plus`：🔵 直接取 API `sabermetrics.wRcPlus`（MLB 賽季合計值，取自沒有 `team` 的整季 split（`_season_total_saber()`）；換隊球員只寫入該年度第一筆記錄，避免重複顯示）
 
 同時程式會**額外自行計算一份 wRC+ 存成 `wrc_plus_calc`**（不覆蓋 API 值），用於跟 API 版本對照 / 給 MiLB 使用：
 

@@ -52,34 +52,7 @@
 
 ---
 
-## 三、存取權限規律
-
-對全部 190 個 path 逐一實測後歸納出的規律（原先的「推測」規律大致成立，但實測揪出了幾個例外）：
-
-**需要 Okta 登入（🔒）的都是 MLB 專屬感測器/衍生模型資料，共 25 個 GET endpoint**：
-- Bat Tracking（球棒追蹤）
-- Biomechanics、Skeletal（生物力學、骨架動作捕捉）
-- Weather（球場感測器天氣資料，4 個全數需登入）
-- Predictions（play-level 預測模型，2 個全數需登入）
-- `analytics` tag 下的 guid 系列：`contextMetrics`、`contextMetricsAverages`、`analytics`、`guids`、`lastPitch`、`/analytics/guids`、`/analytics/game`
-- `Stats` tag 下的 `analytics/*` 子集（`sprayChart`、`stolenBaseProbability`、`outsAboveAverage`）
-
-**實測前未預期、但確認需要 Okta 的 endpoint（原先誤判為公開）**：
-- `GET /jobs/umpires/games/{umpireId}`（`Job` tag 下其餘 4 個 endpoint 皆公開，只有這個要登入）
-- `GET /people/{personId}/stats/metrics`、`GET /stats/metrics`（帶 `metrics` 參數查詢逐球追蹤指標，皆需登入；但同樣列在 `Misc` tag 的 enum 端點 `GET /stats/search/stats`、`GET /statTypes` 等本身是公開的）
-- `GET /stats/search`（需登入；但外觀很像的 enum 端點 `GET /stats/search/stats`、`/stats/search/params`、`/stats/search/groupByTypes`、`/stats/search/config` 全部公開，要特別注意路徑差異）
-- `GET /schedule/trackingEvents`（`Schedule` tag 下唯一需要登入的 endpoint，其餘皆公開）
-- `GET /streaks`（`Streaks` tag 下需要登入，但 `GET /streaks/types` 公開）
-
-**反例：analytics tag 裡也有公開的 endpoint**：`GET /game/{gamePk}/{guid}/homeRunBallparks` 雖然和同組的 `contextMetrics`、`analytics`、`guids` 共用 `{guid}` 路徑樣式，實測結果卻是公開的（帶錯誤/不存在的 guid 回傳一般 400/404 JSON 錯誤，而非導向 Okta 登入頁）。
-
-**一般參考資料／box score／排行榜類都維持公開（🟢）**：statGroups、pitchTypes、gameTypes、milestones、stats/leaders、broadcast、transactions、`game/{gamePk}/withMetrics`、`game/{gamePk}/contextMetrics`（注意：這個不帶 guid 的版本和上面 analytics tag 帶 guid 的 `contextMetrics` 是不同 endpoint）等，皆實測回傳 200。
-
-**⚠️ 特殊提醒**：spec 中出現 `POST /jobTypes`、`POST /gameStatus`（描述為「Clear all status types」）、`POST /teams/{teamId}/alumni`、`POST /game/{gamePk}/{guid}/contextMetricsAverages`，這些是 MLB 內部後台的寫入操作，與一般開發者可用的查詢 API 無關，本次測試**未呼叫**這些 POST endpoint，不應呼叫。
-
----
-
-## 四、完整 Endpoint 目錄（依 tag 分組）
+## 三、完整 Endpoint 目錄（依 tag 分組）
 
 來源：`MLB-StatsAPI-Spec.json`（OpenAPI 3.0，190 個 path、33 個 tag）。
 
