@@ -23,13 +23,15 @@ from promo import config
 from promo.compose import easing, transitions
 from promo.compose.lower_third import Caption
 from promo.compose.timeline import CursorTrack, Transition
+from site_builder.constants import SITE_URL
 
 # ── 文案 ────────────────────────────────────────────────────────
 
 INTRO_TITLE = "TwbExpats"
 INTRO_SUBTITLE = "臺灣旅美棒球員數據網站"
 
-OUTRO_URL = "tingruih.github.io/twbexpats"
+# 片尾顯示的網址去掉 scheme 與結尾斜線；網域只在 constants.SITE_URL 維護
+OUTRO_URL = SITE_URL.split("://", 1)[-1].rstrip("/")
 OUTRO_TAGLINE = "每一位旅美球員的完整數據"
 
 # ── 段落長度（秒）──────────────────────────────────────────────

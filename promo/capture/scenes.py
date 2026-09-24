@@ -13,6 +13,7 @@ from playwright.sync_api import Page
 
 from promo import config
 from promo.capture import browser
+from site_builder.render.urls import player_page_path
 
 Box = tuple[int, int, int, int]   # (x, y, w, h) — 底片座標系
 
@@ -168,7 +169,7 @@ def capture_home_flip(page: Page, frames: int) -> Sequence:
     # 重排底定後，補上鄧愷威（宣傳片主角）卡片的最終位置，供後續鏡頭推近點擊。
     # 用 href 選取而非 nth-child，才不受排序結果影響。
     feature_box = browser.element_box(
-        page, f'#player-grid .player-card[href="/player/{config.FEATURE_PLAYER}/"]'
+        page, f'#player-grid .player-card[href="/{player_page_path(config.FEATURE_PLAYER)}"]'
     )
     if feature_box:
         boxes = boxes | {"card_feature": feature_box}

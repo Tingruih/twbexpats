@@ -10,7 +10,11 @@ on:
   workflow_dispatch:
     inputs:
       update_constants:
-        description: "Force-refresh the tjstats.ca park-factor/league-constant cache (wRC+)"
+        description: "Re-fetch past-season league constants (FIP/lgERA team totals, tjstats.ca wRC+ constants)"
+        type: boolean
+        default: false
+      full_history:
+        description: "Re-fetch every past season of per-player data (game logs, retired players, sabermetrics, expected stats)"
         type: boolean
         default: false
 
@@ -47,15 +51,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Resolve GitHub Pages base URL
-        run: |
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          OWNER_NAME="${GITHUB_REPOSITORY_OWNER}"
-          if [ "$REPO_NAME" = "$OWNER_NAME.github.io" ]; then
-            echo "PAGES_BASE_URL=/" >> "$GITHUB_ENV"
-          else
-            echo "PAGES_BASE_URL=/$REPO_NAME/" >> "$GITHUB_ENV"
-          fi
+      # 網址唯一來源：GitHub Pages 設定。設了自訂網域後 base_url 會變成
+      # https://<domain>、base_path 變成空字串，build 不用改任何程式碼。
+      # 見 docs/custom_domain.md
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
 
       - name: Restore DB from Google Drive
         run: |
@@ -81,12 +82,23 @@ jobs:
       - name: Refresh & Build
         env:
           UPDATE_CONSTANTS: ${{ github.event.inputs.update_constants }}
+          FULL_HISTORY: ${{ github.event.inputs.full_history }}
+          PAGES_SITE_URL: ${{ steps.pages.outputs.base_url }}
+          PAGES_BASE_PATH: ${{ steps.pages.outputs.base_path }}
         run: |
+          # configure-pages 沒回網址時直接失敗，避免 canonical/sitemap 寫成相對路徑
+          : "${PAGES_SITE_URL:?actions/configure-pages did not return base_url}"
           EXTRA_ARGS=()
           if [ "$UPDATE_CONSTANTS" = "true" ]; then
             EXTRA_ARGS+=(--update-constants)
           fi
-          python build.py refresh --base-url "$PAGES_BASE_URL" "${EXTRA_ARGS[@]}"
+          if [ "$FULL_HISTORY" = "true" ]; then
+            EXTRA_ARGS+=(--full-history)
+          fi
+          python build.py refresh \
+            --site-url "$PAGES_SITE_URL/" \
+            --base-url "$PAGES_BASE_PATH/" \
+            "${EXTRA_ARGS[@]}"
 
       - name: Upload DB to Google Drive
         if: success()
@@ -107,9 +119,6 @@ jobs:
             -H "Content-Type: application/octet-stream" \
             --data-binary @data/tracker.sqlite3 \
             "https://www.googleapis.com/upload/drive/v3/files/$GDRIVE_FILE_ID?uploadType=media"
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

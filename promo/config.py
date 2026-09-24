@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from site_builder.render.urls import player_page_path
+
 # ── 輸出設定檔 ──────────────────────────────────────────────────
 # 底片寬度必須是輸出寬度的兩倍，這是整套架構「縮放無損」的前提：
 # zoom 2.0 時 crop 尺寸恰好等於輸出尺寸，呈 1:1 像素對應。
@@ -71,7 +73,7 @@ BASE_URL = f"http://localhost:{SERVER_PORT}"
 
 # 取材對象：鄧愷威（太空人隊投手）。MLB 層級、六個 tab 資料齊全、六種球路。
 FEATURE_PLAYER = "678906"
-PLAYER_URL = f"{BASE_URL}/player/{FEATURE_PLAYER}/"
+PLAYER_URL = f"{BASE_URL}/{player_page_path(FEATURE_PLAYER)}"
 HOME_URL = f"{BASE_URL}/index.html"
 
 # ── 音訊 ────────────────────────────────────────────────────────
