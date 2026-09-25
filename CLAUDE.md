@@ -8,7 +8,7 @@
 3. 每次對 database 的資料結構有改動時，**確保更新 `docs/db_schema.md`**
 4. 每次只要更改、新增與數據欄位有關的邏輯，**確保更新 `docs/fields.md`**
 5. 每當對使用者的 prompt **有不確定或是有疑問時，請直接向使用者提出問題，不要猜測**
-6. **單一事實來源**：新增函式前先查 `docs/functions_list.md`／搜尋現有程式碼，確認沒有功能重複或相似的 function 已存在；`site_builder/levels.py`（賽事層級）、`site_builder/roster.py`（名冊狀態）、`site_builder/positions.py`（守位 → 投手/打者角色）是唯一權威表，**不要**在其他檔案裡重新定義或複製一份同樣的對照表
+6. **單一事實來源**：新增函式前先查 `docs/functions_list.md`／搜尋現有程式碼，確認沒有功能重複或相似的 function 已存在；`site_builder/levels.py`（賽事層級）、`site_builder/roster.py`（名冊狀態）、`site_builder/positions.py`（守位 → 投手/打者角色、stat group ↔ 角色、角色欄位命名 `role_field`）是唯一權威表，**不要**在其他檔案裡重新定義或複製一份同樣的對照表
 7. **撰寫或修改與數據公式相關的程式碼前，先查證各大數據網站（FanGraphs、tjstats.ca、Baseball Savant 等）對該數據的定義**，並確認公式會用到的分子分母/變數，語意上是否真的對應到我們程式裡定義的那個變數（例如 `fb` 是否已包含 popup），對不上要在程式碼註解與 `docs/fields.md` 中記錄差異與原因
 
 ## 開發命令
@@ -60,7 +60,7 @@ python -m pytest tests/
 ```
 build.py              CLI 進入點(argparse,對應 sync/statcast/refresh/build/all)
 site_builder/
-  constants.py, levels.py, roster.py, positions.py   共用常數與單一權威表(賽事層級、名冊狀態、守位角色)
+  constants.py, levels.py, roster.py, positions.py   共用常數與單一權威表(賽事層級、名冊狀態、守位角色與角色欄位命名)
   api/                打 MLB Stats API + tjstats.ca 爬蟲,只回傳 dict
   sync/               抓資料 → 寫入 SQLite(players.py、statcast.py 等)
   stats/              純數據計算函式,一檔一個 compute_* 函式

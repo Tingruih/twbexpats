@@ -15,6 +15,7 @@ from ..constants import (
     TEMPLATE_DIR,
 )
 from ..levels import COMBINED_LEVEL, is_mlb, level_display, level_label
+from ..positions import BATTER, PITCHER
 from .filters import (
     default_if_none,
     floatformat,
@@ -64,6 +65,9 @@ def create_jinja_env(
 
     env.globals["is_mlb"] = is_mlb
     env.globals["COMBINED_LEVEL"] = COMBINED_LEVEL
+    # 角色值（投手/打者切換的 data-role），樣板不自行寫死字串（見 positions.py）
+    env.globals["PITCHER"] = PITCHER
+    env.globals["BATTER"] = BATTER
     env.globals["pitch_legend"] = pitch_legend
     env.globals["page_url"] = page_url
     env.globals["RETIRED_INDEX_PATH"] = RETIRED_INDEX_PATH

@@ -1,5 +1,6 @@
 """Static site builder: reads SQLite data and renders Jinja2 templates to HTML."""
 
+import copy
 import datetime
 import logging
 import re
@@ -7,8 +8,10 @@ import shutil
 import sqlite3
 from pathlib import Path
 
+from markupsafe import Markup
+
 from ..constants import DEFAULT_ROSTER_FILE, SEASON_YEAR, SITE_URL, STATIC_DIR
-from ..db.bundles import load_player_bundle
+from ..db.bundles import load_player_bundle, load_role_game_logs
 from ..db.play_videos import load_video_map
 from ..db.players import warn_orphaned_players
 from ..db.schema import init_db
@@ -20,6 +23,7 @@ from ..graph.season_trend import (
 )
 from ..league_constant.batting import BattingConstants, publishes_constants
 from ..levels import COMBINED_LEVEL, is_mlb, level_rank
+from ..positions import BATTER, PITCHER, ROLES, primary_role, project_role, role_field
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
 from ..stats.advanced.xwpct import compute_xwpct
@@ -31,9 +35,10 @@ from ..stats.core.career import (
     compute_year_groups,
 )
 from ..stats.core.innings import ip_to_outs
-from ..stats.core.selectors import has_appearance, highest_level_row
+from ..stats.core.selectors import appeared_roles, has_appearance, highest_level_row
 from ..stats.pitcher_statcast import compute_pitcher_statcast
 from ..util.dates import TW_TZ
+from ..util.numbers import safe_int
 from ..util.units import height_to_cm, lbs_to_kg
 from .env import create_jinja_env
 from .pitch_log import write_pitch_log_files
@@ -100,7 +105,7 @@ _COMBINED_EMPTY_DEFAULTS = {
 }
 
 
-def _statcast_row_qualifies(player, s) -> bool:
+def _statcast_row_qualifies(is_pitcher: bool, s) -> bool:
     """Whether a season_stats row belongs in the Statcast section at all.
 
     Real Statcast data always qualifies.  A batter row without it still does
@@ -109,7 +114,7 @@ def _statcast_row_qualifies(player, s) -> bool:
     """
     if s.get("statcast"):
         return True
-    if player.is_pitcher or not publishes_constants(s.sport_level, s.year):
+    if is_pitcher or not publishes_constants(s.sport_level, s.year):
         return False
     field = "wrc_plus_calc" if is_mlb(s.sport_level) else "wrc_plus"
     return s.get(field) is not None
@@ -206,8 +211,11 @@ def _pooled_year_pitches(logs) -> dict[int, list[dict]]:
     return by_year
 
 
-def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
+def _build_statcast_entries(is_pitcher: bool, stats, logs) -> dict[int, list]:
     """Season Statcast entries keyed by year.
+
+    ``is_pitcher`` 是「這個檢視」的角色，不是球員的主要守位：雙角色球員的
+    次要角色檢視也走這裡（見 :func:`_build_role_view`）。
 
     Each entry is ``{sport_level, team_name, sc, stat}``.  Level rows are
     deduplicated by (year, tier) — mid-season trades inside one level would
@@ -236,10 +244,10 @@ def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
     for year, by_tier in rows_by_year_tier.items():
         entries = []
         for rows in by_tier.values():
-            if not any(_statcast_row_qualifies(player, r) for r in rows):
+            if not any(_statcast_row_qualifies(is_pitcher, r) for r in rows):
                 continue
             sc = dict(_first_not_none(rows, "statcast") or {})
-            if player.is_pitcher:
+            if is_pitcher:
                 # pitch_movement is already computed per level by the statcast
                 # pipeline and stored on this row's statcast dict; just ensure
                 # the key exists for older rows predating that field.
@@ -259,7 +267,7 @@ def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
             if pooled is None:
                 pooled = _pooled_year_pitches(logs)
             compute = (
-                compute_pitcher_statcast if player.is_pitcher
+                compute_pitcher_statcast if is_pitcher
                 else compute_batter_statcast
             )
             combined_sc = compute(pooled.get(year, []))
@@ -274,6 +282,154 @@ def _build_statcast_entries(player, stats, logs) -> dict[int, list]:
         statcast_by_year[year] = entries
 
     return statcast_by_year
+
+
+def _page_roles(player, stats) -> list[str]:
+    """球員頁要提供的角色檢視，主要角色在前。
+
+    只有投打兩個角色都有出賽紀錄（``appeared_roles``）才回傳兩個角色、頁面
+    才出現投手/打者切換；其餘球員只有主要角色，頁面輸出與拆分前相同。
+    """
+    primary = primary_role(player.position)
+    appeared = set()
+    for row in stats:
+        appeared |= appeared_roles(row)
+    if len(appeared) < len(ROLES):
+        return [primary]
+    return [primary] + [r for r in ROLES if r != primary]
+
+
+def _row_in_role(row, role: str) -> bool:
+    """某列 season_stats 是否列在 ``role`` 的檢視裡。``row`` 必須是投影前的原始列。
+
+    先看 ``appeared_roles``（打擊 PA、投球 BF/IP）。都沒有時退回看該角色自己的
+    出賽數（``gp`` / ``p_gp``）：只守備沒打席的代守（如 2021 林子偉在雙城的 1 場）
+    只屬於打擊 group，不該在投手檢視多出一整排空白。兩個角色出賽數也都沒有
+    （登錄在隊上但沒上場）才兩個檢視都保留，跟單一角色球員頁的行為一致。
+    """
+    roles = appeared_roles(row)
+    if roles:
+        return role in roles
+    played = {r for r in ROLES if (row.get(role_field(r, "gp")) or 0) > 0}
+    return role in played or not played
+
+
+def _logs_in_role(logs_by_role: dict, role: str) -> list:
+    """``role`` 檢視要列的逐場紀錄（``logs_by_role``：角色 → 該角色的 game_logs）。
+
+    每場比賽把兩個角色的 gameLog split 合成一列，交給 :func:`_row_in_role` 判斷，
+    規則與成績表的列一致。gameLog API 對球員有投球的每一場都會另外回一筆
+    hitting split（``gamesPlayed`` 1、``plateAppearances`` 0 等全為 0），不經過這層
+    判斷的話，打者檢視會多出這些沒上場打擊的比賽（沒有逐球資料，也會讓年份/層級
+    選單多出成績表沒有的選項）。只代守、代跑的野手當場沒有投球 split，仍留在打者檢視。
+    """
+    box_by_game: dict = {}
+    for r, logs in logs_by_role.items():
+        for log in logs:
+            box_by_game.setdefault(log.game_id, {})[r] = log.stats_json
+
+    def in_role(game_id) -> bool:
+        box = box_by_game[game_id]
+        # gameLog 端點 stats[].splits[].stat（見 docs/data_sources.md）；
+        # 該場沒有這個角色的 split 時為空 dict，下面的欄位都取到 None
+        hitting = box.get(BATTER, {})
+        pitching = box.get(PITCHER, {})
+        row = {
+            "pa": safe_int(hitting.get("plateAppearances")),
+            "bf": safe_int(pitching.get("battersFaced")),
+            "ip": pitching.get("inningsPitched"),
+            role_field(BATTER, "gp"): safe_int(hitting.get("gamesPlayed")),
+            role_field(PITCHER, "gp"): safe_int(pitching.get("gamesPlayed")),
+        }
+        return _row_in_role(row, role)
+
+    return [log for log in logs_by_role[role] if in_role(log.game_id)]
+
+
+def _fielding_in_role(fielding: list, role: str) -> list:
+    """``role`` 檢視要列的守備列：依該列守位（``stats[].splits[].position.abbreviation``）
+    對應的角色分到投手或打者檢視（``P`` 歸投手，其餘含 ``DH`` 歸打者）。"""
+    return [f for f in fielding if primary_role(f.get("position")) == role]
+
+
+def _build_role_view(stats, logs, role: str, player, year: int,
+                     fielding: list, hero_fallback: bool = False) -> dict:
+    """一個角色檢視（投手或打者）的樣板變數。
+
+    ``stats`` 必須已經投影到 ``role``（``positions.project_role``），``logs`` 必須
+    只含該角色的 game_logs，``fielding`` 必須只含該角色的守備列。回傳的 key 就是
+    樣板裡隨角色變動的那些變數；
+    雙角色球員的次要角色用同一組 key 另外渲染一份（見 build_static_site）。
+
+    ``hero_fallback``：當季沒有這個角色的出賽時，hero 數據列改顯示最近一個有
+    出賽的球季，並以 ``latest_team_stat_year`` 標出年份。只給次要角色用——
+    主要角色維持「當季沒出賽就不顯示」，單一角色球員頁不受影響。
+    """
+    is_pitcher = role == PITCHER
+
+    logs_by_year = {}
+    for log in logs:
+        if not log.date:
+            continue
+        logs_by_year.setdefault(log.date.year, []).append(log)
+    for y in logs_by_year:
+        logs_by_year[y].sort(key=lambda g: g.date, reverse=True)
+    available_log_years = sorted(logs_by_year.keys(), reverse=True)
+
+    if is_pitcher:
+        player_trend_by_year = build_pitcher_trend_by_year(logs_by_year)
+        trend_stat_options = PITCHER_TREND_STAT_OPTIONS
+    else:
+        player_trend_by_year = build_batter_trend_by_year(logs_by_year)
+        trend_stat_options = BATTER_TREND_STAT_OPTIONS
+
+    stats = annotate_computed_stats(stats)
+    stats_year_groups = compute_year_groups(stats)
+
+    stats_current = [s for s in stats if s.year == year and has_appearance(s)]
+    stats_current.sort(key=lambda x: x.level_order)
+    latest_team_stat = _pick_display_stat(stats_current, player)
+    latest_team_stat_year = None
+    if latest_team_stat is None and hero_fallback:
+        played = [s for s in stats if has_appearance(s)]
+        if played:
+            latest_team_stat_year = max(s.year for s in played)
+            latest_rows = sorted(
+                (s for s in played if s.year == latest_team_stat_year),
+                key=lambda x: x.level_order,
+            )
+            latest_team_stat = _pick_display_stat(latest_rows, player)
+    # 本季合計直接取成績表的年度合計列，不另外重算（見 compute_year_groups）
+    season_combined = (
+        next((g["summary"] for g in stats_year_groups if g["year"] == year), None)
+        if stats_current else None
+    )
+
+    # Season-level Statcast entries keyed by year (one row per level, plus a
+    # pooled "_combined" entry for years spanning 2+ levels).
+    statcast_by_year = _build_statcast_entries(is_pitcher, stats, logs)
+
+    return {
+        "role": role,
+        "is_pitcher": is_pitcher,
+        "all_stats": stats,
+        "all_fielding": fielding,
+        "stats_year_groups": stats_year_groups,
+        "game_logs": logs_by_year.get(year, []),
+        "logs_by_year": logs_by_year,
+        "available_log_years": available_log_years,
+        "player_trend_by_year": player_trend_by_year,
+        "trend_stat_options": trend_stat_options,
+        "milb_career": compute_career(stats, level_filter="milb"),
+        "mlb_career": compute_career(stats, level_filter="mlb"),
+        "total_career": compute_career(stats, level_filter=None),
+        "latest_team_stat": latest_team_stat,
+        "latest_team_stat_year": latest_team_stat_year,
+        "season_combined": season_combined,
+        "statcast_by_year": statcast_by_year,
+        "statcast_available": bool(statcast_by_year),
+        "available_statcast_years": sorted(statcast_by_year.keys(), reverse=True),
+    }
 
 
 _CSS_IMPORT_RE = re.compile(r"""^\s*@import\s+["']([^"']+)["']\s*;\s*$""")
@@ -406,9 +562,33 @@ def build_static_site(
     # Compute TJBat+ (wRC+) for qualifying batters before any page rendering
     # so both the active-player and retired-player detail pages (which both
     # read from `bundles`) see the annotated wrc_plus/wrc_plus_calc fields.
+    # 必須在下面的角色投影之前：雙角色球員次要角色檢視的列從這時的原始列
+    # 複製，才會帶著 wRC+（wRC+ 只讀打擊欄位，不受投影影響）。
     annotate_wrc_plus(
         bundles, BattingConstants(conn, force_refresh=update_constants).for_level
     )
+
+    # 雙角色球員的次要角色檢視：投影前先複製原始列（投影會就地覆寫 gp / war 等，
+    # 之後就讀不回打擊的值），渲染球員頁時再投影到該角色
+    # 每個角色要列的列（_row_in_role）也要在投影前判斷，投影後 gp 已被覆寫
+    page_roles: dict[int, list[str]] = {}
+    raw_stats: dict[int, list] = {}
+    role_rows: dict[int, dict[str, list[int]]] = {}
+    for player, stats, _logs in bundles:
+        page_roles[player.mlb_id] = _page_roles(player, stats)
+        if len(page_roles[player.mlb_id]) > 1:
+            raw_stats[player.mlb_id] = copy.deepcopy(stats)
+            role_rows[player.mlb_id] = {
+                role: [i for i, row in enumerate(stats) if _row_in_role(row, role)]
+                for role in ROLES
+            }
+
+    # season_stats 的打擊/投球拆分欄位（gp / p_gp、war / p_war 等）投影到主要角色：
+    # 之後的合併、生涯加總、首頁/退役頁卡片與樣板一律讀不帶前綴的 key
+    for player, stats, _logs in bundles:
+        role = primary_role(player.position)
+        for row in stats:
+            project_role(row, role)
 
     # ── Split active vs. retired ──
     # Active = has a season_stats row for `year` OR a transaction dated this
@@ -504,39 +684,76 @@ def build_static_site(
 
     # ── Player detail pages ──
     player_template = env.get_template("player_detail.j2")
+    role_alt_template = env.get_template("partials/role_alt_views.j2")
     retired_ids = {p.mlb_id for p, _, _ in retired_bundles}
     for player, all_stats, all_logs in bundles:
         is_retired = player.mlb_id in retired_ids
         selected_year = year
+        roles = page_roles[player.mlb_id]
+        multi_role = len(roles) > 1
 
-        logs_by_year = {}
-        for log in all_logs:
-            if not log.date:
-                continue
-            y = log.date.year
-            logs_by_year.setdefault(y, []).append(log)
+        # Fielding data（all_stats 未依角色篩選，每一列的守備都在這裡）
+        all_fielding = []
+        for s in all_stats:
+            if s.fielding_json:
+                for f in s.fielding_json:
+                    entry = dict(f)
+                    entry["year"] = s.year
+                    entry["team_name"] = s.team_name
+                    entry["sport_level"] = s.sport_level
+                    all_fielding.append(entry)
 
-        for y in logs_by_year:
-            logs_by_year[y].sort(key=lambda g: g.date, reverse=True)
+        # 雙角色球員：逐場紀錄與守備也跟成績表一樣只列該角色的部分
+        # （_logs_in_role / _fielding_in_role）；單一角色球員照舊全部列出
+        role_logs = {roles[0]: all_logs}
+        if multi_role:
+            for role in roles[1:]:
+                role_logs[role] = load_role_game_logs(cur, player.mlb_id, role)
+            role_logs = {role: _logs_in_role(role_logs, role) for role in roles}
 
-        available_log_years = sorted(logs_by_year.keys(), reverse=True)
-        game_logs = logs_by_year.get(selected_year, [])
+        primary_stats = (
+            [all_stats[i] for i in role_rows[player.mlb_id][roles[0]]]
+            if multi_role else all_stats
+        )
+        primary_view = _build_role_view(
+            primary_stats, role_logs[roles[0]], roles[0], player, year,
+            fielding=_fielding_in_role(all_fielding, roles[0]) if multi_role else all_fielding,
+        )
+        write_pitch_log_files(
+            primary_view["logs_by_year"],
+            out_dir,
+            normalized_base_url,
+            player.mlb_id,
+            videos_by_game=videos_by_game,
+        )
 
-        # Chart data
-        if player.is_pitcher:
-            player_trend_by_year = build_pitcher_trend_by_year(logs_by_year)
-            trend_stat_options = PITCHER_TREND_STAT_OPTIONS
-        else:
-            player_trend_by_year = build_batter_trend_by_year(logs_by_year)
-            trend_stat_options = BATTER_TREND_STAT_OPTIONS
-
-        all_stats = annotate_computed_stats(all_stats)
-        stats_year_groups = compute_year_groups(all_stats)
-
-        # Career aggregations
-        milb_career = compute_career(all_stats, level_filter="milb")
-        mlb_career = compute_career(all_stats, level_filter="mlb")
-        total_career = compute_career(all_stats, level_filter=None)
+        # 次要角色：從投影前的原始列複製一份投影到該角色，game_logs 為上面另讀的該角色列
+        alt_views = []
+        for role in roles[1:]:
+            raw = raw_stats[player.mlb_id]
+            role_stats = [raw[i] for i in role_rows[player.mlb_id][role]]
+            for row in role_stats:
+                project_role(row, role)
+            view = _build_role_view(
+                role_stats,
+                role_logs[role],
+                role,
+                player,
+                year,
+                fielding=_fielding_in_role(all_fielding, role),
+                # 主要角色 hero 有當季數據（現役）時，次要角色才退回顯示最近一季；
+                # 主要角色本身就空（如已退役）時兩邊一致留空，避免只有切過去才有數字
+                hero_fallback=primary_view["latest_team_stat"] is not None,
+            )
+            write_pitch_log_files(
+                view["logs_by_year"],
+                out_dir,
+                normalized_base_url,
+                player.mlb_id,
+                videos_by_game=videos_by_game,
+                role_dir=role,
+            )
+            alt_views.append(view)
 
         # Next game validity
         snapshot_valid = (
@@ -557,77 +774,37 @@ def build_static_site(
             except ValueError:
                 next_game_updated_at = player.next_game_updated_at
 
-        # Current season stats
-        stats_current = [s for s in all_stats if s.year == year and has_appearance(s)]
-        stats_current.sort(key=lambda x: x.level_order)
-        latest_team_stat = _pick_display_stat(stats_current, player)
-        # 本季合計直接取成績表的年度合計列，不另外重算（見 compute_year_groups）
-        season_combined = (
-            next((g["summary"] for g in stats_year_groups if g["year"] == year), None)
-            if stats_current else None
-        )
-
-        # Fielding data
-        all_fielding = []
-        for s in all_stats:
-            if s.fielding_json:
-                for f in s.fielding_json:
-                    entry = dict(f)
-                    entry["year"] = s.year
-                    entry["team_name"] = s.team_name
-                    entry["sport_level"] = s.sport_level
-                    all_fielding.append(entry)
-
-        # ── Statcast context ──
-        write_pitch_log_files(
-            logs_by_year,
-            out_dir,
-            normalized_base_url,
-            player.mlb_id,
-            videos_by_game=videos_by_game,
-        )
-
-        # Season-level Statcast entries keyed by year (one row per level, plus a
-        # pooled "_combined" entry for years spanning 2+ levels).
-        statcast_by_year = _build_statcast_entries(player, all_stats, all_logs)
-        statcast_available = bool(statcast_by_year)
-
-        # Determine available Statcast years (sorted desc)
-        available_statcast_years = sorted(statcast_by_year.keys(), reverse=True)
-
         context = {
             "player": player,
-            "all_stats": all_stats,
-            "stats_year_groups": stats_year_groups,
             "years": player.available_years,
             "selected_year": selected_year,
-            "game_logs": game_logs,
-            "logs_by_year": logs_by_year,
-            "available_log_years": available_log_years,
-            "player_trend_by_year": player_trend_by_year,
-            "trend_stat_options": trend_stat_options,
-            "is_pitcher": player.is_pitcher,
-            "milb_career": milb_career,
-            "mlb_career": mlb_career,
-            "total_career": total_career,
             "next_game": next_game,
             "next_game_updated_at": next_game_updated_at,
             "transactions": player.transactions_json or [],
-            "all_fielding": all_fielding,
             "height_cm": height_to_cm(player.height),
             "weight_kg": lbs_to_kg(player.weight),
-            "latest_team_stat": latest_team_stat,
-            "season_combined": season_combined,
-            "statcast_by_year": statcast_by_year,
-            "statcast_available": statcast_available,
-            "available_statcast_years": available_statcast_years,
             "seo_title": f"{player_display_name(player)} 數據 | TwbExpats",
             "seo_description": player_description(player),
             "canonical_url": absolute_url(player_page_path(player.mlb_id, is_retired)),
             "og_type": "profile",
             "structured_data": player_structured_data(absolute_url, player, is_retired),
             "nav_active": "retired" if is_retired else "index",
+            # 投手/打者切換（player_detail.j2）：roles[0] 為主要角色、預設顯示
+            "page_roles": roles if multi_role else [],
         }
+        context.update(primary_view)
+        # 次要角色的各分頁內容先各自渲染成字串，由 player_detail.j2 包進 <template>
+        # （見 role-toggle.js）；共用同一組 key，所以直接覆寫主要角色的變數再渲染
+        context["role_alt_views"] = [
+            {
+                "role": view["role"],
+                "html": Markup(role_alt_template.render(**{**context, **view})),
+            }
+            for view in alt_views
+        ]
+        context["trend_chart_needed"] = any(
+            v["player_trend_by_year"] for v in [primary_view, *alt_views]
+        )
 
         html = player_template.render(**context)
         player_dir = out_dir / player_page_path(player.mlb_id, is_retired)

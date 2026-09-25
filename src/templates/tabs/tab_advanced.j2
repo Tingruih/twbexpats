@@ -55,7 +55,7 @@
                             <td class="num">{{ sm.p_ops|floatformat(3) }}</td>
                             <td class="num">{{ sm.p_babip|floatformat(3) }}</td>
                             <td class="num">{{ sm.p_go_ao|floatformat(2) }}</td>
-                            <td class="num">{{ sm.pitches_per_pa|floatformat(2) }}</td>
+                            <td class="num">{{ sm.pitches_per_bf|floatformat(2) }}</td>
                         {% else %}
                             <td class="num">{{ sm.k_pct|pct_fmt }}</td>
                             <td class="num">{{ sm.bb_pct|pct_fmt }}</td>
@@ -65,7 +65,7 @@
                             <td class="num">{{ sm.ab_per_hr|floatformat(1) }}</td>
                             <td class="num">{{ sm.go_ao|floatformat(2) }}</td>
                             <td class="num">{{ sm.sb_pct|floatformat(3) }}</td>
-                            <td class="num">{{ sm.p_per_pa|floatformat(2) }}</td>
+                            <td class="num">{{ sm.pitches_seen_per_pa|floatformat(2) }}</td>
                             <td class="num">{{ sm.ibb|num_dash }}</td>
                             <td class="num">{{ sm.hbp|num_dash }}</td>
                             <td class="num">{{ sm.gdp|num_dash }}</td>
@@ -101,7 +101,7 @@
                             <td class="num">{{ stat.p_ops|floatformat(3) }}</td>
                             <td class="num">{{ stat.p_babip|floatformat(3) }}</td>
                             <td class="num">{{ stat.p_go_ao|floatformat(2) }}</td>
-                            <td class="num">{{ stat.pitches_per_pa|floatformat(2) }}</td>
+                            <td class="num">{{ stat.pitches_per_bf|floatformat(2) }}</td>
                         {% else %}
                             <td class="num">{{ stat.k_pct|pct_fmt }}</td>
                             <td class="num">{{ stat.bb_pct|pct_fmt }}</td>
@@ -111,7 +111,7 @@
                             <td class="num">{{ stat.ab_per_hr|floatformat(1) }}</td>
                             <td class="num">{{ stat.go_ao|floatformat(2) }}</td>
                             <td class="num">{{ stat.sb_pct|floatformat(3) }}</td>
-                            <td class="num">{{ stat.p_per_pa|floatformat(2) }}</td>
+                            <td class="num">{{ stat.pitches_seen_per_pa|floatformat(2) }}</td>
                             <td class="num">{{ stat.ibb|num_dash }}</td>
                             <td class="num">{{ stat.hbp|num_dash }}</td>
                             <td class="num">{{ stat.gdp|num_dash }}</td>

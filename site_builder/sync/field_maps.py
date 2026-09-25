@@ -118,9 +118,11 @@ def apply_advanced_fields(stat_doc: dict, group_name: str, stat: dict):
             val = safe_int(stat.get(api_key))
             if val is not None:
                 stat_doc[local_key] = val
+        # pitchesPerPlateAppearance 在兩個 group 同名但意義不同：打擊是
+        # 看球數 / PA，投球是用球數 / BF，各自存成以分子分母命名的 key
         for api_key, local_key in [
             ("babip", "babip"),
-            ("pitchesPerPlateAppearance", "pitches_per_pa"),
+            ("pitchesPerPlateAppearance", "pitches_seen_per_pa"),
         ]:
             val = safe_float(stat.get(api_key))
             if val is not None:
@@ -139,7 +141,7 @@ def apply_advanced_fields(stat_doc: dict, group_name: str, stat: dict):
         for api_key, local_key in [
             ("runsScoredPer9", "rs_per_9"),
             ("babip", "p_babip"),
-            ("pitchesPerPlateAppearance", "pitches_per_pa"),
+            ("pitchesPerPlateAppearance", "pitches_per_bf"),
         ]:
             val = safe_float(stat.get(api_key))
             if val is not None:

@@ -1,10 +1,15 @@
 """
 Pipeline C：以球員-年為單位，把進階數據寫入 season_stats。
 
-負責的欄位（``stat_json``）：
-  - MLB 列：``saber``（sabermetrics 整包）、``fip`` / ``xfip`` / ``war``
-    （投手）、``war`` / ``wrc_plus``（打者）、``lg_era`` / ``xwpct``（投手）
-  - MiLB 投手列：``fip`` / ``lg_era`` / ``xwpct``，由計數數據加聯盟常數自算
+負責的欄位（``stat_json``），依該列有出賽的角色（``selectors.appeared_roles``）寫入，
+與球員的主要守位無關：
+  - MLB 列，有打擊：``saber`` / ``war``（sabermetrics hitting group）、``wrc_plus``
+  - MLB 列，有投球：``p_saber`` / ``p_war``（sabermetrics pitching group）、
+    ``fip`` / ``xfip`` / ``lg_era`` / ``xwpct``
+  - MiLB 列，有投球：``fip`` / ``lg_era`` / ``xwpct``，由計數數據加聯盟常數自算
+
+打擊與投球的 WAR 是 API 兩個 group 各自回傳的不同數值（大谷翔平 2021：投球 2.96、
+打擊 5.02），依 ``positions.role_field`` 分存，不另存合計。
 
 這些值只依賴 season_stats 的計數數據、MLB sabermetrics 與聯盟常數，
 和逐球資料無關，所以掃過每一列，不看該年有沒有 playByPlay。
@@ -29,16 +34,17 @@ from ..db.season_fetches import SABERMETRICS, load_fetched, mark_fetched, needs_
 from ..db.season_stats import save_season_row
 from ..league_constant.pitching import PitchingConstants
 from ..levels import MLB_KEY, is_mlb
-from ..positions import is_pitcher_position
+from ..positions import BATTER, PITCHER, ROLES, role_field, stat_group_for_role
 from ..stats.advanced.fip import LeagueFipConstant, compute_fip
 from ..stats.advanced.xwpct import compute_xwpct
+from ..stats.core.selectors import appeared_roles
 from ..util.json import loads_json_dict, loads_json_list
 from ..util.log import describe_exc
 from ..util.numbers import round_half_up, safe_float, safe_int
 
 logger = logging.getLogger(__name__)
 
-# MiLB 投手列由本模組自算的欄位；算不出來時整組移除，避免留下舊值
+# MiLB 投球列由本模組自算的欄位；算不出來時整組移除，避免留下舊值
 _MILB_FIP_FIELDS = ("fip", "lg_era", "xwpct")
 
 
@@ -73,17 +79,21 @@ def _season_total_saber(saber_groups: list, target_group: str) -> dict[int, dict
     return result
 
 
-def _fetch_season_saber(mlb_id: int, year: int, is_pitcher: bool) -> dict:
-    """平行 worker：抓一年的 ``/people/{id}/stats?stats=sabermetrics&season={year}``。
+def _fetch_season_saber(mlb_id: int, year: int) -> dict[str, dict]:
+    """平行 worker：抓一年的 ``/people/{id}/stats?stats=sabermetrics&group=pitching,hitting&season={year}``。
 
-    回該年整季 stat；API 成功回應但該年沒有資料時回 ``{}``。
+    回 ``{role: 該年整季 stat}``，兩個 group 都解析（請求本來就同時取兩個 group）；
+    API 成功回應但某個 group 該年沒有資料時，那個角色不在結果中。
     一次一年而不用 ``seasons=a,b``：多年查詢對轉隊年份不回整季合計 split
     （Yu Chang 2022 實測只回各隊 split），``_season_total_saber`` 會整年略過。
     """
-    target_group = "pitching" if is_pitcher else "hitting"
-    return _season_total_saber(
-        get_player_sabermetrics(mlb_id, years=[year]), target_group
-    ).get(year, {})
+    groups = get_player_sabermetrics(mlb_id, years=[year])
+    by_role: dict[str, dict] = {}
+    for role in ROLES:
+        stat = _season_total_saber(groups, stat_group_for_role(role)).get(year)
+        if stat:
+            by_role[role] = stat
+    return by_role
 
 
 def _level_wide_lg_era(constants: dict[str, LeagueFipConstant]) -> Optional[float]:
@@ -94,27 +104,28 @@ def _level_wide_lg_era(constants: dict[str, LeagueFipConstant]) -> Optional[floa
 
 
 def _mlb_advanced_fields(
-    saber: dict, is_pitcher: bool, lg_era: Optional[float]
+    saber: dict, role: str, lg_era: Optional[float]
 ) -> dict:
-    """由整季 sabermetrics 取出要寫進 MLB 列的欄位。
+    """由一個角色的整季 sabermetrics 取出要寫進 MLB 列的欄位。
 
-    投手 FIP 直接用 API 的值，但 xWPCT 的分母仍是我們自算的整層 lgERA；
-    FIP 缺值時整組不寫，保留既有值（與 API 呼叫失敗時的處理一致）。
+    ``saber`` / ``war`` 依 ``role_field`` 寫成打擊 ``saber`` / ``war`` 或投球
+    ``p_saber`` / ``p_war``。投手 FIP 直接用 API 的值，但 xWPCT 的分母仍是我們
+    自算的整層 lgERA；FIP 缺值時整組不寫，保留既有值（與 API 呼叫失敗時的處理一致）。
     """
-    fields: dict = {"saber": saber}
-    if is_pitcher:
+    fields: dict = {role_field(role, "saber"): saber}
+    if role == PITCHER:
         fip = safe_float(saber.get("fip"))
         if fip is not None:
-            fields.update(
+            fields.update({
                 # 存 API 原值（五位小數），顯示時才捨入；同層級轉隊合併要用未捨入值加權
-                fip=fip,
-                xfip=safe_float(saber.get("xfip")),
-                war=safe_float(saber.get("war")),
-                lg_era=lg_era,
-                xwpct=compute_xwpct(fip, lg_era),
-            )
+                "fip": fip,
+                "xfip": safe_float(saber.get("xfip")),
+                role_field(PITCHER, "war"): safe_float(saber.get("war")),
+                "lg_era": lg_era,
+                "xwpct": compute_xwpct(fip, lg_era),
+            })
     else:
-        fields["war"] = safe_float(saber.get("war"))
+        fields[role_field(BATTER, "war")] = safe_float(saber.get("war"))
         # API 回傳小數（76.727），FanGraphs 顯示四捨五入的整數（77）；
         # 直接轉 int 會無條件捨去成 76，內建 round() 遇 .5 又會取偶數
         wrc_plus = safe_float(saber.get("wRcPlus"))
@@ -126,7 +137,7 @@ def _mlb_advanced_fields(
 def _milb_fip_fields(
     stat_doc: dict, league_name: str, constants: dict[str, LeagueFipConstant]
 ) -> Optional[dict]:
-    """MiLB 投手列的 FIP / lgERA / xWPCT；算不出來時回 None。
+    """MiLB 投球列的 FIP / lgERA / xWPCT；算不出來時回 None。
 
     FIP 常數優先用球員所屬聯盟，沒有才退整層；xWPCT 一律用整層 lgERA。
     """
@@ -161,10 +172,8 @@ def _load_rows(cur, roster_ids: list[int]) -> list[tuple]:
     return cur.fetchall()
 
 
-def _fetch_all_saber(
-    tasks: list[tuple[int, int]], positions: dict[int, str]
-) -> dict[tuple[int, int], dict]:
-    """平行抓每個 (球員, 年) 的整季 sabermetrics，回 ``{(mlb_id, year): stat}``。
+def _fetch_all_saber(tasks: list[tuple[int, int]]) -> dict[tuple[int, int], dict[str, dict]]:
+    """平行抓每個 (球員, 年) 的整季 sabermetrics，回 ``{(mlb_id, year): {role: stat}}``。
 
     以「球員-年」為平行單位：這個端點一次約 1 秒，偶爾逾時 15 秒，
     以球員為單位時，MLB 年份多的球員會一年接一年排隊，拖長整段時間。
@@ -173,9 +182,7 @@ def _fetch_all_saber(
     saber: dict[tuple[int, int], dict] = {}
     with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
         future_to_task = {
-            executor.submit(
-                _fetch_season_saber, mlb_id, year, is_pitcher_position(positions.get(mlb_id))
-            ): (mlb_id, year)
+            executor.submit(_fetch_season_saber, mlb_id, year): (mlb_id, year)
             for mlb_id, year in tasks
         }
         for future in as_completed(future_to_task):
@@ -196,22 +203,27 @@ def _fetch_all_saber(
 def sync_season_advanced(
     conn,
     roster_ids: list[int],
-    positions: dict[int, str],
     constants: PitchingConstants,
     *,
     full_history: bool = False,
 ) -> None:
     """對名冊球員的每一列 season_stats 寫入進階數據（欄位見模組 docstring）。
 
+    每一列只寫該列有出賽的角色（``appeared_roles``）：投手上場打擊也有打擊的
+    sabermetrics / wRC+，野手登板也有 FIP。
     ``constants`` 整次執行共用記憶體快取，需要的 (level, year) 會先一次平行抓完。
-    MLB 列在 sabermetrics 沒抓（已登記的過去球季）或抓不到時，以既有的
-    ``saber`` 重算；連 ``saber`` 都沒有就保留既有值。MiLB 投手列則是由計數
-    數據決定的結果，算不出來就移除舊值（例如先前用錯誤常數算出的 FIP）。
+    MLB 列某個角色在 sabermetrics 沒抓（已登記的過去球季）或抓不到時，以既有的
+    ``saber`` / ``p_saber`` 重算；連那個都沒有就保留該角色的既有值。MiLB 投球列
+    則是由計數數據決定的結果，算不出來就移除舊值（例如先前用錯誤常數算出的 FIP）。
     """
     if not roster_ids:
         return
     cur = conn.cursor()
-    rows = _load_rows(cur, roster_ids)
+    rows = [
+        (mlb_id, year, team_name, league_name, level, loads_json_dict(stat_json), fielding_json)
+        for mlb_id, year, team_name, league_name, level, stat_json, fielding_json
+        in _load_rows(cur, roster_ids)
+    ]
 
     fetched = load_fetched(cur, SABERMETRICS)
     tasks = sorted({
@@ -220,28 +232,38 @@ def sync_season_advanced(
         if is_mlb(level) and needs_fetch(fetched, mlb_id, year, force=full_history)
     })
     logger.info("Advanced: fetching sabermetrics for %d MLB player-season(s) ...", len(tasks))
-    fresh_saber = _fetch_all_saber(tasks, positions)
+    fresh_saber = _fetch_all_saber(tasks)
     for mlb_id, year in fresh_saber:
         mark_fetched(cur, SABERMETRICS, mlb_id, [year])
 
     constants.prefetch({
         (MLB_KEY if is_mlb(level) else level, year)
-        for mlb_id, year, _, _, level, _, _ in rows
-        if level and is_pitcher_position(positions.get(mlb_id))
+        for _, year, _, _, level, stat_doc, _ in rows
+        if level and PITCHER in appeared_roles(stat_doc)
     })
 
     updated = 0
-    for mlb_id, year, team_name, league_name, level, stat_json, fielding_json in rows:
-        is_pitcher = is_pitcher_position(positions.get(mlb_id))
-        stat_doc = loads_json_dict(stat_json)
+    for mlb_id, year, team_name, league_name, level, stat_doc, fielding_json in rows:
+        roles = appeared_roles(stat_doc)
         if is_mlb(level):
-            saber = fresh_saber.get((mlb_id, year)) or stat_doc.get("saber")
-            # 從未抓到過 sabermetrics（API 失敗或無資料）：保留既有值
-            if not saber:
+            fresh = fresh_saber.get((mlb_id, year)) or {}
+            changed = False
+            for role in ROLES:
+                if role not in roles:
+                    continue
+                saber = fresh.get(role) or stat_doc.get(role_field(role, "saber"))
+                # 這個角色從未抓到過 sabermetrics（API 失敗或無資料）：保留既有值
+                if not saber:
+                    continue
+                lg_era = (
+                    _level_wide_lg_era(constants.for_level(MLB_KEY, year))
+                    if role == PITCHER else None
+                )
+                stat_doc.update(_mlb_advanced_fields(saber, role, lg_era))
+                changed = True
+            if not changed:
                 continue
-            lg_era = _level_wide_lg_era(constants.for_level(MLB_KEY, year)) if is_pitcher else None
-            stat_doc.update(_mlb_advanced_fields(saber, is_pitcher, lg_era))
-        elif is_pitcher and level:
+        elif level and PITCHER in roles:
             fields = _milb_fip_fields(
                 stat_doc, league_name, constants.for_level(level, year)
             )

@@ -40,34 +40,40 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // 年份 + 聯盟篩選（共用引擎）；桌機空 level 的列一律顯示（showEmptyLevel）
-    window.TWFilters.createLevelFilter({
-        yearSelectId: "gamelog-year-select",
-        levelSelectId: "gamelog-level-select",
-        yearContainerPrefix: "gamelogs-",
-        hideYearContainers: function () {
-            document.querySelectorAll(".gamelog-table-container").forEach(function (t) {
-                t.style.display = "none";
-            });
-        },
-        itemSelector: "tbody tr.gamelog-data-row",
-        activeDisplay: "block",
-        showEmptyLevel: true,
-        allLevelsOption: true,
-        // 隱藏某列時，一併收合其下方對應的逐球（pitch-log）展開列
-        onHideItem: function (row) {
-            var next = row.nextElementSibling;
-            if (next && next.classList.contains("pitch-log-row")) next.style.display = "none";
-        },
-        onAfterFilter: schedulePitchLogWarmup,
-        onAfterShowYear: schedulePitchLogWarmup,
-    });
-
-    // 滑鼠按下比賽列時觸發 pitch log 預載
-    document.querySelectorAll(".game-row-expandable").forEach(function (row) {
-        row.addEventListener("pointerdown", function () {
-            prefetchRowFromGameRow(row);
+    function initGamelogContent() {
+        window.TWFilters.createLevelFilter({
+            yearSelectId: "gamelog-year-select",
+            levelSelectId: "gamelog-level-select",
+            yearContainerPrefix: "gamelogs-",
+            hideYearContainers: function () {
+                document.querySelectorAll(".gamelog-table-container").forEach(function (t) {
+                    t.style.display = "none";
+                });
+            },
+            itemSelector: "tbody tr.gamelog-data-row",
+            activeDisplay: "block",
+            showEmptyLevel: true,
+            allLevelsOption: true,
+            // 隱藏某列時，一併收合其下方對應的逐球（pitch-log）展開列
+            onHideItem: function (row) {
+                var next = row.nextElementSibling;
+                if (next && next.classList.contains("pitch-log-row")) next.style.display = "none";
+            },
+            onAfterFilter: schedulePitchLogWarmup,
+            onAfterShowYear: schedulePitchLogWarmup,
         });
-    });
+
+        // 滑鼠按下比賽列時觸發 pitch log 預載
+        document.querySelectorAll(".game-row-expandable").forEach(function (row) {
+            row.addEventListener("pointerdown", function () {
+                prefetchRowFromGameRow(row);
+            });
+        });
+    }
+
+    initGamelogContent();
+    // 雙角色球員頁切到另一個角色時，對新放進來的逐場表重新綁定（見 role-toggle.js）
+    window.TW.onRoleViewInit(initGamelogContent);
 
     // 切換到逐場紀錄 Tab 時也觸發預載
     document.addEventListener("player-tab-change", function (event) {

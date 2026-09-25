@@ -104,7 +104,7 @@
         {{ mcell('OPS', s.p_ops|floatformat(3)) }}
         {{ mcell('BABIP', s.p_babip|floatformat(3)) }}
         {{ mcell('GO/AO', s.p_go_ao|floatformat(2)) }}
-        {{ mcell('P/PA', s.pitches_per_pa|floatformat(2)) }}
+        {{ mcell('P/PA', s.pitches_per_bf|floatformat(2)) }}
     </div>
     {% else %}
     <div class="mc-hero">
@@ -118,7 +118,7 @@
         {{ mcell('AB/HR', s.ab_per_hr|floatformat(1)) }}
         {{ mcell('GO/AO', s.go_ao|floatformat(2)) }}
         {{ mcell('SB%', s.sb_pct|floatformat(3)) }}
-        {{ mcell('P/PA', s.p_per_pa|floatformat(2)) }}
+        {{ mcell('P/PA', s.pitches_seen_per_pa|floatformat(2)) }}
         {{ mcell('IBB', s.ibb|num_dash) }}
         {{ mcell('HBP', s.hbp|num_dash) }}
         {{ mcell('GIDP', s.gdp|num_dash) }}

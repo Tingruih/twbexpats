@@ -10,9 +10,10 @@ from typing import Optional
 
 from ...constants import WOBA_SCALE
 from ...levels import is_mlb
-from ...positions import is_pitcher_position
+from ...positions import BATTER
 from ...util.numbers import round_half_up
 from ..core.aggregate import aggregate_stats
+from ..core.selectors import appeared_roles
 from .woba import compute_season_woba
 
 
@@ -30,7 +31,12 @@ def compute_wrc_plus(
 
 
 def annotate_wrc_plus(bundles, batting_lookup) -> None:
-    """Compute and inject wRC+ into season_stats rows for qualifying batters.
+    """Compute and inject wRC+ into season_stats rows that have batting PA.
+
+    Every player qualifies, whatever their primary position: a pitcher who
+    batted gets a batting wRC+ too (``appeared_roles``).  A (year, level)
+    group with no batting PA at all is skipped before ``batting_lookup`` —
+    looking it up would scrape tjstats.ca for a slice nobody batted in.
 
     bundles is [(player, stats, logs), ...] as produced by
     db.bundles.load_player_bundle. Mutates the per-season Obj rows in `stats`
@@ -61,15 +67,15 @@ def annotate_wrc_plus(bundles, batting_lookup) -> None:
         would be wrong, since wOBA is a rate and has to be recomputed from
         the combined counting stats.
     """
-    for player, stats, _logs in bundles:
-        if is_pitcher_position(player.position):
-            continue
-
+    for _player, stats, _logs in bundles:
         by_year_level: dict[tuple[int, str], list] = {}
         for s in stats:
             by_year_level.setdefault((s.year, s.sport_level), []).append(s)
 
         for (yr, level), rows in by_year_level.items():
+            # 這一層級該年完全沒有打擊（純投球的列）
+            if not any(BATTER in appeared_roles(r) for r in rows):
+                continue
             primary = max(rows, key=lambda r: r.get("pa") or 0)
             env = batting_lookup(level, yr).get(primary.team_name)
             if env is None:

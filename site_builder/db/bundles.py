@@ -5,7 +5,7 @@ import sqlite3
 
 from ..constants import REGULAR_SEASON_GAME_TYPE
 from ..levels import is_mlb
-from ..positions import is_pitcher_position
+from ..positions import is_pitcher_position, primary_role
 from ..roster import categorize_roster_status
 from ..stats.core.selectors import has_appearance
 from ..util.dates import parse_date
@@ -51,28 +51,24 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
     latest_played = next((s for s in stats if has_appearance(s)), None)
     player.latest_level_is_mlb = bool(latest_played and is_mlb(latest_played.sport_level))
 
-    # Game logs — pitches_json may not exist on older DBs (before Statcast support)
-    has_pitches_col = False
-    try:
-        cur.execute("SELECT pitches_json FROM game_logs LIMIT 0")
-        has_pitches_col = True
-    except sqlite3.OperationalError:
-        # no such column：舊資料庫尚未跑過 init_db 的 migration
-        pass
+    # Game logs：只讀主要角色的列。又投又打的比賽在 game_logs 是兩列
+    # （見 db/schema.py），不過濾會在逐場表、走勢圖、逐球紀錄頁重複出現，
+    # 池化的「合計」Statcast（render/pages.py）也會混入另一個角色的球。
+    # 另一個角色的列由 render/pages.py 只對雙角色球員另外讀。
+    logs = load_role_game_logs(cur, player.mlb_id, primary_role(player.position))
 
-    if has_pitches_col:
-        log_sql = (
-            "SELECT date, game_id, opponent, is_home, stats_json, sport_level, game_type, "
-            "pitches_json "
-            "FROM game_logs WHERE player_mlb_id = ? ORDER BY date DESC"
-        )
-    else:
-        log_sql = (
-            "SELECT date, game_id, opponent, is_home, stats_json, sport_level, game_type "
-            "FROM game_logs WHERE player_mlb_id = ? ORDER BY date DESC"
-        )
+    return player, stats, logs
 
-    cur.execute(log_sql, (player.mlb_id,))
+
+def load_role_game_logs(cur, mlb_id, role: str) -> list:
+    """某球員某角色（``positions.PITCHER`` / ``BATTER``）的 game_logs，日期新到舊。"""
+    log_sql = (
+        "SELECT date, game_id, opponent, is_home, stats_json, sport_level, game_type, "
+        "pitches_json "
+        "FROM game_logs WHERE player_mlb_id = ? AND role = ? ORDER BY date DESC"
+    )
+
+    cur.execute(log_sql, (mlb_id, role))
     logs = []
     for row in cur.fetchall():
         log = Obj()
@@ -84,7 +80,6 @@ def load_player_bundle(cur, player_row: sqlite3.Row):
         log.sport_level = row[5] or ""
         log.game_type = row[6]
         log.is_postseason = log.game_type != REGULAR_SEASON_GAME_TYPE
-        log.pitches_json = loads_json_list(row[7]) if has_pitches_col else []
+        log.pitches_json = loads_json_list(row[7])
         logs.append(log)
-
-    return player, stats, logs
+    return logs

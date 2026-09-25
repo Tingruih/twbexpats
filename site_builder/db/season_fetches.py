@@ -20,7 +20,10 @@ from ..constants import is_season_in_progress
 
 # source 值：登記表內每種資料來源的名稱
 SABERMETRICS = "sabermetrics"
+# expectedStatistics 依角色分開登記：打擊（group=hitting）與投球（group=pitching）
+# 是兩個請求，一個成功不代表另一個也抓過
 EXPECTED_STATS = "expected"
+P_EXPECTED_STATS = "p_expected"
 FIP_CONSTANTS = "fip_constants"
 
 # {(subject, year)}，由 load_fetched 產生

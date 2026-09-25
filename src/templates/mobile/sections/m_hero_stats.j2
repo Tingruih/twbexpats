@@ -1,0 +1,24 @@
+{# Hero 關鍵數據列（手機）。m_hero.j2 直接 include；雙角色球員的次要角色另由
+   partials/role_alt_views.j2 以該角色的變數再渲染一份（對稱：桌機版見
+   partials/hero_stats_strip.j2）。 #}
+    {% if latest_team_stat %}
+    {% set stat = latest_team_stat %}
+    <div class="m-hero-stats" aria-label="關鍵數據">
+        {% if is_pitcher %}
+            <div class="m-hero-stat"><span>{{ stat.era|floatformat(2) }}</span><b>ERA</b></div>
+            <div class="m-hero-stat"><span>{{ stat.whip|floatformat(2) }}</span><b>WHIP</b></div>
+            <div class="m-hero-stat"><span>{{ stat.so|num_dash }}</span><b>K</b></div>
+            <div class="m-hero-stat"><span>{{ stat.wins|num_dash }}-{{ stat.losses|num_dash }}</span><b>W-L</b></div>
+            <div class="m-hero-stat"><span>{{ stat.ip|floatformat(1) }}</span><b>IP</b></div>
+        {% else %}
+            <div class="m-hero-stat"><span>{{ stat.avg|floatformat(3) }}</span><b>AVG</b></div>
+            <div class="m-hero-stat"><span>{{ stat.ops|floatformat(3) }}</span><b>OPS</b></div>
+            <div class="m-hero-stat"><span>{{ stat.hr|num_dash }}</span><b>HR</b></div>
+            <div class="m-hero-stat"><span>{{ stat.rbi|num_dash }}</span><b>RBI</b></div>
+            <div class="m-hero-stat"><span>{{ stat.sb|num_dash }}</span><b>SB</b></div>
+        {% endif %}
+        {% if latest_team_stat_year %}
+            <div class="m-hero-stats-year">{{ latest_team_stat_year }} 賽季數據（本季尚無出賽）</div>
+        {% endif %}
+    </div>
+    {% endif %}

@@ -1,0 +1,57 @@
+{# 雙角色球員次要角色的各區塊內容，由 render/pages.py 以該角色的變數（見
+   _build_role_view）單獨渲染後放進 player_detail.j2。
+
+   每個 <template> 對應頁面上一個 id 為 data-role-target 的容器：切換角色時
+   role-toggle.js 把容器目前的子節點收起來，換成 template 根元素的子節點。
+   <template> 內容是 inert 的（不在 document 裡），所以跟主要角色用同一組 id
+   不會衝突，各分頁的樣板與 JS 都不需要為了角色另外加 id 前綴。
+   桌機分頁樣板自帶 #panel-* 根元素，這裡直接 include；其他區塊外面包一層 div
+   當根元素。守備分頁依守位分到兩個角色（render/pages.py::_fielding_in_role）。 #}
+<template data-role-view="{{ role }}" data-role-target="hero-stats-slot"><div>
+{% include 'partials/hero_stats_strip.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-hero-stats-slot"><div>
+{% include 'mobile/sections/m_hero_stats.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="panel-bio">
+{% include 'tabs/tab_bio.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="panel-stats">
+{% include 'tabs/tab_stats.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="panel-gamelogs">
+{% include 'tabs/tab_gamelogs.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="panel-advanced">
+{% include 'tabs/tab_advanced.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="panel-fielding">
+{% include 'tabs/tab_fielding.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="panel-plot">
+{% include 'tabs/tab_plot.j2' %}
+</template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-bio"><div>
+{% include 'mobile/sections/m_bio.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-stats"><div>
+{% include 'mobile/sections/m_stats.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-gamelogs"><div>
+{% include 'mobile/sections/m_gamelogs.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-advanced"><div>
+{% include 'mobile/sections/m_advanced.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-fielding"><div>
+{% include 'mobile/sections/m_fielding.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="m-panel-plot"><div>
+{% include 'mobile/sections/m_plot.j2' %}
+</div></template>
+<template data-role-view="{{ role }}" data-role-target="role-chart-data"><div>
+{% include 'partials/chart_data.j2' %}
+{% if player_trend_by_year %}
+<script type="application/json" id="player-trend-data">{{ player_trend_by_year|tojson_safe }}</script>
+{% endif %}
+</div></template>

@@ -29,6 +29,7 @@ from ..db.season_stats import (
     save_season_row,
 )
 from ..levels import MINORS_KEY, sport_to_tier_key
+from ..positions import role_field, role_for_stat_group
 from ..roster import (
     STATUS_INACTIVE,
     categorize_roster_status,
@@ -258,10 +259,12 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
             stat_doc = row["stat_json"]
             fielding_doc = row["fielding_json"]
 
-            # Only overwrite gp from hitting/pitching; fielding splits have per-position
-            # gamesPlayed which would otherwise clobber the correct total.
-            if group_name != "fielding":
-                stat_doc["gp"] = safe_int(stat.get("gamesPlayed"))
+            # 打擊與投球的 gamesPlayed 是兩個不同的數（投手上場打擊、野手登板），
+            # 依角色分存 gp / p_gp，否則誰後寫誰贏；fielding 的 gamesPlayed 是
+            # 單一守位的出賽數，不寫進 gp
+            role = role_for_stat_group(group_name)
+            if role:
+                stat_doc[role_field(role, "gp")] = safe_int(stat.get("gamesPlayed"))
             apply_yearbyyear_fields(stat_doc, group_name, stat)
 
             if group_name == "fielding":
@@ -357,6 +360,11 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
         for log_group in log_groups:
             if log_group.get("type", {}).get("displayName", "") != "gameLog":
                 continue
+            # stats[].group.displayName：hitting / pitching 各自一列，同場又投又打是兩列
+            role = role_for_stat_group(log_group.get("group", {}).get("displayName"))
+            # 請求只帶 group=hitting,pitching，理論上不會出現其他 group
+            if role is None:
+                continue
             group_sport_level = sport_to_tier_key(log_group.get("sport"))
             for split in log_group.get("splits", []):
                 game_date = split.get("date")
@@ -373,10 +381,10 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
                 )
                 cur.execute(
                     "INSERT INTO game_logs "
-                    "(player_mlb_id, date, game_id, opponent, is_home, stats_json, sport_level, "
-                    " game_type) "
-                    "VALUES (?,?,?,?,?,?,?,?) "
-                    "ON CONFLICT(player_mlb_id, game_id) DO UPDATE SET "
+                    "(player_mlb_id, date, game_id, role, opponent, is_home, stats_json, "
+                    " sport_level, game_type) "
+                    "VALUES (?,?,?,?,?,?,?,?,?) "
+                    "ON CONFLICT(player_mlb_id, game_id, role) DO UPDATE SET "
                     " date=excluded.date, opponent=excluded.opponent, "
                     " is_home=excluded.is_home, stats_json=excluded.stats_json, "
                     " sport_level = CASE WHEN excluded.sport_level != '' "
@@ -386,6 +394,7 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
                         mlb_id,
                         game_date,
                         game_pk,
+                        role,
                         split.get("opponent", {}).get("name", "Unknown"),
                         1 if split.get("isHome") else 0,
                         dumps_json(split.get("stat", {})),

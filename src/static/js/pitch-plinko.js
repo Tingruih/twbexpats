@@ -325,8 +325,12 @@
         });
     }
 
-    document.addEventListener("DOMContentLoaded", function() {
+    function init() {
         initPitchPlinkoCharts();
         initPitchPlinkoFilters();
-    });
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+    // 雙角色球員頁切到另一個角色時，畫新放進來的圖（見 role-toggle.js）
+    window.TW.onRoleViewInit(init);
 })();

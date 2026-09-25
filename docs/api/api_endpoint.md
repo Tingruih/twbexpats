@@ -26,13 +26,13 @@
 |---|---|---|
 | `site_builder/api/players.py:36` | `GET /people/{mlb_id}?hydrate=transactions,rosterEntries,currentTeam` | 球員基本資料、異動紀錄、名單狀態、所屬球隊 |
 | `site_builder/api/players.py:81` | `GET /teams/{team_id}` | 依 `team_id` 查 `sportId`，換算層級（MLB/AAA/AA…） |
-| `site_builder/api/stats.py::get_player_stats` | `GET /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding`（MLB，另加 `leagueListId=milb_all` 查 MiLB） | 生涯逐季數據 |
-| `site_builder/api/stats.py::get_player_advanced_stats` | `GET /people/{mlb_id}/stats?stats=seasonAdvanced&group=hitting,pitching&season={year}`（MLB，另加 `leagueListId=milb_all` 查 MiLB） | 進階數據（MLB + MiLB） |
-| `site_builder/api/stats.py::get_game_logs` | `GET /people/{mlb_id}/stats?stats=gameLog&group=hitting,pitching&gameType=R,F,D,L,W&season={year}`（MLB，另加 `leagueListId=milb_all` 查 MiLB） | 逐場紀錄（MLB + MiLB） |
+| `site_builder/api/stats.py::get_player_stats` | `GET /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding&leagueListId=mlb_milb`（MLB + MiLB 一次） | 生涯逐季數據 |
+| `site_builder/api/stats.py::get_player_advanced_stats` | `GET /people/{mlb_id}/stats?stats=seasonAdvanced&group=hitting,pitching&season={year}&leagueListId=mlb_milb`（MLB + MiLB 一次） | 進階數據（MLB + MiLB） |
+| `site_builder/api/stats.py::get_game_logs` | `GET /people/{mlb_id}/stats?stats=gameLog&group=hitting,pitching&gameType=R,F,D,L,W&season={year}&leagueListId=mlb_milb`（MLB + MiLB 一次） | 逐場紀錄（MLB + MiLB） |
 | `site_builder/api/stats.py::get_player_sabermetrics` | `GET /people/{mlb_id}/stats?stats=sabermetrics&group=pitching,hitting&season={year}` | FIP / xFIP / WAR / wRC+（MLB 限定） |
 | `site_builder/api/stats.py::get_player_expected_stats` | `GET /people/{mlb_id}/stats?stats=expectedStatistics&group={group}&season={year}` | Statcast 期望值數據 xBA/xSLG/xwOBA（MLB 限定） |
 
-> `leagueListId=mlb_milb`（官方 `LeagueListsEnum` 的 `MLB_MILB`）一次請求即回傳 MLB + 所有 MiLB，2026-09-25 實測名冊全部球員資料與上面兩次請求逐筆相同，但回傳順序不同，而寫入端依順序覆蓋（見 `docs/bugs/UNFIXED_BUGS.md` #51），修掉之前不要切換。
+> `leagueListId=mlb_milb`（官方 `LeagueListsEnum` 的 `MLB_MILB`）一次請求即回傳 MLB + 所有 MiLB，2026-09-25 實測名冊全部球員資料與「不帶 leagueListId + `milb_all`」兩次請求逐筆相同，只有回傳的 group/split 順序不同。寫入端（`sync/players.py`）依角色分存、與順序無關（`docs/bugs/UNFIXED_BUGS.md` #51 已修正），所以上面三個端點改用它一次取回。
 | `site_builder/api/games.py:18,35-36` | `GET (v1.1) /game/{game_pk}/feed/live` | 逐球 play-by-play（含 Statcast 打擊資料） |
 | `site_builder/api/schedule.py:20-21` | `GET /schedule?teamId=...` | 下一場比賽資訊 |
 | `site_builder/api/league_stats.py:20` | `GET /teams?sportId={sport_id}&season={year}` | 全聯盟球隊清單 |

@@ -20,8 +20,14 @@
         });
     }
 
-    function init() {
+    function bindAll() {
         document.querySelectorAll('[data-m-accordion]').forEach(bind);
+    }
+
+    function init() {
+        bindAll();
+        // 雙角色球員頁切到另一個角色時，綁定新放進來的折疊區塊（見 role-toggle.js）
+        window.TW.onRoleViewInit(bindAll);
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

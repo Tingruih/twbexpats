@@ -108,3 +108,12 @@
     text-transform: uppercase;
     white-space: nowrap;
 }
+/* 次要角色當季沒有出賽時，數據列改顯示最近一季，這行標出年份
+   （render/pages.py::_build_role_view 的 hero_fallback） */
+.m-hero-stats-year {
+    color: var(--text-3);
+    font-size: 0.66rem;
+    grid-column: 1 / -1;
+    margin-top: 0.45rem;
+    text-align: center;
+}

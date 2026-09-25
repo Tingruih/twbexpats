@@ -16,19 +16,25 @@ def _add_column(conn: sqlite3.Connection, table: str, column_ddl: str) -> None:
             raise
 
 
-def _drop_column(conn: sqlite3.Connection, table: str, column: str) -> None:
-    """``ALTER TABLE ... DROP COLUMN``（SQLite 3.35+），欄位不存在時略過。
+def _require_game_logs_role(conn: sqlite3.Connection) -> None:
+    """既有 game_logs 沒有 ``role`` 欄位時中止。
 
-    與 ``_add_column`` 一樣只吞「欄位不存在」，其他 OperationalError 照常拋出。
+    ``role`` 加入後唯一鍵變成 (球員, 比賽, 角色)，舊表的唯一鍵與逐球資料
+    （依主要角色抽取、打席中換人歸屬錯誤）都無法就地轉換，必須刪除 DB 從頭重建
+    （見 docs/db_schema.md §8）。在這裡擋下，避免 CI 拿舊 DB 靜默寫出錯誤資料；
+    這是結構檢查，不做任何回補。
     """
-    try:
-        conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
-    except sqlite3.OperationalError as e:
-        if "no such column" not in str(e):
-            raise
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(game_logs)")}
+    if columns and "role" not in columns:
+        raise SystemExit(
+            "Error: game_logs has no 'role' column (database predates the "
+            "batter/pitcher role split). Delete the database and rebuild it with "
+            "'python build.py all'."
+        )
 
 
 def init_db(conn: sqlite3.Connection):
+    _require_game_logs_role(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,10 +85,16 @@ def init_db(conn: sqlite3.Connection):
             opponent TEXT NOT NULL,
             is_home INTEGER,
             game_type TEXT NOT NULL,
+            -- positions.PITCHER / positions.BATTER：gameLog API 對該角色有 split 才有這一列，
+            -- 同場又投又打是兩列；stats_json、pitches_json、events_json、pbp_version 都只屬於該角色
+            role TEXT NOT NULL,
+            sport_level TEXT NOT NULL DEFAULT '',
             stats_json TEXT NOT NULL DEFAULT '{}',
             pitches_json TEXT NOT NULL DEFAULT '[]',
             events_json TEXT NOT NULL DEFAULT '[]',
-            UNIQUE(player_mlb_id, game_id)
+            -- 逐球資料的抽取版本（見 constants.PBP_EXTRACT_VERSION）；0 = 尚未抓到完賽資料
+            pbp_version INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(player_mlb_id, game_id, role)
         );
 
         -- playbyplay_processed 以 game_pk 為單位記錄已抓過的比賽，球員後來才加入
@@ -122,24 +134,10 @@ def init_db(conn: sqlite3.Connection):
         CREATE INDEX IF NOT EXISTS idx_game_logs_player_date
             ON game_logs(player_mlb_id, date);
     """)
-    # Forward-migration: add pitches_json column if it does not yet exist
-    # (needed for databases created before Statcast support).
-    _add_column(conn, "game_logs", "pitches_json TEXT NOT NULL DEFAULT '[]'")
-    # Forward-migration: add sport_level column to game_logs if it does not yet exist.
-    _add_column(conn, "game_logs", "sport_level TEXT NOT NULL DEFAULT ''")
     # Forward-migration: add roster_status_code/roster_is_active columns to players
     # if they do not yet exist (needed for richer status-pill classification).
     _add_column(conn, "players", "roster_status_code TEXT NOT NULL DEFAULT ''")
     _add_column(conn, "players", "roster_is_active INTEGER NOT NULL DEFAULT 0")
-    # Forward-migration: 逐球資料的抽取版本（見 constants.PBP_EXTRACT_VERSION）。
-    # 0 = 尚未抓到完賽資料。取代 hit_coord_checked：那是為了「補抓落點座標時，
-    # API 本來就沒有座標的比賽不要每次重抓」而加的一次性旗標，等同版本 0 → 1。
-    # 既有列的版本由一次性 SQL 設定，不在這裡回填（見 docs/db_schema.md §8）。
-    _add_column(conn, "game_logs", "pbp_version INTEGER NOT NULL DEFAULT 0")
-    _drop_column(conn, "game_logs", "hit_coord_checked")
-    # Forward-migration: add events_json column to game_logs if it does not yet
-    # exist (withMetrics non-pitch events: pickoff/stepoff).
-    _add_column(conn, "game_logs", "events_json TEXT NOT NULL DEFAULT '[]'")
     # Forward-migration: add lg_era to league_fip_constants if it does not
     # yet exist. Existing rows keep the DEFAULT 0, which
     # league_constant.pitching._load() treats as a cache miss (its

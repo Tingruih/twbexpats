@@ -7,7 +7,7 @@
  *    依「數據／年度／層級」三個 <select>（#trend-stat-select 等）重繪，並疊一條
  *    賽季平均虛線。
  */
-document.addEventListener("DOMContentLoaded", function () {
+function initPerformanceChart() {
     var canvas = document.getElementById("performanceChart");
     if (!canvas || typeof Chart === "undefined") return;
 
@@ -15,7 +15,12 @@ document.addEventListener("DOMContentLoaded", function () {
     if (trendByYear) {
         initTrendChart(canvas, trendByYear);
     }
-});
+}
+
+document.addEventListener("DOMContentLoaded", initPerformanceChart);
+// 雙角色球員頁切到另一個角色時，畫新放進來的走勢圖（見 role-toggle.js；
+// #player-trend-data 也已換成該角色的資料）
+window.TW.onRoleViewInit(initPerformanceChart);
 
 /**
  * 球員賽季走勢圖：數據／年度／層級三選單 + 賽季平均虛線。

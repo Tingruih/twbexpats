@@ -4,8 +4,12 @@ from ..constants import REGULAR_SEASON_GAME_TYPE
 from ..util.json import loads_json_list
 
 
-def load_all_pitches_for_player(cur, mlb_id: int) -> dict[tuple, list[dict]]:
+def load_all_pitches_for_player(cur, mlb_id: int, role: str) -> dict[tuple, list[dict]]:
     """Return {(year, sport_level): [pitch_dict, ...]} merged across all cached games.
+
+    Only ``game_logs`` rows of ``role`` (``positions.PITCHER`` / ``BATTER``):
+    a two-way player's pitches as a pitcher and pitches seen as a batter live in
+    separate rows and must never be pooled into one Statcast aggregate.
 
     ``sport_level`` is the tier key on both game_logs and season_stats (both
     written through ``levels.sport_to_tier_key``), so the empty-level fallback
@@ -21,10 +25,10 @@ def load_all_pitches_for_player(cur, mlb_id: int) -> dict[tuple, list[dict]]:
     """
     cur.execute(
         "SELECT date, sport_level, pitches_json FROM game_logs "
-        "WHERE player_mlb_id = ? AND game_type = ? "
-        # '[]' = 尚未抓取，或該球員這場沒有打席/投球
+        "WHERE player_mlb_id = ? AND role = ? AND game_type = ? "
+        # '[]' = 尚未抓取，或該球員這場以該角色沒有投到/看到任何一球
         "AND pitches_json != '[]'",
-        (mlb_id, REGULAR_SEASON_GAME_TYPE),
+        (mlb_id, role, REGULAR_SEASON_GAME_TYPE),
     )
     by_year_level: dict[tuple, list[dict]] = {}
     # Buffer games with empty sport_level for resolution

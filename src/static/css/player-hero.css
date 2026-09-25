@@ -147,3 +147,87 @@
     align-self: center;                 /* 垂直置中對齊 */
     white-space: nowrap;                /* 防止年份文字換行 */
 }
+
+/* 控制【球員詳細頁 / 投手／打者切換（partials/role_toggle.j2）】
+   只出現在投打兩個角色都有出賽的球員頁，取代 hero-meta 裡原本的
+   「RHP · P」文字；桌機與手機共用這組樣式。按鈕順序固定投手在左、
+   打者在右，滑塊（::before）依 data-role 平移，行為見 role-toggle.js */
+.role-seg {
+    display: inline-grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;             /* 兩顆按鈕等寬，滑塊寬度才能固定為 50% */
+    position: relative;
+    isolation: isolate;                 /* 讓滑塊的 z-index 只在元件內部比較 */
+    background: var(--card-surface);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 2px;
+}
+
+.role-seg button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: .76rem;
+    font-weight: 600;
+    padding: .16rem .7rem;
+    border-radius: 5px;
+    cursor: pointer;
+    white-space: nowrap;
+    position: relative;
+    z-index: 1;                         /* 文字壓在滑塊上面 */
+    transition: color .15s ease-in-out;
+}
+
+.role-seg button:hover,
+.role-seg button[aria-pressed="true"] {
+    color: var(--text-1);
+}
+
+.role-seg button:focus-visible {
+    outline: 2px solid rgb(var(--primary-rgb) / .6);
+    outline-offset: 1px;
+}
+
+/* 滑塊：顏色沿用分頁籤 .tab-label--active 的半透明白，站內「選中」狀態一致 */
+.role-seg::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    border-radius: 5px;
+    background: rgb(var(--primary-rgb) / .16);
+    box-shadow: 0 0 0 1px rgb(var(--primary-rgb) / .3) inset;
+    transition: transform .2s cubic-bezier(.3, .7, .2, 1);
+}
+
+.role-seg[data-role="batter"]::before {
+    transform: translateX(100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .role-seg::before { transition: none; }
+}
+
+/* 投打習慣（RHP / L）：比角色名稱淡一階，選中時跟著變亮一階 */
+.role-seg-hand {
+    color: var(--text-3);
+    font-size: .72rem;
+    font-weight: 500;
+    margin-left: .35rem;
+}
+
+.role-seg button[aria-pressed="true"] .role-seg-hand {
+    color: var(--text-2);
+}
+
+/* 切換角色時被整包替換內容的容器（hero 數據列）：本身不產生方框，
+   子元素直接參與外層 hero 的 flex/grid 版面 */
+.role-slot {
+    display: contents;
+}

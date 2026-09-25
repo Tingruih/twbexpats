@@ -1,17 +1,20 @@
 """Pipeline B：playByPlay 逐球資料抓取 → game_logs 快取 → Statcast 聚合。
 
 ``sync_statcast`` 依序執行：
-  1. ``_games_to_fetch``：找出 ``pbp_version`` 落後的 (球員, 比賽)
-  2. ``_fetch_games``：每場比賽只抓一次 live feed，平行抽取所有相關球員
+  1. ``_games_to_fetch``：找出 ``pbp_version`` 落後的 (球員, 比賽, 角色)
+  2. ``_fetch_games``：每場比賽只抓一次 live feed，平行依每一列的角色抽取
   3. ``_write_pitch_logs``：寫回 game_logs，完賽的比賽才標記版本
-  4. ``_aggregate_statcast``：重算名冊每位球員每個 (年, 層級) 的 Statcast，
-     寫進對應層級的 season_stats 列
+  4. ``_aggregate_statcast``：重算名冊每位球員每個角色、每個 (年, 層級) 的
+     Statcast，寫進對應層級 season_stats 列的 ``statcast`` / ``p_statcast``
   5. ``sync_season_advanced``（``sync/advanced.py``）：FIP / WAR / wRC+ / xWPCT
   6. ``fetch_highlight_videos``：MLB 精華影片
 
 第 4 步每次都重算全部歷史，不只本次新抓的比賽：公式調整後才會套用到舊資料。
 但其中的 expectedStatistics 與第 5 步的 sabermetrics / FIP 常數是外部 API 數據，
 依 ``db/season_fetches.py`` 的規則只抓當季與未抓過的過去球季。
+
+game_logs 每個角色一列（``role``），逐球資料只屬於該列的角色：投手列只有本人
+投出的球、打者列只有本人實際面對的球，兩者不會混在一起計算。
 
 逐球資料是否需要（重）抓，只看 ``game_logs.pbp_version < PBP_EXTRACT_VERSION``：
   - 比賽已完賽且抽取成功：寫入資料並標記目前版本，之後不再抓
@@ -38,6 +41,7 @@ from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS, PBP_EXTRACT_VERS
 from ..db.game_logs import load_all_pitches_for_player
 from ..db.season_fetches import (
     EXPECTED_STATS,
+    P_EXPECTED_STATS,
     FetchedSet,
     load_fetched,
     mark_fetched,
@@ -52,7 +56,7 @@ from ..db.schema import init_db
 from ..db.season_stats import save_season_row
 from ..league_constant.pitching import PitchingConstants
 from ..levels import MLB_KEY, is_mlb, sport_to_tier_key
-from ..positions import BATTER, PITCHER, is_pitcher_position, primary_role
+from ..positions import BATTER, PITCHER, ROLES, role_field, stat_group_for_role
 from ..roster import build_roster_map
 from ..stats.batter_statcast import compute_batter_statcast
 from ..stats.pitcher_statcast import compute_pitcher_statcast
@@ -65,47 +69,43 @@ from .extract import extract_pitch_logs
 logger = logging.getLogger(__name__)
 
 
+# expectedStatistics 在 season_fetches 的登記來源，依角色分開（見 db/season_fetches.py）
+_EXPECTED_SOURCES = {BATTER: EXPECTED_STATS, PITCHER: P_EXPECTED_STATS}
+
+# 每個角色的 Statcast 聚合函式
+_COMPUTE_STATCAST = {BATTER: compute_batter_statcast, PITCHER: compute_pitcher_statcast}
+
+
 class FetchedGame(NamedTuple):
-    """一場比賽的抽取結果；``pitches`` / ``events`` 以 mlb_id 為 key。
+    """一場比賽的抽取結果；``pitches`` / ``events`` 以 ``(mlb_id, role)`` 為 key。
 
     ``is_final`` 為 False 時資料只到抓取當下為止（比賽進行中或暫停）。
     """
 
-    pitches: dict[int, list[dict]]
-    events: dict[int, list[dict]]
+    pitches: dict[tuple[int, str], list[dict]]
+    events: dict[tuple[int, str], list[dict]]
     sport_level: str
     is_final: bool
-
-
-def _load_positions(cur, roster_ids: list[int]) -> dict[int, str]:
-    """``{mlb_id: position}``；players 表還沒有該球員時為空字串。"""
-    positions: dict[int, str] = {}
-    for mlb_id in roster_ids:
-        cur.execute("SELECT position FROM players WHERE mlb_id = ?", (mlb_id,))
-        row = cur.fetchone()
-        positions[mlb_id] = (row[0] if row else "") or ""
-    return positions
 
 
 # ── Phase 1 ──────────────────────────────────────────────────────────────
 
 
-def _games_to_fetch(
-    cur, roster_ids: list[int], positions: dict[int, str]
-) -> dict[int, list[tuple[int, str]]]:
-    """``{game_pk: [(mlb_id, position), ...]}``，``pbp_version`` 落後需要抓的比賽。
+def _games_to_fetch(cur, roster_ids: list[int]) -> dict[int, list[tuple[int, str]]]:
+    """``{game_pk: [(mlb_id, role), ...]}``，``pbp_version`` 落後需要抓的比賽。
 
-    以「球員 × 比賽」為單位判斷，球員後來才加入名冊也能補抓。
+    以 game_logs 的「球員 × 比賽 × 角色」列為單位判斷，球員後來才加入名冊也能補抓；
+    角色取自列本身，不看球員的主要守位。
     """
     placeholders = ",".join("?" * len(roster_ids))
     cur.execute(
-        f"SELECT game_id, player_mlb_id FROM game_logs "
+        f"SELECT game_id, player_mlb_id, role FROM game_logs "
         f"WHERE player_mlb_id IN ({placeholders}) AND pbp_version < ?",
         [*roster_ids, PBP_EXTRACT_VERSION],
     )
     game_to_players: dict[int, list[tuple[int, str]]] = {}
-    for gpk, mlb_id in cur.fetchall():
-        game_to_players.setdefault(gpk, []).append((mlb_id, positions.get(mlb_id, "")))
+    for gpk, mlb_id, role in cur.fetchall():
+        game_to_players.setdefault(gpk, []).append((mlb_id, role))
     return game_to_players
 
 
@@ -115,8 +115,11 @@ def _games_to_fetch(
 def _fetch_and_extract_game(
     game_pk: int, players_in_game: list[tuple[int, str]]
 ) -> Optional[FetchedGame]:
-    """抓一場比賽的 live feed，為 ``players_in_game`` 的每位球員抽取逐球與非投球事件。
+    """抓一場比賽的 live feed，為 ``players_in_game`` 的每個 (球員, 角色) 抽取逐球與非投球事件。
 
+    每一列只抽自己的角色；抽不到就是空的，不改用另一個角色重抽——那樣會把
+    投手當打者看到的球算進投手 Statcast（反之亦然）。同場又投又打的球員在
+    game_logs 本來就有兩列，各自抽取。
     層級取自 ``gameData.teams.home.sport``；live feed 抓不到時回 None。
     """
     game_data = get_game_play_by_play(game_pk)
@@ -130,15 +133,10 @@ def _fetch_and_extract_game(
     is_final = game_info.get("status", {}).get("abstractGameState") == "Final"
     sport_obj = game_info.get("teams", {}).get("home", {}).get("sport", {})
     fetched = FetchedGame({}, {}, sport_to_tier_key(sport_obj), is_final)
-    for mlb_id, position in players_in_game:
-        role = primary_role(position)
+    for mlb_id, role in players_in_game:
         pitches, events = extract_pitch_logs(game_data, mlb_id, role)
-        if not pitches:
-            # 二刀流或名冊守位設錯：改用另一個角色再抽一次
-            alt = BATTER if role == PITCHER else PITCHER
-            pitches, events = extract_pitch_logs(game_data, mlb_id, alt)
-        fetched.pitches[mlb_id] = pitches
-        fetched.events[mlb_id] = events
+        fetched.pitches[(mlb_id, role)] = pitches
+        fetched.events[(mlb_id, role)] = events
     return fetched
 
 
@@ -185,7 +183,7 @@ def _fetch_games(
 
 
 def _write_pitch_logs(conn, fetched: dict[int, FetchedGame]) -> int:
-    """把抽取結果寫回 game_logs，回寫入的 (球員, 比賽) 數。
+    """把抽取結果寫回 game_logs，回寫入的 (球員, 比賽, 角色) 列數。
 
     未完賽的比賽照樣寫入目前的部分資料（網站先顯示），但 ``pbp_version``
     保持原值，``_games_to_fetch`` 下次會再選到，完賽後覆寫成完整資料。
@@ -194,19 +192,19 @@ def _write_pitch_logs(conn, fetched: dict[int, FetchedGame]) -> int:
     written = 0
     for gpk, game in fetched.items():
         version = PBP_EXTRACT_VERSION if game.is_final else None
-        for mlb_id, pitches in game.pitches.items():
+        for (mlb_id, role), pitches in game.pitches.items():
             cur.execute(
                 "UPDATE game_logs SET pitches_json = ?, events_json = ?, "
                 # live feed 沒給層級時保留主同步已寫入的 sport_level
                 "sport_level = CASE WHEN ? != '' THEN ? ELSE sport_level END, "
                 "pbp_version = COALESCE(?, pbp_version) "
-                "WHERE player_mlb_id = ? AND game_id = ?",
+                "WHERE player_mlb_id = ? AND game_id = ? AND role = ?",
                 (
                     dumps_json(pitches),
-                    dumps_json(game.events.get(mlb_id) or []),
+                    dumps_json(game.events.get((mlb_id, role)) or []),
                     game.sport_level, game.sport_level,
                     version,
-                    mlb_id, gpk,
+                    mlb_id, gpk, role,
                 ),
             )
             written += 1
@@ -245,32 +243,21 @@ def _parse_expected_stats(exp_groups: list) -> dict[tuple[int, str], dict]:
     return expected
 
 
-def _compute_player_statcast(
+def _compute_role_statcast(
     mlb_id: int,
-    db_path: str,
-    position: str,
+    role: str,
+    pitches_by_year_level: dict[tuple, list[dict]],
     fetched: FetchedSet,
     full_history: bool,
-) -> tuple[int, Optional[dict], list[int]]:
-    """平行 worker：讀逐球快取 → 抓 expectedStatistics → 逐 (年, 層級) 聚合。
+) -> tuple[dict, list[int]]:
+    """一個角色的逐 (年, 層級) Statcast 聚合，加上該角色的 expectedStatistics。
 
-    自開唯讀 SQLite 連線，不寫 DB。回
-    ``(mlb_id, {(year, level): {"statcast": ..., "expected_stats": ...}}, 成功抓取的年份)``，
-    沒有任何逐球資料時回 ``(mlb_id, None, [])``。expectedStatistics 依
-    ``db/season_fetches.py`` 的規則只抓當季與未登記的過去球季；沒抓的年份
-    ``expected_stats`` 為 None，``_attach_statcast`` 會保留既有值。
+    回 ``({(year, level): {"statcast": ..., "expected_stats": ...}}, 成功抓取的年份)``。
+    expectedStatistics 帶該角色的 ``group``，依 ``db/season_fetches.py`` 的規則只抓
+    當季與未登記的過去球季；沒抓的年份 ``expected_stats`` 為 None，
+    ``_attach_statcast`` 會保留既有值。
     """
-    conn = sqlite3.connect(db_path, timeout=30)
-    try:
-        pitches_by_year_level = load_all_pitches_for_player(conn.cursor(), mlb_id)
-    finally:
-        conn.close()
-    # 沒有任何逐球資料
-    if not pitches_by_year_level:
-        return mlb_id, None, []
-
-    is_pitcher = is_pitcher_position(position)
-    # expectedStatistics 對 MiLB 一律回 0，只查有 MLB 逐球資料的年份
+    # expectedStatistics 對 MiLB 一律回 0，只查該角色有 MLB 逐球資料的年份
     mlb_years = sorted({
         yr for yr, lvl in pitches_by_year_level
         if is_mlb(lvl) and needs_fetch(fetched, mlb_id, yr, force=full_history)
@@ -280,19 +267,19 @@ def _compute_player_statcast(
     if mlb_years:
         try:
             expected = _parse_expected_stats(get_player_expected_stats(
-                mlb_id, years=mlb_years, group="pitching" if is_pitcher else "hitting",
+                mlb_id, years=mlb_years, group=stat_group_for_role(role),
             ))
             # 回應裡沒有的年份（2015 年以前沒有 expected stats）也算抓過
             fetched_years = mlb_years
         except FetchError as e:
             # 不寫 expected 也不登記，_attach_statcast 保留既有值，下次重試
             logger.warning(
-                "expectedStatistics fetch failed for %s years=%s: %s",
-                mlb_id, mlb_years, describe_exc(e),
+                "expectedStatistics (%s) fetch failed for %s years=%s: %s",
+                role, mlb_id, mlb_years, describe_exc(e),
             )
 
-    compute = compute_pitcher_statcast if is_pitcher else compute_batter_statcast
-    return mlb_id, {
+    compute = _COMPUTE_STATCAST[role]
+    return {
         (yr, lvl): {
             "statcast": compute(pitches),
             "expected_stats": expected.get((yr, lvl)),
@@ -301,16 +288,53 @@ def _compute_player_statcast(
     }, fetched_years
 
 
+def _compute_player_statcast(
+    mlb_id: int,
+    db_path: str,
+    fetched: dict[str, FetchedSet],
+    full_history: bool,
+) -> tuple[int, dict[str, dict], dict[str, list[int]]]:
+    """平行 worker：讀逐球快取 → 每個有逐球資料的角色各自聚合（見 ``_compute_role_statcast``）。
+
+    自開唯讀 SQLite 連線，不寫 DB。``fetched`` 為 ``{role: 該角色 expected 的登記}``。
+    回 ``(mlb_id, {role: {(year, level): {...}}}, {role: 成功抓取的年份})``；
+    沒有逐球資料的角色不會出現在結果中（不設門檻，投手上場打擊一次也會算）。
+    """
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        pitches_by_role = {
+            role: load_all_pitches_for_player(conn.cursor(), mlb_id, role)
+            for role in ROLES
+        }
+    finally:
+        conn.close()
+
+    results: dict[str, dict] = {}
+    fetched_years: dict[str, list[int]] = {}
+    for role, pitches_by_year_level in pitches_by_role.items():
+        # 這個角色沒有任何逐球資料
+        if not pitches_by_year_level:
+            continue
+        results[role], fetched_years[role] = _compute_role_statcast(
+            mlb_id, role, pitches_by_year_level, fetched[role], full_history
+        )
+    return mlb_id, results, fetched_years
+
+
 def _attach_statcast(
     cur,
     mlb_id: int,
+    role: str,
     year: int,
     level: str,
     statcast_data: dict,
     expected_stats: Optional[dict],
 ) -> None:
-    """把一個 (年, 層級) 的 Statcast 與 expected stats 寫進對應層級的 season_stats 列。
+    """把一個角色、一個 (年, 層級) 的 Statcast 與 expected stats 寫進對應層級的 season_stats 列。
 
+    寫入 ``role_field(role, "statcast")`` / ``role_field(role, "expected")``
+    （打擊 ``statcast`` / ``expected``，投球 ``p_statcast`` / ``p_expected``），
+    同一列的另一個角色不受影響。
     同年打過多個層級的球員，每個層級各拿自己的數據。``level`` 為空字串
     （``load_all_pitches_for_player`` 無法判定層級的舊資料）時，只在該年
     只有一列時寫入，否則無從判斷該寫哪一列，直接略過。
@@ -331,9 +355,9 @@ def _attach_statcast(
 
     for team_name, league_name, row_level, stat_json, fielding_json in targets:
         stat_doc = loads_json_dict(stat_json)
-        stat_doc["statcast"] = statcast_data
+        stat_doc[role_field(role, "statcast")] = statcast_data
         if expected_stats:
-            stat_doc["expected"] = expected_stats
+            stat_doc[role_field(role, "expected")] = expected_stats
         save_season_row(
             cur, mlb_id, year, team_name, league_name, row_level,
             stat_doc, loads_json_list(fielding_json),
@@ -344,20 +368,18 @@ def _aggregate_statcast(
     conn,
     db_path: str,
     roster_map: dict,
-    positions: dict[int, str],
     *,
     full_history: bool = False,
 ) -> None:
-    """平行重算名冊每位球員的 Statcast，主執行緒依序寫回 season_stats。"""
-    logger.info("  aggregating statcast per player-year-level (%d workers) ...", GAME_FETCH_WORKERS)
+    """平行重算名冊每位球員每個角色的 Statcast，主執行緒依序寫回 season_stats。"""
+    logger.info("  aggregating statcast per player-role-year-level (%d workers) ...", GAME_FETCH_WORKERS)
     cur = conn.cursor()
     # 在主執行緒讀一次，worker 只讀不寫
-    fetched = load_fetched(cur, EXPECTED_STATS)
+    fetched = {role: load_fetched(cur, _EXPECTED_SOURCES[role]) for role in ROLES}
     with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
         future_to_id = {
             executor.submit(
-                _compute_player_statcast, mlb_id, db_path, positions.get(mlb_id, ""),
-                fetched, full_history,
+                _compute_player_statcast, mlb_id, db_path, fetched, full_history,
             ): mlb_id
             for mlb_id in roster_map
         }
@@ -368,13 +390,21 @@ def _aggregate_statcast(
                 _, results, fetched_years = future.result()
                 if not results:
                     continue
-                for (yr, lvl), data in results.items():
-                    _attach_statcast(
-                        cur, mlb_id, yr, lvl, data["statcast"], data["expected_stats"]
+                for role, by_year_level in results.items():
+                    for (yr, lvl), data in by_year_level.items():
+                        _attach_statcast(
+                            cur, mlb_id, role, yr, lvl,
+                            data["statcast"], data["expected_stats"],
+                        )
+                    mark_fetched(
+                        cur, _EXPECTED_SOURCES[role], mlb_id, fetched_years.get(role, [])
                     )
-                mark_fetched(cur, EXPECTED_STATS, mlb_id, fetched_years)
                 conn.commit()
-                logger.info("    %s: aggregated %d season-level(s)", name, len(results))
+                logger.info(
+                    "    %s: aggregated %s",
+                    name,
+                    ", ".join(f"{role} {len(r)} season-level(s)" for role, r in results.items()),
+                )
             except Exception:
                 logger.exception("  Statcast aggregation failed for %s", name)
 
@@ -458,25 +488,22 @@ def sync_statcast(
         conn.close()
         return
     roster_ids = list(roster_map)
-    positions = _load_positions(cur, roster_ids)
 
-    game_to_players = _games_to_fetch(cur, roster_ids, positions)
+    game_to_players = _games_to_fetch(cur, roster_ids)
     logger.info(
-        "Statcast: %d players, %d unique games to fetch (%d player-game rows to update)",
+        "Statcast: %d players, %d unique games to fetch (%d player-game-role rows to update)",
         len(roster_ids), len(game_to_players), sum(map(len, game_to_players.values())),
     )
     if not game_to_players:
         logger.info("  no new games to fetch; recomputing statcast from existing pitch data ...")
 
     fetched = _fetch_games(game_to_players)
-    logger.info("  wrote pitch logs for %d player-games", _write_pitch_logs(conn, fetched))
+    logger.info("  wrote pitch logs for %d player-game-role rows", _write_pitch_logs(conn, fetched))
 
-    _aggregate_statcast(conn, db_path, roster_map, positions, full_history=full_history)
+    _aggregate_statcast(conn, db_path, roster_map, full_history=full_history)
 
     pitching_constants = PitchingConstants(conn, force_refresh=update_constants)
-    sync_season_advanced(
-        conn, roster_ids, positions, pitching_constants, full_history=full_history
-    )
+    sync_season_advanced(conn, roster_ids, pitching_constants, full_history=full_history)
 
     fetch_highlight_videos(conn, roster_ids)
 

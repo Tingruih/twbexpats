@@ -1,12 +1,12 @@
 (function() {
-    var mobileChart = null;
-
-    // 觸控時把手指觸碰到的資料點當成 hover 顯示 tooltip；讀取的是外層 mobileChart
-    // 變數（非綁定值），所以圖表重繪/換成另一種圖表後仍然指向目前的實例。用
+    // 觸控時把手指觸碰到的資料點當成 hover 顯示 tooltip；每次觸控才用
+    // Chart.getChart(canvas) 取該畫布目前的實例，所以圖表重繪後仍然指向最新的
+    // 實例（雙角色球員頁兩個角色各有一張畫布，不能共用一個模組變數）。用
     // 'nearest' + intersect:true，只顯示手指實際碰到的那條線自己的數值（賽季平均
     // 虛線靠 pointHitRadius 保留判定範圍，仍可單獨點到）。
     function attachTouchTooltip(canvas) {
         canvas.addEventListener('touchstart', function(event) {
+            var mobileChart = Chart.getChart(canvas);
             if (!mobileChart || !event.touches || !event.touches.length) return;
             var touch = event.touches[0];
             var points = mobileChart.getElementsAtEventForMode(event, 'nearest', { intersect: true }, true);
@@ -19,7 +19,8 @@
 
     function initMobilePerformanceChart() {
         var canvas = document.getElementById('mPerformanceChart');
-        if (!canvas || typeof Chart === 'undefined' || mobileChart) return;
+        if (!canvas || typeof Chart === 'undefined' || canvas.dataset.chartInit) return;
+        canvas.dataset.chartInit = '1';
 
         var trendData = window.TW.readJsonScript('player-trend-data', null);
         if (trendData) {
@@ -40,6 +41,7 @@
 
         var ctx = canvas.getContext('2d');
         var chartContainer = canvas.parentElement;
+        var mobileChart = null;
         var availableLevelKeys = [];
 
         function levelsForYear() {
@@ -245,10 +247,15 @@
         if (event.detail && event.detail.tab === 'plot') {
             window.setTimeout(function() {
                 initMobilePerformanceChart();
-                if (mobileChart) mobileChart.resize();
+                var canvas = document.getElementById('mPerformanceChart');
+                var chart = canvas && typeof Chart !== 'undefined' ? Chart.getChart(canvas) : null;
+                if (chart) chart.resize();
             }, 40);
         }
     });
+
+    // 雙角色球員頁切到另一個角色時，對新放進來的畫布與選單初始化（見 role-toggle.js）
+    window.TW.onRoleViewInit(init);
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();

@@ -147,24 +147,24 @@ def count_label(count: tuple[int, int]) -> str:
 def iter_plate_appearances(pitches: list[dict]) -> Iterator[list[dict]]:
     """依序把逐球列表切成一個個打席，每次 yield 一個非空的 list。
 
-    打席邊界的唯一定義：換 ``game_pk`` 或遇到 ``is_pa_final`` 為真的那一球。
+    打席邊界的唯一定義：``(game_pk, at_bat_index)`` 改變（``at_bat_index`` 即
+    ``allPlays[].atBatIndex``）。不看 ``is_pa_final``：打席中被換下的投手/打者
+    那段球沒有 ``is_pa_final``（結果記在接手者身上，見 sync/extract.py），若以它
+    切分，同一人同場稍後的另一個打席會被併進這一段。
     假設同一場內已按時間順序排列（``extract_pitch_logs`` 的輸出順序）。
-    結尾沒有 ``is_pa_final`` 的殘段（被截斷的 game log）也會 yield，
+    結尾沒有 ``is_pa_final`` 的打席（被換下的那段、被截斷的 game log）照樣 yield，
     是否採信由呼叫端決定。
     """
     group: list[dict] = []
-    last_game_pk = object()  # sentinel，不會等於任何真實 game_pk
+    last_key = object()  # sentinel，不會等於任何真實 (game_pk, at_bat_index)
     for p in pitches:
-        gpk = p.get("game_pk")
-        if gpk != last_game_pk:
+        key = (p.get("game_pk"), p.get("at_bat_index"))
+        if key != last_key:
             if group:
                 yield group
             group = []
-            last_game_pk = gpk
+            last_key = key
         group.append(p)
-        if p.get("is_pa_final"):
-            yield group
-            group = []
     if group:
         yield group
 

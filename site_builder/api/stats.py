@@ -1,7 +1,7 @@
 """Player stat endpoints (yearByYear / seasonAdvanced / gameLog /
 sabermetrics / expectedStatistics).
 
-全部經由 ``_fetch_stats``（MLB + MiLB 各一次、或逐年），任一請求在重試用盡後失敗就
+全部經由 ``_fetch_stats``（每年一次、或不帶年份一次），任一請求在重試用盡後失敗就
 整個丟出 ``FetchError``，不回傳只有一部分的結果：呼叫端才能分辨「API 沒有資料」
 與「抓取失敗」，失敗時保留 DB 舊值並在下次執行重抓（見 sync/players.py）。
 """
@@ -11,13 +11,12 @@ from typing import Optional
 from ..constants import GAME_LOG_GAME_TYPES
 from .client import BASE_URL, get_json
 
-# leagueListId：不帶時 API 只回 MLB；milb_all 是所有 MiLB 層級。
-# 刻意維持「MLB 一次 + milb_all 一次」而不用官方的 mlb_milb 一次取回：兩者資料逐筆相同，
-# 但回傳的 group/split 順序不同，而 sync/players.py 寫入時有依順序「後蓋前」的欄位
-# （gp、pitches_per_pa、同場又投又打的 game_logs.stats_json），換順序會改變寫入結果
-# （見 docs/bugs/UNFIXED_BUGS.md）。
+# leagueListId：不帶時 API 只回 MLB；mlb_milb（官方 LeagueListsEnum 的 MLB_MILB）
+# 一次回 MLB + 所有 MiLB 層級，資料與「不帶 + milb_all」兩次請求逐筆相同，
+# 只有 group/split 的順序不同。寫入端依角色分存、與順序無關（見 sync/players.py），
+# 所以可以只打一次。
 MLB_ONLY = (None,)
-MLB_AND_MILB = (None, "milb_all")
+MLB_AND_MILB = ("mlb_milb",)
 
 
 def _fetch_stats(
@@ -46,8 +45,7 @@ def _fetch_stats(
 
 def get_player_stats(mlb_id: int) -> list:
     """
-    api endpoint: /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding (MLB)
-                : 同上加 leagueListId=milb_all (MiLB)
+    api endpoint: /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding&leagueListId=mlb_milb
 
     回傳所有年份的選手MLB與MiLB基礎數據，包含打擊、投球和守備。
     """
@@ -56,8 +54,7 @@ def get_player_stats(mlb_id: int) -> list:
 
 def get_player_advanced_stats(mlb_id: int, years: Optional[list[int]] = None) -> list:
     """
-    api endpoint: /people/{mlb_id}/stats?stats=seasonAdvanced&group=hitting,pitching&season={year} (MLB)
-                : 同上加 leagueListId=milb_all (MiLB)
+    api endpoint: /people/{mlb_id}/stats?stats=seasonAdvanced&group=hitting,pitching&season={year}&leagueListId=mlb_milb
 
     傳入要查詢的 Mlb ID 與 年份
     回傳每年份的選手MLB與MiLB進階數據。
@@ -66,10 +63,10 @@ def get_player_advanced_stats(mlb_id: int, years: Optional[list[int]] = None) ->
 
 
 def get_game_logs(mlb_id: int, season: int) -> list:
-    """Fetch game logs for a specific season from both MLB and MiLB endpoints.
+    """Fetch game logs for a specific season, MLB and MiLB together (``leagueListId=mlb_milb``).
 
-    Always fetches both endpoints so shuttle players (MLB ↔ MiLB) get all
-    game logs regardless of current assignment.
+    Always covers both so shuttle players (MLB ↔ MiLB) get all game logs
+    regardless of current assignment.
     Includes postseason games (see ``GAME_LOG_GAME_TYPES``); each split
     carries its own ``gameType``.
     """
@@ -96,7 +93,7 @@ def get_player_expected_stats(
 ) -> list:
     """Fetch expectedStatistics (xwOBA, xBA, xSLG) — MLB only.
 
-    Only fetches the MLB endpoint. The MiLB endpoint (leagueListId=milb_all)
+    Only fetches the MLB endpoint. MiLB (leagueListId=milb_all / mlb_milb)
     always returns 0.0 for all expected stats fields — the MLB Stats API does
     not publish Statcast-derived expected stats for minor-league play — so
     calling it wastes bandwidth and latency.

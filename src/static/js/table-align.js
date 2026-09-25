@@ -44,5 +44,10 @@
 
     document.addEventListener("DOMContentLoaded", function () {
         window.alignNumericTableColumns(document);
+        // 雙角色球員頁切到另一個角色時，對新放進來的表格補上對齊（見 role-toggle.js）。
+        // 放在 DOMContentLoaded 裡註冊：本檔在 base.j2 對所有頁面載入，此時 util.js 必已執行
+        window.TW.onRoleViewInit(function () {
+            window.alignNumericTableColumns(document);
+        });
     });
 }());

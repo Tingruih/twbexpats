@@ -5,16 +5,22 @@
  * 三層篩選共用自 filters.js::createTieredLevelFilter。手機以 id 前綴（m-arsenal-YYYY）
  * 隱藏年份容器 —— 因 .arsenal-table-container class 與桌機共用，用 class 會誤傷桌機。
  */
-document.addEventListener("DOMContentLoaded", function () {
-    window.TWFilters.createTieredLevelFilter({
-        yearSelectId: "m-arsenal-year-select",
-        levelSelectId: "m-arsenal-level-select",
-        batSideSelectId: "m-arsenal-bat-side-select",
-        yearContainerPrefix: "m-arsenal-",
-        hideYearContainers: function () {
-            document.querySelectorAll("[id^='m-arsenal-']").forEach(function (t) {
-                if (/^m-arsenal-\d{4}$/.test(t.id)) t.style.display = "none";
-            });
-        },
-    });
-});
+(function () {
+    function init() {
+        window.TWFilters.createTieredLevelFilter({
+            yearSelectId: "m-arsenal-year-select",
+            levelSelectId: "m-arsenal-level-select",
+            batSideSelectId: "m-arsenal-bat-side-select",
+            yearContainerPrefix: "m-arsenal-",
+            hideYearContainers: function () {
+                document.querySelectorAll("[id^='m-arsenal-']").forEach(function (t) {
+                    if (/^m-arsenal-\d{4}$/.test(t.id)) t.style.display = "none";
+                });
+            },
+        });
+    }
+
+    document.addEventListener("DOMContentLoaded", init);
+    // 雙角色球員頁切到另一個角色時，對新放進來的選單重新綁定（見 role-toggle.js）
+    window.TW.onRoleViewInit(init);
+})();

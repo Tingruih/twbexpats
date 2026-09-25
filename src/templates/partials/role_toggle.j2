@@ -1,0 +1,16 @@
+{# 投手/打者切換（桌機 hero-meta 與手機 m-hero-meta 共用）。只在兩個角色都有出賽的
+   球員頁出現（page_roles 非空，見 render/pages.py::_page_roles）。按鈕順序固定
+   投手在左、打者在右，data-role 決定滑塊位置；預設為主要角色 page_roles[0]。
+   行為見 role-toggle.js。 #}
+<div class="role-seg" role="group" aria-label="切換投手或打者數據" data-role-toggle data-role="{{ page_roles[0] }}">
+    {% for r in [PITCHER, BATTER] %}
+    <button type="button" data-set-role="{{ r }}" aria-pressed="{{ 'true' if r == page_roles[0] else 'false' }}">
+        {%- if r == PITCHER -%}
+        投手<span class="role-seg-hand">{{ (player.pitch_hand or "R")[:1] }}HP</span>
+        {%- else -%}
+        打者<span class="role-seg-hand">{{ (player.bat_side or "?")[:1] }}</span>
+        {%- endif -%}
+    </button>
+    {% endfor %}
+</div>
+

@@ -41,15 +41,23 @@ def summarize_pitch_for_display(
 
 def write_pitch_log_files(logs_by_year: dict, out_dir: Path,
                           normalized_base_url: str, mlb_id,
-                          videos_by_game: dict | None = None) -> None:
+                          videos_by_game: dict | None = None,
+                          role_dir: str | None = None) -> None:
     """Write summarised pitch logs as external JSON and annotate each log row.
 
     Summarised pitch logs are lazy-loaded by the browser when a game row is
     expanded. This keeps player HTML small.  Mutates each log Obj, setting
     ``pitch_data_url`` and ``pitch_count``.
+
+    ``role_dir`` 給雙角色球員的次要角色用：又投又打的同一場比賽兩個角色各有
+    一份逐球，以 game_id 命名會互相覆寫，所以次要角色另放子目錄；主要角色
+    維持原路徑（``None``），單一角色球員的網址不變。
     """
     pitchlog_dir = out_dir / "data" / "pitchlogs" / str(mlb_id)
     pitchlog_url_base = f"{normalized_base_url}data/pitchlogs/{mlb_id}"
+    if role_dir:
+        pitchlog_dir = pitchlog_dir / role_dir
+        pitchlog_url_base = f"{pitchlog_url_base}/{role_dir}"
     for y_key in logs_by_year:
         for log in logs_by_year[y_key]:
             if log.pitches_json:

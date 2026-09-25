@@ -25,6 +25,7 @@
 9. [逐球進階物理量與跑壘／守備歸屬](#九逐球進階物理量與跑壘守備歸屬2026-07-新增擷取)
 10. [球員每場比賽詳細分析報告 — 設計構想](#十球員每場比賽詳細分析報告--設計構想)
 11. [withMetrics 端點新增欄位（2026-07 遷移）](#十一withmetrics-端點新增欄位2026-07-遷移)
+12. [打擊／投球角色拆分與打席中換人歸屬（2026-09）](#十二打擊投球角色拆分與打席中換人歸屬2026-09)
 
 ---
 
@@ -52,7 +53,7 @@
 
 ### 2.1 基礎數據（🔵 API）
 
-**端點**：`GET /people/{mlb_id}/stats?stats=yearByYear&group=pitching`（MLB）／加 `leagueListId=milb_all`（MiLB）
+**端點**：`GET /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding&leagueListId=mlb_milb`（MLB + 所有 MiLB 一次取回），本節為 pitching group；`gamesPlayed` 存 `p_gp`（hitting group 的存 `gp`，見第十二節）
 對應：`api.py get_player_stats()` → `sync.py _apply_yearbyyear_fields()`（255–316行）
 
 | 欄位 | API 原始欄位 | 中文 |
@@ -106,7 +107,7 @@
 | `run_support` | `runSupport`（打線支援得分）|
 | `rs_per_9` | `runsScoredPer9` |
 | `p_babip` | `babip` |
-| `pitches_per_pa` | `pitchesPerPlateAppearance` |
+| `pitches_per_bf` | `pitchesPerPlateAppearance`（pitching group：用球數 / BF）|
 
 ### 2.3 缺值補算（🟢 計算，僅在 API 未提供該值時才補上）
 
@@ -138,25 +139,28 @@
 
 ### 2.4 MLB 進階指標：FIP / xFIP / WAR（🔵 API，僅 MLB）
 
-**端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=pitching&season={year}`
-對應：`api/stats.py get_player_sabermetrics()` → `sync/advanced.py _season_total_saber()` → `_mlb_advanced_fields()`
+**端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=pitching,hitting&season={year}`（本節為 pitching group；同一個回應的 hitting group 見 3.5）
+對應：`api/stats.py get_player_sabermetrics()` → `sync/advanced.py _fetch_season_saber()`（兩個 group 都解析）→ `_season_total_saber()` → `_mlb_advanced_fields(saber, PITCHER, lg_era)`
+
+只寫進「該列有投球」（`BF > 0` 或 `IP > 0`，`selectors.appeared_roles()`）的 MLB 列，不看守位。
 
 | 欄位 | 來源 |
 |---|---|
-| `fip` | API `sabermetrics.fip`，四捨五入至小數點後2位 |
+| `p_saber` | pitching group 整季 `stat` 整包 |
+| `fip` | API `sabermetrics.fip`，存五位小數原值，顯示時捨入到兩位 |
 | `xfip` | API `sabermetrics.xfip` |
-| `war` | API `sabermetrics.war` |
+| `p_war` | API `sabermetrics.war`（pitching group；與 hitting group 的 `war` 是不同的值） |
 
 > 只取整季合計 split（`splits[]` 中沒有 `team` 的那筆，轉隊時帶 `numTeams`），見 `sync/advanced.py _season_total_saber()`；各隊 split 不使用。
 > 一次只查一年（`season={year}`）：`seasons=a,b` 多年查詢對轉隊年份不回整季合計 split（Yu Chang 2022、623913 2019 實測），會讓整年缺值。
 
-> 抓取頻率（`db/season_fetches.py`）：當季每次重抓；過去球季成功抓過一次就登記在 `season_fetches`，之後改用 `stat_json.saber` 重算欄位，不再打 API。`--full-history` 強制全部重抓。
+> 抓取頻率（`db/season_fetches.py`）：當季每次重抓；過去球季成功抓過一次就登記在 `season_fetches`，之後改用 `stat_json.p_saber` / `saber` 重算欄位，不再打 API。`--full-history` 強制全部重抓。
 
 > 這三個指標常被誤以為是自製算法，但 **MLB 層級是 API 直接算好回傳的**，程式沒有重算。只有 MiLB（API 無此端點）才會走 2.5 的自製公式。
 
 ### 2.5 MiLB 版 FIP / xWPCT（🟢 計算，僅 MiLB）
 
-`stats/advanced/fip.py compute_fip()`、`stats/advanced/xwpct.py compute_xwpct()`，由 `sync/advanced.py _milb_fip_fields()` 對每一列 MiLB 投手季度呼叫（不需要逐球資料）。因 MLB API 沒有 MiLB 的 sabermetrics 端點，程式自行計算；2005 年以前 MiLB 的球隊合計沒有 `earnedRuns`，常數解不出，FIP / xWPCT 留空：
+`stats/advanced/fip.py compute_fip()`、`stats/advanced/xwpct.py compute_xwpct()`，由 `sync/advanced.py _milb_fip_fields()` 對每一列有投球（`BF > 0` 或 `IP > 0`）的 MiLB 季度呼叫，不看守位（野手登板也算），不需要逐球資料。因 MLB API 沒有 MiLB 的 sabermetrics 端點，程式自行計算；2005 年以前 MiLB 的球隊合計沒有 `earnedRuns`，常數解不出，FIP / xWPCT 留空：
 
 ```
 FIP = (13×HR + 3×(BB+HBP) − 2×K) / IP實際局數 + cFIP
@@ -172,7 +176,7 @@ xWPCT（Pythagenpat 1.83）= 1 / (1 + (FIP / 聯盟RA9)^1.83)
 ### 2.6 Expected Stats：對方期望打擊三圍（🔵 API，僅 MLB）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=expectedStatistics&group=pitching&season={year}`
-對應：`api.py get_player_expected_stats()`（374–407行）
+對應：`api/stats.py get_player_expected_stats(group="pitching")` → `sync/statcast.py _compute_role_statcast()` → 存 `stat_json.p_expected`（只查該球員有 MLB 投球逐球資料的年份；登記在 `season_fetches` 的 `p_expected`）
 
 | 欄位 | API 原始欄位 | 說明 |
 |---|---|---|
@@ -248,8 +252,8 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 
 ### 3.1 基礎數據（🔵 API）
 
-**端點**：`GET /people/{mlb_id}/stats?stats=yearByYear&group=hitting`
-對應：`sync.py _apply_yearbyyear_fields()`（317–353行）
+**端點**：`GET /people/{mlb_id}/stats?stats=yearByYear&group=hitting,pitching,fielding&leagueListId=mlb_milb`（本節為 hitting group；`gamesPlayed` 存 `gp`）
+對應：`sync/field_maps.py apply_yearbyyear_fields()`
 
 | 欄位 | API 原始欄位 |
 |---|---|
@@ -287,7 +291,7 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 | `gidpo` | `gidpOpp` |
 | `xbh` | `extraBaseHits`（API 已算好；缺值時見 3.3）|
 | `babip` | `babip` |
-| `pitches_per_pa` | `pitchesPerPlateAppearance` |
+| `pitches_seen_per_pa` | `pitchesPerPlateAppearance`（hitting group：看球數 / PA）|
 
 ### 3.3 缺值補算（🟢 計算，僅在 API 未提供時補上）
 
@@ -295,7 +299,7 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 
 | 欄位 | 公式 |
 |---|---|
-| `p_per_pa` | 優先取 `pitches_per_pa`，否則 `pitches_seen / pa` |
+| `pitches_seen_per_pa` | API 值缺時 `pitches_seen / pa`（不退回投手的 `pitches_per_bf`）|
 | `xbh` | `doubles + triples + hr` |
 | `iso` | `slg − avg` |
 | `babip` | `(hits − hr) / (ab − h_so − hr + sac_flies)` |
@@ -308,7 +312,7 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 ### 3.4 Expected Stats：期望打擊三圍（🔵 API，僅 MLB）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=expectedStatistics&group=hitting&season={year}`
-對應：`api.py get_player_expected_stats()`
+對應：`api/stats.py get_player_expected_stats(group="hitting")` → 存 `stat_json.expected`（只查有 MLB 打擊逐球資料的年份；登記在 `season_fetches` 的 `expected`）
 
 | 欄位 | API 原始欄位 |
 |---|---|
@@ -321,10 +325,11 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 
 ### 3.5 MLB 進階指標：WAR（🔵 API）與 wRC+（🔵 API｜🟢 計算 雙軌）
 
-**端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=hitting&season={year}`
-對應：`sync/advanced.py _mlb_advanced_fields()`
+**端點**：`GET /people/{mlb_id}/stats?stats=sabermetrics&group=pitching,hitting&season={year}`（本節為 hitting group）
+對應：`sync/advanced.py _mlb_advanced_fields(saber, BATTER, None)`；只寫進「該列有打擊 PA」的 MLB 列，不看守位（投手上場打擊也寫）
 
-- `war`：🔵 直接取 API `sabermetrics.war`
+- `saber`：hitting group 整季 `stat` 整包
+- `war`：🔵 直接取 API `sabermetrics.war`（hitting group；投球的是 `p_war`）
 - `wrc_plus`：🔵 取 API `sabermetrics.wRcPlus` 四捨五入成整數（MLB 賽季合計值，取自沒有 `team` 的整季 split（`_season_total_saber()`）；換隊球員該年每一隊的 MLB 列都寫同一份）
 
 同時程式會**額外自行計算一份 wRC+ 存成 `wrc_plus_calc`**（不覆蓋 API 值），用於跟 API 版本對照 / 給 MiLB 使用：
@@ -393,8 +398,8 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
 
 ## 五、逐場紀錄（Game Log）
 
-**端點**：`GET /people/{mlb_id}/stats?stats=gameLog&season={year}&group=hitting,pitching`
-對應：`api.py get_game_logs()`，直接把該場的 `stats` dict 原封存成 `game_logs.stats_json`（🔵 API，欄位與第二、三節的 yearByYear 欄位同名）。
+**端點**：`GET /people/{mlb_id}/stats?stats=gameLog&season={year}&group=hitting,pitching&leagueListId=mlb_milb`
+對應：`api/stats.py get_game_logs()`，直接把該場的 `stats` dict 原封存成 `game_logs.stats_json`（🔵 API，欄位與第二、三節的 yearByYear 欄位同名）。`stats[].group.displayName` 決定該列的 `role`（hitting → `batter`、pitching → `pitcher`），同場又投又打寫成兩列，各存自己 group 的 `stat`。
 
 逐場的**逐球**資料（`pitches_json`）來自 `GET /game/{game_pk}/withMetrics`，只在 `gameData.status.abstractGameState == "Final"` 時才萃取寫入（進行中、延遲、暫停皆為 `Live`，見 `/api/v1/gameStatus`；未完賽的比賽不寫入、下次重抓，見 `sync/statcast.py::_fetch_and_extract_game()`），經 `extract_pitch_logs()` 萃取，欄位詳見第 2.7 節「原始輸入」說明，展開頁面用 `summarize_pitch_for_display()`（1388–1406行）做顯示用投影，未做二次計算。
 
@@ -623,4 +628,34 @@ perceived_velo ≈ start_speed × (聯盟平均 extension / 該投手 extension)
 | `from_catcher` | `playEvents[].details.fromCatcher` | 🔵 API | 牽制是否由捕手發動 |
 | `runner_going` | `playEvents[].details.runnerGoing` | 🔵 API | 跑者是否正在起跑（盜壘中）；僅部分事件有值 |
 | `is_out` | `playEvents[].details.isOut` | 🔵 API | 是否造成出局 |
-| `pitcher_id`/`batter_id` | `play.matchup.pitcher.id`/`.batter.id` | 🔵 API | 該打席的投打對戰雙方（events_json 本身不受 `role="pitcher"/"batter"` 過濾，附加這兩個欄位方便下游識別） |
+| `pitcher_id`/`batter_id` | 事件的 `defense.pitcher.id`（缺值退 `play.matchup.pitcher.id`）／事件當下的實際打者（見第十二節） | 🔵 API | 事件發生當下實際的投打；投手列只收本人牽制的事件、打者列只收本人打擊時的事件 |
+
+---
+
+## 十二、打擊／投球角色拆分與打席中換人歸屬（2026-09）
+
+設計見 `docs/superpowers/specs/2026-09-25-two-way-role-separation-design.md`。
+
+### 12.1 依 stat group 寫入的位置
+
+| 端點 | hitting group | pitching group |
+|---|---|---|
+| yearByYear `gamesPlayed` | `stat_json.gp` | `stat_json.p_gp` |
+| seasonAdvanced `pitchesPerPlateAppearance` | `stat_json.pitches_seen_per_pa` | `stat_json.pitches_per_bf` |
+| gameLog `stat` | `game_logs` `role = 'batter'` 列的 `stats_json` | `role = 'pitcher'` 列的 `stats_json` |
+| sabermetrics（整季 split） | `saber` / `war` / `wrc_plus` | `p_saber` / `p_war` / `fip` / `xfip`（+ 自算 `lg_era` / `xwpct`） |
+| expectedStatistics | `expected`（`group=hitting`） | `p_expected`（`group=pitching`） |
+
+角色對照（`hitting`/`pitching` ↔ `batter`/`pitcher`）與 `p_` 前綴一律經 `site_builder/positions.py`
+（`role_for_stat_group()`、`stat_group_for_role()`、`role_field()`）。yearByYear / seasonAdvanced / gameLog
+改以 `leagueListId=mlb_milb` 一次取回 MLB + 所有 MiLB：寫入端依角色分存、與回傳順序無關，
+所以不再需要「MLB 一次 + `milb_all` 一次」固定順序的兩次請求。
+
+### 12.2 withMetrics 新用到的路徑（逐球歸屬，`sync/extract.py`）
+
+| 路徑 | 用途 |
+|---|---|
+| `liveData.plays.allPlays[].atBatIndex` | 逐球 `at_bat_index`；打席邊界（`stats/core/pitches.py::iter_plate_appearances()`） |
+| `allPlays[].playEvents[].details.eventType == "offensive_substitution"` + `playEvents[].position.code` | 換人事件；只有 `"11"`（Pinch Hitter）換打者，`"12"`（Pinch Runner）不影響。`replacedPlayer.id` / `player.id` 為被換下／換上的打者（`_actual_participants()`）。2026-09-25 抽樣 2002–2026 共 195 場，`offensive_substitution` 全部帶 `position.code` |
+| `allPlays[].playEvents[].defense.pitcher.id` | 每球（與牽制事件）實際的投手，缺值退 `matchup.pitcher.id` |
+| `gameData.players["ID<id>"].pitchHand.code` / `.batSide.code` | 換投／代打前那段球的投球手與打擊邊（`_hand_for_pitch()`）；抽樣 195 場、9,780 位球員 100% 有值。投打都與 `matchup` 相同時仍用 `matchup.pitchHand` / `matchup.batSide`（該打席的實際值） |

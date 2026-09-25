@@ -1,0 +1,25 @@
+{# Hero 關鍵數據列（桌機）。player_detail.j2 直接 include；雙角色球員的次要角色
+   另由 partials/role_alt_views.j2 以該角色的變數再渲染一份。
+   latest_team_stat_year：當季沒有這個角色的出賽、改顯示最近一季時的年份
+   （見 render/pages.py::_build_role_view 的 hero_fallback）。 #}
+    {% if latest_team_stat %}
+    {% set stat = latest_team_stat %}
+    <div class="hero-stats-strip">
+        {% if is_pitcher %}
+            <div class="hs-item"><span class="hs-val">{{ stat.era|floatformat(2) }}</span><span class="hs-lbl">ERA</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.whip|floatformat(2) }}</span><span class="hs-lbl">WHIP</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.so|num_dash }}</span><span class="hs-lbl">K</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.wins|num_dash }}-{{ stat.losses|num_dash }}</span><span class="hs-lbl">W-L</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.ip|floatformat(1) }}</span><span class="hs-lbl">IP</span></div>
+        {% else %}
+            <div class="hs-item"><span class="hs-val">{{ stat.avg|floatformat(3) }}</span><span class="hs-lbl">AVG</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.ops|floatformat(3) }}</span><span class="hs-lbl">OPS</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.hr|num_dash }}</span><span class="hs-lbl">HR</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.rbi|num_dash }}</span><span class="hs-lbl">RBI</span></div>
+            <div class="hs-item"><span class="hs-val">{{ stat.sb|num_dash }}</span><span class="hs-lbl">SB</span></div>
+        {% endif %}
+        {% if latest_team_stat_year %}
+            <span class="hs-year-badge" title="{{ latest_team_stat_year }} 賽季數據（本季尚無出賽）">{{ latest_team_stat_year }}</span>
+        {% endif %}
+    </div>
+    {% endif %}

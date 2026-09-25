@@ -23,12 +23,7 @@
 - 影響：同球員同年同隊名但不同層級時可能互蓋。
 - 建議修法：migration 改為 `UNIQUE(player_mlb_id, year, team_name, sport_level)`，UPSERT 同步更新。
 
-### 4. `game_logs` UNIQUE key 仍無 role/stat_type，二刀流同場投打可能互蓋
-
-- 目前位置：`site_builder/db/schema.py`、`site_builder/sync/players.py`
-- 證據：schema 是 `UNIQUE(player_mlb_id, game_id)`；game log UPSERT 同樣只用 `(player_mlb_id, game_id)`。
-- 影響：同一球員同場同時有 hitting/pitching game log 時，後寫入者覆蓋前者。
-- 建議修法：新增 role/stat_type 欄位，UNIQUE 改為 `(player_mlb_id, game_id, role)` 或 `(player_mlb_id, game_id, stat_type)`。
+### 4. （已修，見附錄 A）
 
 ### 5. 桌機版 tabs 仍是不可鍵盤操作的 `<label>`
 
@@ -302,26 +297,60 @@
   5. 全站 build 前後逐檔比對 HTML（扣除時間戳）應無差異。
 - 優先度：低。數字正確、只是體積與維護成本；DB 體積真的成為問題（例如 Drive 上傳時間）再處理即可。
 
-### 50. 二刀流球員的 P/PA 被投球數據覆蓋（`pitches_per_pa` 打擊/投球共用同一個 key）
+### 50. （已修，見附錄 A）
 
-- 目前位置：`site_builder/sync/field_maps.py::apply_advanced_fields()`、`site_builder/stats/core/annotate.py::annotate_row()`
-- 證據：`apply_advanced_fields()` 的打擊組與投球組都把 API `pitchesPerPlateAppearance` 寫進同一個 `stat_json.pitches_per_pa`；season_stats 同一列會同時帶兩組數據（`sync/players.py` 依序寫入兩個 group），後寫者覆蓋先寫者。`annotate_row()` 又把 `pitches_per_pa` 當作打者 `p_per_pa` 的來源（「prefer pitches_per_pa alias」）。
-- 規模（2026-09-25 本機 DB）：59 列同時有打席（`pa > 0`）與面對打者數（`bf > 0`）且有 `pitches_per_pa`。例：806823 2025 ACL Reds 存 3.878（= 投手 pitches / BF），打者實際 `pitches_seen / PA` 為 4.33，進階打擊表顯示的是投手值。多數是早年 MiLB 投手偶爾上場打擊，但真正的二刀流球員會受影響。
-- 影響：打者 P/PA 顯示成投手的每打席用球數；投手端讀 `pitches_per_pa` 則可能拿到打者值（視寫入順序）。
-- 建議修法：投球組改寫 `p_pitches_per_pa`（比照 `p_k_pct` / `p_babip` 的 `p_` 前綴慣例），`annotate_row()` 投手分支與樣板改讀新 key，打者分支維持讀 `pitches_per_pa`；更新 `docs/fields.md`、`docs/db_schema.md`。舊資料需重跑 `python build.py sync` 才會拆開（依 CLAUDE.md 規則 2 不寫回補代碼）。
+### 51. （已修，見附錄 A）
 
-### 51. `sync/players.py` 寫入依 API 回傳順序「後蓋前」，結果取決於請求/回傳順序
+### 52. 打席中換投／代打的逐球歸屬：對齊 Savant、刻意不套用官方記錄規則 9.15(b) / 9.16(h)，待複查
 
-- 目前位置：`site_builder/sync/players.py::_write_player_to_db()`
-- 證據（2026-09-25 端到端比對）：把 `api/stats.py` 的「MLB 一次 + `leagueListId=milb_all` 一次」換成官方 `leagueListId=mlb_milb` 一次取回，名冊 103 位球員的 API splits 逐筆相同，但寫進全新 DB 後有差異，全部來自下列依順序覆蓋的寫法：
-  - `game_logs`：同一場比賽同時有 hitting 與 pitching split（投手上場打擊），`ON CONFLICT(player_mlb_id, game_id)` 讓後寫的 split 蓋掉前者，`stats_json` 只留其中一組。比對中 199 場受影響；本機 DB 5,470 筆投手逐場紀錄中有 377 筆沒有投球數據（部分可能是真的只打擊的比賽）。
-  - `season_stats.stat_json.gp`：hitting / pitching 兩組都寫 `gp`，後寫者勝（例：499614 2013 Frisco 打擊 125 場、投球 1 場，換順序後存成 1）。
-  - `season_stats.stat_json.pitches_per_pa`：見 #50。
-  - `players.team`：最近一季有兩列同層級時，`highest_level_row()` 平手取決於列的寫入順序（例：526269 2024 AAA Iowa Cubs / Piratas de Campeche）。
-- 影響：目前順序固定所以結果穩定，但數值不一定是對的那組（投手逐場顯示成打擊數據、`gp` 顯示打擊或投球場數不一定）；且任何改變請求順序的重構（例如改用 `mlb_milb` 讓請求數減半）都會改變寫入結果，因此 `api/stats.py` 目前刻意維持兩次請求。
-- 建議修法：`game_logs.stats_json` 依 group 分開存（或 hitting/pitching 各一個 key）；`gp` 明確規定取投球或打擊（或分成 `gp` / `p_gp`）；`highest_level_row()` 平手時加穩定的次要排序（如出賽數、球隊名）。修完後即可安全改用 `mlb_milb`（refresh 請求約 208 → 130、完整 sync 約 1,940 → 970）。舊資料需重跑 `python build.py sync`（依 CLAUDE.md 規則 2 不寫回補代碼）。
+- 狀態：**設計決定，待 double check**。2026-09-25 角色分離時定案（設計見 `docs/superpowers/specs/2026-09-25-two-way-role-separation-design.md` §1.3、§4.6），程式碼已照此實作；列在這裡是為了之後再確認一次這個決定與邊界處理都對。
+- 目前位置：`site_builder/sync/extract.py`（`_actual_participants()`、`_hand_for_pitch()`、`extract_pitch_logs()`）、`site_builder/stats/core/pitches.py::iter_plate_appearances()`；說明在 `docs/fields.md` §6-16。
+- 現行規則（每顆球歸「實際投、打那顆球的人」，結束打席那顆球帶的結果也跟著走）：
+  1. 投手：每顆球取事件自己的 `defense.pitcher.id`，缺值才退回 `matchup.pitcher.id`。換投後的保送／三振記給投最後一球的投手。
+  2. 打者：只有 `offensive_substitution` 且 `position.code == "11"`（代打）才換打者；代跑（`"12"`）與其他換人不影響。打席起點打者 = 第一個代打事件的 `replacedPlayer.id`，沒有代打時為 `matchup.batter.id`。`position.code` 缺值時視為非代打並記 `logger.warning`。
+  3. 左右手：換人前的球，`pitch_hand` / `bat_side` 取 `gameData.players` 裡實際那個人的登錄慣用手；左右開弓打者取投球手的反邊。
+  4. 打席切分用 `(game_pk, at_bat_index)`，被換下的人只有自己那段球、沒有 `is_pa_final`，不會和下一個打席黏在一起。
+- 和官方 box score 的差異（刻意不套用）：
+  - **9.15(b)**：原打者帶兩好球被代打換下、代打者被三振 → 官方把三振與打數算給原打者；我們算給實際揮棒的代打者。
+  - **9.16(h)**：換投當下球數為 2-0、2-1、3-0、3-1、3-2 且最後保送 → 官方把保送算給前一位投手；我們算給投出第四壞球的接手投手。
+- 2026-09-25 全庫重建驗收（`game_logs` 15,985 場「逐球算出的 K／HBP／HR／非故意保送 vs gameLog 官方數據」）：**只有下列 8 場不一致，全部屬於上面兩條規則**，沒有其他原因。表中「逐球 / 官方」是該球員該場的數字；換人方向以 `withMetrics` 逐球資料重新確認過：
+
+  | 規則 | 球員（角色） | 比賽 | 打席經過 | 項目：逐球 / 官方 | Savant 做法 |
+  |---|---|---|---|---|---|
+  | 9.16(h) | 郭泓志（投） | 2006-05-12 AAA（46227）atBat 67 | 郭泓志投到 3-0 換 Lance Carter，Carter 投出第四壞球保送 Junior Spivey | BB 0 / 1 | 無資料（2008 前、MiLB） |
+  | 9.16(h) | 陽耀勳（投） | 2014-07-08 AA（386064）atBat 64 | 陽耀勳投到 2-0 換 Kenn Kasparek，Kasparek 投到 4-2 保送 Jamie Johnson | BB 2 / 3 | 無資料（MiLB） |
+  | 9.16(h) | 陳品學（投） | 2016-06-29 短期 A（464383）atBat 54 | Randy Valladares 投到 2-0 換陳品學，陳品學連投兩壞保送 Sheldon Neuse | BB 2 / 1 | 無資料（MiLB） |
+  | 9.15(b) | 林哲瑄（打） | 2010-07-20 AA（274053）atBat 13 | 林哲瑄 1-2 被 Matt Sheely 代打，Sheely 被三振 | K 0 / 1 | 無資料（MiLB） |
+  | 9.15(b) | 張育成（打） | 2017-08-15 AA（498235）atBat 79 | 張育成 1-2 被 Ivan Castillo 代打，Castillo 被三振 | K 2 / 3 | 無資料（MiLB） |
+  | 9.15(b) | 郭阜林（打） | 2013-05-29 A（352855）atBat 49 | Kelvin De Leon 2-2 被郭阜林代打，郭阜林被三振 | K 1 / 0 | 無資料（MiLB） |
+  | 9.15(b) | 林子偉（打） | 2018-09-23 MLB（531729）atBat 52 | Xander Bogaerts 1-2 被林子偉代打，林子偉被三振 | K 1 / 0 | **與我們相同**：結束球 `batter` = 林子偉（624407） |
+  | 9.15(b) | 張育成（打） | 2023-04-24 MLB（718447）atBat 51 | 張育成 1-2 被 Christian Arroyo 代打，Arroyo 被三振 | K 0 / 1 | **與我們不同**：結束球 `batter` = 張育成（644374），Savant 在這場套用了 9.15(b) |
+
+  （Savant 欄是 2026-09-25 以 `baseballsavant.mlb.com/statcast_search/csv` 查該日期、該打者的逐球資料。）
+- 驗收時同時確認的邊界情況（都已正確處理，複查時可沿用）：
+  - 舊 MiLB 資料的換投事件常缺 `replacedPlayer`（例：陽耀勳 386064、陳品學 464383），但投手歸屬看的是每顆球的 `defense.pitcher.id`，不受影響。
+  - 46227 atBat 57 的換投事件 `replacedPlayer` 是野手 Joel Guzman（API 資料錯誤），因為發生在 0-0、投手歸屬又不看 `replacedPlayer`，不影響結果。
+  - 代跑被當成代打（高國輝 2006-08-08 44359）、換人前的球左右手、`batter_id` 記成接手者，已由 `tests/test_extract.py` 以 `tests/fixtures/mid_pa_substitutions.json` 的真實打席鎖住。
+  - 規格 §1.3 對 746572 的描述方向寫反：實際是 atBat 55 右投 Davis 換左投 Beeks，左右開弓的 Polanco `bat_side` 由 L 變 R；測試依實際資料撰寫。
+  - 自動故意四壞（沒有投球）不在比對範圍：比對用的是「非故意保送」，本次為 0 筆。
+- 影響：只影響「由逐球資料算出的數字」在這類打席差一筆，例如 Statcast 表中依逐球計算的 K、BB、AB、wOBA 分母，以及逐場表展開後的逐球打席結果；季賽計數數據（K%、BB% 等）、gameLog 逐場數據來自 API 官方數據，不受影響。全庫 16,673 列中只有上面 8 場。
+- 複查清單（double check 時逐項確認）：
+  1. **決定要不要改成官方記錄**：Savant 本身不一致（2022–2025 兩好球代打三振 12 例中 9 例記代打者，3 例記原打者：718447 張育成、717497 Rendon、776218 Fry），而 MiLB 與 2008 年前的比賽沒有 Savant 可比。若改為套用 9.15(b) / 9.16(h)，逐球資料會和官方 box score 一致，但同一顆球的 `batter_id` / `pitcher_id` 會和「實際投打的人」不同，角色一致性驗收（`pitcher_id` / `batter_id` 全為本人）要改寫。
+  2. 若維持現狀：確認網站上逐球與官方數字並列時（例如同一頁的 K 數與 Statcast 表），是否需要註記這類差異。
+  3. 再抽查 Savant：718447 以外的 3 個 MLB 例外是否有規律（例如是否與 Savant 資料修正時間、或球數有關）。
+  4. 每次全量重建後重跑逐場比對，確認不一致的比賽仍然只有 9.15(b) / 9.16(h) 類，沒有新的原因。
+- 優先度：低。數量極少（8 場）且兩種做法各有依據；主要是確認決定、以及有新資料時不要出現別的差異原因。
 
 ## 附錄 A — 已確認已修 / 不再列入未修 bug
+
+**2026-09-25 打擊／投球角色分離**（設計見 `docs/superpowers/specs/2026-09-25-two-way-role-separation-design.md`）。根本原因是 `site_builder` 假設一位球員只有一個角色（由 `players.position` 決定），而 API 對同一位球員會同時回 hitting 與 pitching 兩組數據，寫進同一個位置時後寫者勝。修正後每一筆資料都角色明確、與寫入/請求順序無關，DB 必須刪除後以 `python build.py all` 從頭重建（`init_db()` 遇到沒有 `game_logs.role` 的舊 DB 會直接中止）：
+
+- **#4** `game_logs` 唯一鍵無角色：新增 `role`（`pitcher` / `batter`），唯一鍵改為 `(player_mlb_id, game_id, role)`，同場又投又打是兩列，`stats_json` / `pitches_json` / `events_json` / `pbp_version` 都只屬於該列角色。
+- **#50** P/PA 打擊/投球共用 `pitches_per_pa`：改以分子分母命名，打擊 `pitches_seen_per_pa`、投球 `pitches_per_bf`，`annotate_row()` 刪除「打者 P/PA ← `pitches_per_pa`」別名，舊名全站刪除（806823 2025 ACL Reds 打者 P/PA 恢復 4.33）。
+- **#51** 寫入依回傳順序後蓋前：`gp` 拆成 `gp` / `p_gp`；`highest_level_row()` 同層級平手依「最近一年 → 出賽量（PA + BF）→ 隊名」決定；`save_season_row()` 依 key 排序存 `stat_json`。同一份 API bundle 正序與反序寫入結果逐筆相同（`tests/test_sync.py::TestRoleSplitWrites`），`api/stats.py` 因此改用 `leagueListId=mlb_milb` 一次取回。
+- **逐球資料混入另一角色的球**（本次發現）：`sync/statcast.py` 在主要角色抽不到球時會改用另一個角色重抽，再依主要角色整包計算 Statcast。林盛恩（P）84 場、1,437 顆「當打者看到的球」被算進投手 Statcast；林哲瑄（RF）16 場、113 顆投出的球被算進打者 Statcast；另 5 位各 1 場。已刪除換角色備援，每一列只依自己的 `role` 抽取；Statcast、expectedStatistics（`group` 依角色）、sabermetrics（兩個 group 都解析）、WAR（`war` / `p_war` 分存）、wRC+（有打擊 PA 就算）、MiLB FIP（有投球就算）改為對「該角色有資料」的所有球員計算，存成 `statcast` / `p_statcast` 等拆分 key，render 以 `positions.project_role()` 投影主要角色。
+- **打席中換人的逐球歸屬**（本次發現，§1.3 #11–#13）：`sync/extract.py` 改為每顆球歸實際投、打那顆球的人（對齊 Baseball Savant）。(#11) 代跑（`position.code` `"12"`）被當成代打：高國輝 2006-08-08（44359）被代跑換下後，下一位打者看到的 1 顆球被算成他的；打者列 `events_json` 另有 15 場、22 筆別人打席的牽制事件。(#12) 換人前的球 `pitch_hand` / `bat_side` 取自打席層級 `matchup`：打者列 3 個打席、9 顆球投手慣用手錯誤（例：李灝宇 2022-08-24（670515）前 4 球左投記成右投）。(#13) 逐球 `batter_id` 取自 `matchup.batter`：張育成 2023-04-24（718447）前三球記成 Arroyo 的 624414，本機 DB 共 7 顆。逐球新增 `at_bat_index`，打席切分改用 `(game_pk, at_bat_index)`；`PBP_EXTRACT_VERSION` 1 → 2。
+- **刻意不修：官方記錄規則 9.15(b) / 9.16(h)**。官方 box score 會把少數打席結果記給「沒有投/打最後一球」的人：9.15(b) 原打者兩好球離場、代打者被三振 → 三振算原打者（例：718447 官方張育成 K 1）；9.16(h) 換投時球數對打者有利且最後保送 → 保送算前一位投手（例：郭泓志 46227、陽耀勳 386064；陳品學 464383 官方 BB 1、我們 2）。Savant 多數情況也不套用（換投保送一律記接手投手；兩好球代打三振 12 例中 9 例記代打者，另 3 例看不出規律無法重現），我們對齊 Savant 多數做法，寫進 `sync/extract.py` 模組註解與 `docs/fields.md` §6-16。影響僅限逐球算出的 K、BB、AB、wOBA 分母，季賽計數數據來自 API 官方數據不受影響。重建驗收找到的 8 場實例與複查清單見 #52。
 
 **#10** Rate stat 以字串寫入：`win_pct`、`strike_pct`、`p_avg`、`p_obp`、`p_slg`、`p_ops`、`p_sb_pct`、`sb_pct`、`cs_pct`（`sync/field_maps.py`）與 `fielding_pct`（`sync/players.py`）改用 `safe_float` 寫入，API 佔位字 `.---`/`-.--`、缺值、`null` 都存 `None`；`compute_win_pct` / `compute_strike_pct` / `compute_sb_pct` / `annotate_opponent_slash` 改回傳 float，`stats/core/formatting.py::fmt_avg` 已刪除。實測原本描述的「阻擋重算」在當時 DB 中為 0 列（`""` 的列連計數也缺、`.---` 分母為零，重算同樣無值），實際影響是顯示：修正前網站上有 84 格 `.---`、10 格 `-.--`（逐場 ERA）直接顯示，且同表混用 `.250` 與 `0.250`（23,751 對 10,594 格）。樣板改以 `floatformat(3)`（逐場 ERA 為 `floatformat(2)`）統一顯示成 `0.250`、缺值 `-`；`floatformat` 也接受舊字串與 Jinja `Undefined`，所以舊 DB 列不重跑 sync 也能正確顯示，重跑 `python build.py sync` 後 DB 型別才全部變成 float。
 

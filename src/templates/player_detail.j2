@@ -25,28 +25,22 @@
         <div class="hero-meta">
             <span class="badge {{ 'badge-mlb' if is_mlb(player.level) else 'badge-level' }}">{{ player.level | level_display(player.level_year) }}</span>
             <span class="hero-team">{{ player.team }}</span>
-            <span class="hero-pos">{% if is_pitcher %}{{ (player.pitch_hand or "R") }}HP{% else %}{{ (player.bat_side or "?")[:1] }}{% endif %} · {{ player.position }}</span>
+            {% if page_roles %}
+            {% include 'partials/role_toggle.j2' %}
+            {% else %}
+            <span class="hero-pos">{% if is_pitcher %}{{ (player.pitch_hand or "R")[:1] }}HP{% else %}{{ (player.bat_side or "?")[:1] }}{% endif %} · {{ player.position }}</span>
+            {% endif %}
         </div>
     </div>
 
     {# ── KEY STATS STRIP ── #}
-    {% if latest_team_stat %}
-    {% set stat = latest_team_stat %}
-    <div class="hero-stats-strip">
-        {% if is_pitcher %}
-            <div class="hs-item"><span class="hs-val">{{ stat.era|floatformat(2) }}</span><span class="hs-lbl">ERA</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.whip|floatformat(2) }}</span><span class="hs-lbl">WHIP</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.so|num_dash }}</span><span class="hs-lbl">K</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.wins|num_dash }}-{{ stat.losses|num_dash }}</span><span class="hs-lbl">W-L</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.ip|floatformat(1) }}</span><span class="hs-lbl">IP</span></div>
-        {% else %}
-            <div class="hs-item"><span class="hs-val">{{ stat.avg|floatformat(3) }}</span><span class="hs-lbl">AVG</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.ops|floatformat(3) }}</span><span class="hs-lbl">OPS</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.hr|num_dash }}</span><span class="hs-lbl">HR</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.rbi|num_dash }}</span><span class="hs-lbl">RBI</span></div>
-            <div class="hs-item"><span class="hs-val">{{ stat.sb|num_dash }}</span><span class="hs-lbl">SB</span></div>
-        {% endif %}
+    {% if page_roles %}
+    {# display: contents，不影響 hero 版面；切換角色時 role-toggle.js 換掉裡面的內容 #}
+    <div class="role-slot" id="hero-stats-slot">
+    {% include 'partials/hero_stats_strip.j2' %}
     </div>
+    {% else %}
+    {% include 'partials/hero_stats_strip.j2' %}
     {% endif %}
 </div>
 
@@ -72,9 +66,29 @@
 <div class="page-mobile">
     {% include 'mobile/m_player_detail.j2' %}
 </div>
+{# 次要角色的各區塊內容（inert <template>，見 partials/role_alt_views.j2） #}
+{% for view in role_alt_views %}
+{{ view.html }}
+{% endfor %}
 {% endblock %}
 
 {% block extra_scripts %}
+{% if page_roles %}
+{# 圖表 JSON 也隨角色切換：role-toggle.js 整包換掉這個容器的內容。必須放在
+   role-toggle.js 之前：網址帶 ?role= 時該腳本一載入就同步換內容，此時還沒解析到的
+   容器 getElementById 找不到，會被略過而留著主要角色的圖表資料 #}
+<div id="role-chart-data" hidden>
+{% include 'partials/chart_data.j2' %}
+{% if player_trend_by_year %}
+<script type="application/json" id="player-trend-data">{{ player_trend_by_year|tojson_safe }}</script>
+{% endif %}
+</div>
+{# 投手/打者切換：刻意不用 defer —— 網址帶 ?role= 時要在其他腳本初始化
+   （DOMContentLoaded）之前就把內容換成該角色，見 role-toggle.js #}
+<script src="{{ static_url('js/role-toggle.js') }}"></script>
+{% else %}
+{% include 'partials/chart_data.j2' %}
+{% endif %}
 {# 篩選共用引擎 — 必須在 gamelogs / arsenal / m-gamelogs / m-advanced 之前 #}
 <script defer src="{{ static_url('js/filters.js') }}"></script>
 <script defer src="{{ static_url('js/stats-table.js') }}"></script>
@@ -90,12 +104,14 @@
 <script defer src="{{ static_url('js/mobile/m-gamelogs.js') }}"></script>
 <script defer src="{{ static_url('js/arsenal-filters.js') }}"></script>
 <script defer src="{{ static_url('js/mobile/m-advanced.js') }}"></script>
-{% include 'partials/chart_data.j2' %}
 <script defer src="{{ static_url('js/pitcher-charts.js') }}"></script>
 <script defer src="{{ static_url('js/pitch-plinko.js') }}"></script>
-{% if player_trend_by_year %}
+{# trend_chart_needed：任一角色有走勢圖資料就載入 Chart.js（主要角色沒有、次要角色有時也要） #}
+{% if trend_chart_needed %}
 <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js" integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ" crossorigin="anonymous"></script>
+{% if not page_roles %}
 <script type="application/json" id="player-trend-data">{{ player_trend_by_year|tojson_safe }}</script>
+{% endif %}
 <script defer src="{{ static_url('js/charts.js') }}"></script>
 {% endif %}
 <script defer src="{{ static_url('js/mobile/m-charts.js') }}"></script>

@@ -31,6 +31,10 @@
  *  - TW.readJsonScript(id, fallback)         ：讀取 <script type="application/json"
  *                                              id="..."> 內容並 JSON.parse，找不到或
  *                                              parse 失敗時回傳 fallback（預設 null）
+ *  - TW.onRoleViewInit(fn)                   ：雙角色球員頁切換到「第一次放進 document」
+ *                                              的角色內容時呼叫 fn（見 role-toggle.js
+ *                                              的 player-role-change 事件），各模組用來
+ *                                              對新內容重跑自己的初始化
  *  - TW.toggleCollapseGroup(els, arrowEl, openDisplay)
  *                                             ：展開/收合一個或一組元素（依第一個
  *                                              元素目前的 display 判斷開合狀態），
@@ -276,6 +280,15 @@ window.TW = (function () {
         return !wasOpen;
     }
 
+    // 雙角色球員頁：role-toggle.js 把某個角色的內容第一次放進 document 時
+    // （player-role-change 的 detail.fresh），呼叫 fn 讓模組對新內容重跑初始化。
+    // 此時另一個角色的元素已搬離 document，document 範圍的查詢只會找到新內容。
+    function onRoleViewInit(fn) {
+        document.addEventListener("player-role-change", function (event) {
+            if (event.detail && event.detail.fresh) fn();
+        });
+    }
+
     /**
      * 把 tooltip 定位在滑鼠附近：指標在 root 右半邊時貼在指標左側、左半邊時貼在
      * 右側（避免 tooltip 蓋住指標旁的節點/圓點），並把結果夾在 root 邊界內避免
@@ -332,5 +345,6 @@ window.TW = (function () {
         positionTooltipNearPointer: positionTooltipNearPointer,
         readJsonScript: readJsonScript,
         toggleCollapseGroup: toggleCollapseGroup,
+        onRoleViewInit: onRoleViewInit,
     };
 })();

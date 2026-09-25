@@ -72,7 +72,7 @@ GAME_FETCH_WORKERS = 50
 # 每場比賽會重抓剛好一次並標記新版本，即使 API 仍沒有該欄位（例如 2019 年
 # 以前沒有落點座標）也不會再抓。未完賽的比賽不會標記版本，下次一定重抓。
 # 注意：加 1 會讓全部比賽（約 1.6 萬場、每場數 MB 的 withMetrics）重抓一次。
-PBP_EXTRACT_VERSION = 1
+PBP_EXTRACT_VERSION = 2
 
 # The /content highlight index can lag behind the live feed; retry games with
 # zero videos for this many days after game date.

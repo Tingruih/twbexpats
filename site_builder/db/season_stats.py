@@ -34,7 +34,7 @@ def load_player_season_rows(cur, mlb_id: int) -> list[Obj]:
 
     ``stat_json`` 攤平到列上（與 ``year``/``team_name``/``sport_level`` 平級），
     所以 ``has_appearance`` / ``highest_level_row`` 可以直接讀 ``.gp``、``.pa`` 等欄位。
-    依年度新到舊、同年層級高到低排序。
+    依年度新到舊、同年層級高到低、同層級依隊名排序（結果與 DB 讀出順序無關）。
     """
     cur.execute(
         "SELECT year, team_name, league_name, sport_level, stat_json, fielding_json "
@@ -52,7 +52,7 @@ def load_player_season_rows(cur, mlb_id: int) -> list[Obj]:
         data.fielding_json = loads_json_list(fielding_json)
         data.level_order = level_rank(sport_level)
         rows.append(data)
-    rows.sort(key=lambda s: (-s.year, s.level_order))
+    rows.sort(key=lambda s: (-s.year, s.level_order, s.team_name))
     return rows
 
 
@@ -79,7 +79,9 @@ def save_season_row(
             team_name,
             league_name or "",
             sport_level or "",
-            dumps_json(stat_json),
+            # 依 key 排序存：打擊/投球群組的寫入順序跟著 API 回傳順序走，排序後
+            # 同一份資料不論順序存出來的文字都相同，兩個 DB 可以逐筆比對
+            dumps_json(dict(sorted(stat_json.items()))),
             dumps_json(fielding_json),
         ),
     )

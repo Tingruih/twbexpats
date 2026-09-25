@@ -11,7 +11,7 @@
         window.prefetchMobilePitchLogs();
     }
 
-    function init() {
+    function initFilters() {
         window.TWFilters.createLevelFilter({
             yearSelectId: "m-gamelog-year-select",
             levelSelectId: "m-gamelog-level-select",
@@ -31,6 +31,12 @@
                 if (panel) panel.style.display = "none";
             },
         });
+    }
+
+    function init() {
+        initFilters();
+        // 雙角色球員頁切到另一個角色時，對新放進來的卡片重新綁定（見 role-toggle.js）
+        window.TW.onRoleViewInit(initFilters);
 
         document.addEventListener('player-mobile-tab-change', function (event) {
             if (event.detail && event.detail.tab === 'gamelogs') warmupVisiblePitchLogs();

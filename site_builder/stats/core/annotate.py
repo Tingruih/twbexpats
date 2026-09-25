@@ -46,11 +46,11 @@ def annotate_row(s):
 
     # ─────────────────────────── BATTER fields ───────────────────────────
 
-    # P/PA: prefer pitches_per_pa alias, then compute from pitches_seen / PA
-    if s.get("p_per_pa") is None and s.get("pitches_per_pa") is not None:
-        s["p_per_pa"] = s.get("pitches_per_pa")
-    if s.get("p_per_pa") is None:
-        _fill(s, "p_per_pa", compute_p_per_pa(s.get("pitches_seen"), s.get("pa")))
+    # 打者 P/PA = 看球數 / PA；API 值（seasonAdvanced hitting 的
+    # pitchesPerPlateAppearance）缺值時才補算。不可退回投手的 pitches_per_bf：
+    # 同一列同時有打擊與投球時那是另一個角色的值
+    if s.get("pitches_seen_per_pa") is None:
+        _fill(s, "pitches_seen_per_pa", compute_p_per_pa(s.get("pitches_seen"), s.get("pa")))
 
     # XBH fallback from components
     if s.get("xbh") is None:
@@ -84,9 +84,9 @@ def annotate_row(s):
 
     # ─────────────────────────── PITCHER fields ──────────────────────────
 
-    # Pitcher P/PA alias: pitches_per_pa = pitches / BF
-    if s.get("pitches_per_pa") is None:
-        _fill(s, "pitches_per_pa", compute_p_per_pa(s.get("pitches"), s.get("bf")))
+    # 投手 P/PA = 用球數 / BF（面對打者數）
+    if s.get("pitches_per_bf") is None:
+        _fill(s, "pitches_per_bf", compute_p_per_pa(s.get("pitches"), s.get("bf")))
 
     # /9 rate stats require IP
     if outs and outs > 0:

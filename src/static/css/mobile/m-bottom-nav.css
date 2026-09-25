@@ -31,16 +31,39 @@
     justify-content: center;
     min-height: 48px;
     padding: 0.34rem 0.2rem;
+    position: relative;                 /* 選取指示條（::before）以按鈕定位 */
     touch-action: manipulation;
 }
 
+/* 圖示外框一律保留膠囊的空間（padding），選取時只加底色，
+   不會因為選取而改變按鈕高度或讓其他按鈕位移 */
 .m-bottom-nav-btn svg {
     fill: currentColor;
+    box-sizing: content-box;
     height: 19px;
     width: 19px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    transition: background 0.15s ease-in-out;
 }
 
+/* 選取：文字與圖示轉白、圖示墊一層淡白膠囊，按鈕頂端加 2px 白色指示條。
+   靠「指示條」這個形狀區分選取，而不只是亮度 */
 .m-bottom-nav-btn--active {
-    background: rgb(var(--primary-rgb) / 0.1);
     color: var(--text-1);
+}
+
+.m-bottom-nav-btn--active svg {
+    background: rgb(var(--primary-rgb) / 0.1);
+}
+
+.m-bottom-nav-btn--active::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 28%;
+    right: 28%;
+    height: 2px;
+    border-radius: 0 0 2px 2px;
+    background: var(--text-1);
 }
