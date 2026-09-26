@@ -41,7 +41,7 @@ def compute_season_woba(stat: dict) -> Optional[float]:
     doubles = stat.get("doubles") or 0
     triples = stat.get("triples") or 0
     hr = stat.get("hr") or 0
-    bb = stat.get("hit_bb") or 0
+    bb = stat.get("bb") or 0
     ibb = stat.get("ibb") or 0
     hbp = stat.get("hbp") or 0
     sac_flies = stat.get("sac_flies") or 0

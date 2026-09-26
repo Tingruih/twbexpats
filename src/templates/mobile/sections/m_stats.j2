@@ -42,7 +42,7 @@
                     <span class="m-sv">{{ sm.gp|num_dash }}</span><span class="m-sv">{{ sm.gs|num_dash }}</span><span class="m-sv">{{ sm.bf|num_dash }}</span><span class="m-sv">{{ sm.sv|num_dash }}</span><span class="m-sv">{{ sm.hld|num_dash }}</span>
                     <span class="m-stat-group-sep"></span>
                     <span class="m-sl">H</span><span class="m-sl">ER</span><span class="m-sl">HR</span><span class="m-sl">BB</span><span class="m-sl">HBP</span>
-                    <span class="m-sv">{{ sm.p_hits|num_dash }}</span><span class="m-sv">{{ sm.earned_runs|num_dash }}</span><span class="m-sv">{{ sm.p_hr|num_dash }}</span><span class="m-sv">{{ sm.bb|num_dash }}</span><span class="m-sv">{{ sm.p_hbp|num_dash }}</span>
+                    <span class="m-sv">{{ sm.hits|num_dash }}</span><span class="m-sv">{{ sm.earned_runs|num_dash }}</span><span class="m-sv">{{ sm.hr|num_dash }}</span><span class="m-sv">{{ sm.bb|num_dash }}</span><span class="m-sv">{{ sm.hbp|num_dash }}</span>
                 </div>
                 {% else %}
                 <div class="m-stat-featured-row">
@@ -60,10 +60,10 @@
                     <span class="m-sv">{{ sm.gp|num_dash }}</span><span class="m-sv">{{ sm.ab|num_dash }}</span><span class="m-sv">{{ sm.pa|num_dash }}</span><span class="m-sv">{{ sm.runs|num_dash }}</span><span class="m-sv">{{ sm.hits|num_dash }}</span>
                     <span class="m-stat-group-sep"></span>
                     <span class="m-sl">2B</span><span class="m-sl">3B</span><span class="m-sl">HR</span><span class="m-sl">RBI</span><span class="m-sl">BB</span>
-                    <span class="m-sv">{{ sm.doubles|num_dash }}</span><span class="m-sv">{{ sm.triples|num_dash }}</span><span class="m-sv">{{ sm.hr|num_dash }}</span><span class="m-sv">{{ sm.rbi|num_dash }}</span><span class="m-sv">{{ sm.hit_bb|num_dash }}</span>
+                    <span class="m-sv">{{ sm.doubles|num_dash }}</span><span class="m-sv">{{ sm.triples|num_dash }}</span><span class="m-sv">{{ sm.hr|num_dash }}</span><span class="m-sv">{{ sm.rbi|num_dash }}</span><span class="m-sv">{{ sm.bb|num_dash }}</span>
                     <span class="m-stat-group-sep"></span>
                     <span class="m-sl">SO</span><span class="m-sl">HBP</span><span class="m-sl">SB</span><span class="m-sl">CS</span><span class="m-sl">GDP</span>
-                    <span class="m-sv">{{ sm.h_so|num_dash }}</span><span class="m-sv">{{ sm.hbp|num_dash }}</span><span class="m-sv">{{ sm.sb|num_dash }}</span><span class="m-sv">{{ sm.cs|num_dash }}</span><span class="m-sv">{{ sm.gdp|num_dash }}</span>
+                    <span class="m-sv">{{ sm.so|num_dash }}</span><span class="m-sv">{{ sm.hbp|num_dash }}</span><span class="m-sv">{{ sm.sb|num_dash }}</span><span class="m-sv">{{ sm.cs|num_dash }}</span><span class="m-sv">{{ sm.gdp|num_dash }}</span>
                 </div>
                 {% endif %}
 
@@ -92,7 +92,7 @@
                             <span class="m-sv">{{ stat.gp|num_dash }}</span><span class="m-sv">{{ stat.gs|num_dash }}</span><span class="m-sv">{{ stat.bf|num_dash }}</span><span class="m-sv">{{ stat.sv|num_dash }}</span><span class="m-sv">{{ stat.hld|num_dash }}</span>
                             <span class="m-stat-group-sep"></span>
                             <span class="m-sl">H</span><span class="m-sl">ER</span><span class="m-sl">HR</span><span class="m-sl">BB</span><span class="m-sl">HBP</span>
-                            <span class="m-sv">{{ stat.p_hits|num_dash }}</span><span class="m-sv">{{ stat.earned_runs|num_dash }}</span><span class="m-sv">{{ stat.p_hr|num_dash }}</span><span class="m-sv">{{ stat.bb|num_dash }}</span><span class="m-sv">{{ stat.p_hbp|num_dash }}</span>
+                            <span class="m-sv">{{ stat.hits|num_dash }}</span><span class="m-sv">{{ stat.earned_runs|num_dash }}</span><span class="m-sv">{{ stat.hr|num_dash }}</span><span class="m-sv">{{ stat.bb|num_dash }}</span><span class="m-sv">{{ stat.hbp|num_dash }}</span>
                         </div>
                         {% else %}
                         <div class="m-stat-featured-row">
@@ -110,10 +110,10 @@
                             <span class="m-sv">{{ stat.gp|num_dash }}</span><span class="m-sv">{{ stat.ab|num_dash }}</span><span class="m-sv">{{ stat.pa|num_dash }}</span><span class="m-sv">{{ stat.runs|num_dash }}</span><span class="m-sv">{{ stat.hits|num_dash }}</span>
                             <span class="m-stat-group-sep"></span>
                             <span class="m-sl">2B</span><span class="m-sl">3B</span><span class="m-sl">HR</span><span class="m-sl">RBI</span><span class="m-sl">BB</span>
-                            <span class="m-sv">{{ stat.doubles|num_dash }}</span><span class="m-sv">{{ stat.triples|num_dash }}</span><span class="m-sv">{{ stat.hr|num_dash }}</span><span class="m-sv">{{ stat.rbi|num_dash }}</span><span class="m-sv">{{ stat.hit_bb|num_dash }}</span>
+                            <span class="m-sv">{{ stat.doubles|num_dash }}</span><span class="m-sv">{{ stat.triples|num_dash }}</span><span class="m-sv">{{ stat.hr|num_dash }}</span><span class="m-sv">{{ stat.rbi|num_dash }}</span><span class="m-sv">{{ stat.bb|num_dash }}</span>
                             <span class="m-stat-group-sep"></span>
                             <span class="m-sl">SO</span><span class="m-sl">HBP</span><span class="m-sl">SB</span><span class="m-sl">CS</span><span class="m-sl">GDP</span>
-                            <span class="m-sv">{{ stat.h_so|num_dash }}</span><span class="m-sv">{{ stat.hbp|num_dash }}</span><span class="m-sv">{{ stat.sb|num_dash }}</span><span class="m-sv">{{ stat.cs|num_dash }}</span><span class="m-sv">{{ stat.gdp|num_dash }}</span>
+                            <span class="m-sv">{{ stat.so|num_dash }}</span><span class="m-sv">{{ stat.hbp|num_dash }}</span><span class="m-sv">{{ stat.sb|num_dash }}</span><span class="m-sv">{{ stat.cs|num_dash }}</span><span class="m-sv">{{ stat.gdp|num_dash }}</span>
                         </div>
                         {% endif %}
                     </div>

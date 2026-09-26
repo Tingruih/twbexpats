@@ -6,6 +6,7 @@ field is only ever set when its current value is None, so API-supplied values
 are never overwritten.
 """
 
+from ...positions import BATTER
 from ..batting.ab_per_hr import compute_ab_per_hr
 from ..batting.babip import compute_babip
 from ..batting.bb_pct import compute_bb_pct
@@ -34,23 +35,26 @@ def _fill(s, field, value):
         s[field] = value
 
 
-def annotate_row(s):
-    """Fill in derived advanced stats on an Obj (or any dict-like).
+def annotate_row(s, role: str):
+    """Fill in ``role``'s derived advanced stats on an Obj (or any dict-like).
 
+    ``s`` 必須已投影到 ``role``（``positions.project_role``）：打擊與投球共用的
+    概念名（``so`` / ``hits`` / ``k_pct`` 等）此時就是這個角色的值，所以兩個角色
+    讀寫同一組 key，只有分母不同（打者 PA、投手 BF）。
     Only sets a field when its current value is None so that API-supplied
-    values are never overwritten.  Works for both per-row and summary rows,
-    and for both batters and pitchers (all fields guarded by None-checks).
+    values are never overwritten.  Works for both per-row and summary rows.
     """
-    # ── outs 是所有投手率的分母（見 core/innings.py 為何不用浮點局數） ──
-    outs = ip_to_outs(s["ip"]) if s.get("ip") is not None else s.get("outs")
+    if role == BATTER:
+        _annotate_batter(s)
+    else:
+        _annotate_pitcher(s)
 
-    # ─────────────────────────── BATTER fields ───────────────────────────
 
+def _annotate_batter(s):
     # 打者 P/PA = 看球數 / PA；API 值（seasonAdvanced hitting 的
-    # pitchesPerPlateAppearance）缺值時才補算。不可退回投手的 pitches_per_bf：
-    # 同一列同時有打擊與投球時那是另一個角色的值
-    if s.get("pitches_seen_per_pa") is None:
-        _fill(s, "pitches_seen_per_pa", compute_p_per_pa(s.get("pitches_seen"), s.get("pa")))
+    # pitchesPerPlateAppearance）缺值時才補算
+    if s.get("pitches_per_pa") is None:
+        _fill(s, "pitches_per_pa", compute_p_per_pa(s.get("pitches"), s.get("pa")))
 
     # XBH fallback from components
     if s.get("xbh") is None:
@@ -61,32 +65,34 @@ def annotate_row(s):
 
     if s.get("babip") is None:
         _fill(s, "babip", compute_babip(
-            s.get("hits"), s.get("hr"), s.get("ab"), s.get("h_so"),
+            s.get("hits"), s.get("hr"), s.get("ab"), s.get("so"),
             s.get("sac_flies") or 0,
         ))
 
     if s.get("ab_per_hr") is None:
         _fill(s, "ab_per_hr", compute_ab_per_hr(s.get("ab"), s.get("hr")))
 
-    # Batter GO/AO
     if s.get("go_ao") is None:
-        _fill(s, "go_ao", compute_go_ao(s.get("h_ground_outs"), s.get("h_air_outs")))
+        _fill(s, "go_ao", compute_go_ao(s.get("ground_outs"), s.get("air_outs")))
 
     if s.get("sb_pct") is None:
         _fill(s, "sb_pct", compute_sb_pct(s.get("sb"), s.get("cs")))
 
     # Batter K% / BB% use PA as denominator
     if s.get("k_pct") is None:
-        _fill(s, "k_pct", compute_k_pct(s.get("h_so"), s.get("pa")))
+        _fill(s, "k_pct", compute_k_pct(s.get("so"), s.get("pa")))
 
     if s.get("bb_pct") is None:
-        _fill(s, "bb_pct", compute_bb_pct(s.get("hit_bb"), s.get("pa")))
+        _fill(s, "bb_pct", compute_bb_pct(s.get("bb"), s.get("pa")))
 
-    # ─────────────────────────── PITCHER fields ──────────────────────────
+
+def _annotate_pitcher(s):
+    # ── outs 是所有投手率的分母（見 core/innings.py 為何不用浮點局數） ──
+    outs = ip_to_outs(s["ip"]) if s.get("ip") is not None else s.get("outs")
 
     # 投手 P/PA = 用球數 / BF（面對打者數）
-    if s.get("pitches_per_bf") is None:
-        _fill(s, "pitches_per_bf", compute_p_per_pa(s.get("pitches"), s.get("bf")))
+    if s.get("pitches_per_pa") is None:
+        _fill(s, "pitches_per_pa", compute_p_per_pa(s.get("pitches"), s.get("bf")))
 
     # /9 rate stats require IP
     if outs and outs > 0:
@@ -95,9 +101,9 @@ def annotate_row(s):
         if s.get("bb_per_9") is None:
             _fill(s, "bb_per_9", compute_bb_per_9(s.get("bb"), outs))
         if s.get("h_per_9") is None:
-            _fill(s, "h_per_9", compute_h_per_9(s.get("p_hits"), outs))
+            _fill(s, "h_per_9", compute_h_per_9(s.get("hits"), outs))
         if s.get("hr_per_9") is None:
-            _fill(s, "hr_per_9", compute_hr_per_9(s.get("p_hr"), outs))
+            _fill(s, "hr_per_9", compute_hr_per_9(s.get("hr"), outs))
         if s.get("p_per_ip") is None:
             _fill(s, "p_per_ip", compute_p_per_ip(s.get("pitches"), outs))
         if s.get("rs_per_9") is None:
@@ -106,44 +112,40 @@ def annotate_row(s):
     if s.get("k_bb_ratio") is None:
         _fill(s, "k_bb_ratio", compute_k_bb_ratio(s.get("so"), s.get("bb")))
 
-    # Pitcher K% / BB% use BF as denominator (FanGraphs: SO / TBF, BB / TBF)。
-    # 用 p_ 前綴獨立存放：season_stats 同一列會同時帶 hitting 與 pitching
-    # 兩組數據（sync/players.py 把兩個 group 寫進同一份 stat_json），若與打者
-    # 共用 k_pct / bb_pct，上面的打者公式會先佔住欄位，投手值就寫不進來。
-    if s.get("p_k_pct") is None:
-        _fill(s, "p_k_pct", compute_k_pct(s.get("so"), s.get("bf")))
+    # Pitcher K% / BB% use BF as denominator (FanGraphs: SO / TBF, BB / TBF)
+    if s.get("k_pct") is None:
+        _fill(s, "k_pct", compute_k_pct(s.get("so"), s.get("bf")))
 
-    if s.get("p_bb_pct") is None:
-        _fill(s, "p_bb_pct", compute_bb_pct(s.get("bb"), s.get("bf")))
+    if s.get("bb_pct") is None:
+        _fill(s, "bb_pct", compute_bb_pct(s.get("bb"), s.get("bf")))
 
     if s.get("strike_pct") is None:
         _fill(s, "strike_pct", compute_strike_pct(s.get("strikes"), s.get("pitches")))
 
-    # Pitcher BABIP = (H - HR) / (AB - SO - HR + SF),與打者版公式對稱。
-    # 這裡用 p_ab(對方打數)而不是 bf(面對打者數)當分母基準:
+    # Pitcher BABIP = (H - HR) / (AB - SO - HR + SF),與打者版公式相同。
+    # 用 ab(對方打數)而不是 bf(面對打者數)當分母基準:
     # AB 依官方規則定義本來就已經排除 BB/HBP/SH,只需再加回 SF;
-    # 舊版用 BF(≈PA)當基準卻只扣掉 BB,漏扣 HBP 和 SH(犧牲短打),
+    # 用 BF(≈PA)當基準卻只扣掉 BB 會漏扣 HBP 和 SH(犧牲短打),
     # 導致分母灌水、BABIP 被系統性低估。
-    if s.get("p_babip") is None:
-        _fill(s, "p_babip", compute_babip(
-            s.get("p_hits"), s.get("p_hr"), s.get("p_ab"), s.get("so"),
-            s.get("p_sac_flies") or 0,
+    if s.get("babip") is None:
+        _fill(s, "babip", compute_babip(
+            s.get("hits"), s.get("hr"), s.get("ab"), s.get("so"),
+            s.get("sac_flies") or 0,
         ))
 
-    # Pitcher GO/AO
-    if s.get("p_go_ao") is None:
-        _fill(s, "p_go_ao", compute_go_ao(s.get("p_ground_outs"), s.get("p_air_outs")))
+    if s.get("go_ao") is None:
+        _fill(s, "go_ao", compute_go_ao(s.get("ground_outs"), s.get("air_outs")))
 
     if s.get("win_pct") is None:
         _fill(s, "win_pct", compute_win_pct(s.get("wins"), s.get("losses")))
 
-    # Pitcher batting line (opponents): p_avg, p_obp, p_slg, p_ops
+    # Pitcher batting line (opponents): avg / obp / slg / ops
     annotate_opponent_slash(s)
 
 
-def annotate_computed_stats(all_stats):
-    """Add derived fields to each stat row (np alias + all advanced stats)."""
+def annotate_computed_stats(all_stats, role: str):
+    """Add ``role``'s derived fields to each stat row (np alias + all advanced stats)."""
     for stat in all_stats:
         stat.np = stat.pitches
-        annotate_row(stat)
+        annotate_row(stat, role)
     return all_stats

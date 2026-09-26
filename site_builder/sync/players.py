@@ -29,7 +29,7 @@ from ..db.season_stats import (
     save_season_row,
 )
 from ..levels import MINORS_KEY, sport_to_tier_key
-from ..positions import role_field, role_for_stat_group
+from ..positions import is_fielding_entry, role_field, role_of_stats_entry
 from ..roster import (
     STATUS_INACTIVE,
     categorize_roster_status,
@@ -243,7 +243,9 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
 
     # yearByYear stats
     for stat_group in bundle["stats_groups"]:
-        group_name = stat_group.get("group", {}).get("displayName", "").lower()
+        # stats[].group.displayName：hitting / pitching 對應角色，fielding 沒有角色
+        role = role_of_stats_entry(stat_group)
+        is_fielding = is_fielding_entry(stat_group)
         stat_type = stat_group.get("type", {}).get("displayName", "")
         if stat_type != "yearByYear":
             continue
@@ -262,12 +264,11 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
             # 打擊與投球的 gamesPlayed 是兩個不同的數（投手上場打擊、野手登板），
             # 依角色分存 gp / p_gp，否則誰後寫誰贏；fielding 的 gamesPlayed 是
             # 單一守位的出賽數，不寫進 gp
-            role = role_for_stat_group(group_name)
             if role:
                 stat_doc[role_field(role, "gp")] = safe_int(stat.get("gamesPlayed"))
-            apply_yearbyyear_fields(stat_doc, group_name, stat)
+                apply_yearbyyear_fields(stat_doc, role, stat)
 
-            if group_name == "fielding":
+            if is_fielding:
                 pos_abbr = split.get("position", {}).get("abbreviation", "")
                 if pos_abbr:
                     entry = {
@@ -306,7 +307,10 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
 
     # seasonAdvanced stats
     for stat_group in bundle["adv_groups"]:
-        group_name = stat_group.get("group", {}).get("displayName", "").lower()
+        role = role_of_stats_entry(stat_group)
+        # seasonAdvanced 只請求 hitting / pitching，理論上不會出現其他 group
+        if role is None:
+            continue
         for split in stat_group.get("splits", []):
             yr = safe_int(split.get("season"))
             team_name = split.get("team", {}).get("name", "")
@@ -315,7 +319,7 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
 
             row = load_season_row(cur, mlb_id, yr, team_name)
             stat_doc = row["stat_json"]
-            apply_advanced_fields(stat_doc, group_name, split.get("stat", {}))
+            apply_advanced_fields(stat_doc, role, split.get("stat", {}))
 
             save_season_row(
                 cur,
@@ -361,7 +365,7 @@ def _write_player_to_db(conn: sqlite3.Connection, bundle: dict, year: int):
             if log_group.get("type", {}).get("displayName", "") != "gameLog":
                 continue
             # stats[].group.displayName：hitting / pitching 各自一列，同場又投又打是兩列
-            role = role_for_stat_group(log_group.get("group", {}).get("displayName"))
+            role = role_of_stats_entry(log_group)
             # 請求只帶 group=hitting,pitching，理論上不會出現其他 group
             if role is None:
                 continue

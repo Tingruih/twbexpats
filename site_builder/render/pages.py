@@ -27,7 +27,6 @@ from ..positions import BATTER, PITCHER, ROLES, primary_role, project_role, role
 from ..roster import is_active_player, parse_roster_from_file
 from ..stats.advanced.wrc_plus import annotate_wrc_plus
 from ..stats.advanced.xwpct import compute_xwpct
-from ..stats.batter_statcast import compute_batter_statcast
 from ..stats.core.aggregate import aggregate_stats
 from ..stats.core.annotate import annotate_computed_stats, annotate_row
 from ..stats.core.career import (
@@ -36,7 +35,7 @@ from ..stats.core.career import (
 )
 from ..stats.core.innings import ip_to_outs
 from ..stats.core.selectors import appeared_roles, has_appearance, highest_level_row
-from ..stats.pitcher_statcast import compute_pitcher_statcast
+from ..stats.role_statcast import compute_statcast
 from ..util.dates import TW_TZ
 from ..util.numbers import safe_int
 from ..util.units import height_to_cm, lbs_to_kg
@@ -105,7 +104,7 @@ _COMBINED_EMPTY_DEFAULTS = {
 }
 
 
-def _statcast_row_qualifies(is_pitcher: bool, s) -> bool:
+def _statcast_row_qualifies(role: str, s) -> bool:
     """Whether a season_stats row belongs in the Statcast section at all.
 
     Real Statcast data always qualifies.  A batter row without it still does
@@ -114,7 +113,7 @@ def _statcast_row_qualifies(is_pitcher: bool, s) -> bool:
     """
     if s.get("statcast"):
         return True
-    if is_pitcher or not publishes_constants(s.sport_level, s.year):
+    if role == PITCHER or not publishes_constants(s.sport_level, s.year):
         return False
     field = "wrc_plus_calc" if is_mlb(s.sport_level) else "wrc_plus"
     return s.get(field) is not None
@@ -129,7 +128,7 @@ def _first_not_none(rows, field):
     return None
 
 
-def _merge_level_rows(rows):
+def _merge_level_rows(rows, role: str):
     """Collapse one (year, level) group's season_stats rows into a single row.
 
     A player traded inside the same level gets one season_stats row per club,
@@ -156,13 +155,13 @@ def _merge_level_rows(rows):
     if len(rows) == 1:
         return rows[0]
 
-    merged = aggregate_stats(rows)
+    merged = aggregate_stats(rows, role)
     merged["year"] = rows[0].year
     merged["sport_level"] = rows[0].sport_level
     merged["level_order"] = rows[0].level_order
     merged["team_name"] = " / ".join(r.team_name for r in rows if r.team_name)
     merged["np"] = merged.get("pitches")
-    annotate_row(merged)
+    annotate_row(merged, role)
 
     lg_era = _first_not_none(rows, "lg_era")
     merged["lg_era"] = lg_era
@@ -211,10 +210,10 @@ def _pooled_year_pitches(logs) -> dict[int, list[dict]]:
     return by_year
 
 
-def _build_statcast_entries(is_pitcher: bool, stats, logs) -> dict[int, list]:
+def _build_statcast_entries(role: str, stats, logs) -> dict[int, list]:
     """Season Statcast entries keyed by year.
 
-    ``is_pitcher`` 是「這個檢視」的角色，不是球員的主要守位：雙角色球員的
+    ``role`` 是「這個檢視」的角色，不是球員的主要守位：雙角色球員的
     次要角色檢視也走這裡（見 :func:`_build_role_view`）。
 
     Each entry is ``{sport_level, team_name, sc, stat}``.  Level rows are
@@ -224,7 +223,7 @@ def _build_statcast_entries(is_pitcher: bool, stats, logs) -> dict[int, list]:
 
     A year spanning 2+ levels also gets a ``_combined`` entry whose ``sc`` is
     that year's raw pitches pooled across every level, run through the *same*
-    ``compute_*_statcast()`` the per-level rows use.  Never a weighted average
+    ``stats.role_statcast.compute_statcast()`` the per-level rows use (sync).  Never a weighted average
     of already-aggregated values: each column has its own denominator, so one
     shared weight cannot be right for all of them, and a percentile like EV90
     cannot be recovered by any weighting at all.  A single-level year gets no
@@ -244,15 +243,15 @@ def _build_statcast_entries(is_pitcher: bool, stats, logs) -> dict[int, list]:
     for year, by_tier in rows_by_year_tier.items():
         entries = []
         for rows in by_tier.values():
-            if not any(_statcast_row_qualifies(is_pitcher, r) for r in rows):
+            if not any(_statcast_row_qualifies(role, r) for r in rows):
                 continue
             sc = dict(_first_not_none(rows, "statcast") or {})
-            if is_pitcher:
+            if role == PITCHER:
                 # pitch_movement is already computed per level by the statcast
                 # pipeline and stored on this row's statcast dict; just ensure
                 # the key exists for older rows predating that field.
                 sc.setdefault("pitch_movement", {})
-            merged = _merge_level_rows(rows)
+            merged = _merge_level_rows(rows, role)
             entries.append({
                 "sport_level": merged.sport_level,
                 "team_name": merged.team_name,
@@ -266,11 +265,7 @@ def _build_statcast_entries(is_pitcher: bool, stats, logs) -> dict[int, list]:
         if len(entries) > 1:
             if pooled is None:
                 pooled = _pooled_year_pitches(logs)
-            compute = (
-                compute_pitcher_statcast if is_pitcher
-                else compute_batter_statcast
-            )
-            combined_sc = compute(pooled.get(year, []))
+            combined_sc = compute_statcast(role, pooled.get(year, []))
             for key, empty in _COMBINED_EMPTY_DEFAULTS.items():
                 combined_sc.setdefault(key, empty())
             entries.insert(0, {
@@ -383,8 +378,8 @@ def _build_role_view(stats, logs, role: str, player, year: int,
         player_trend_by_year = build_batter_trend_by_year(logs_by_year)
         trend_stat_options = BATTER_TREND_STAT_OPTIONS
 
-    stats = annotate_computed_stats(stats)
-    stats_year_groups = compute_year_groups(stats)
+    stats = annotate_computed_stats(stats, role)
+    stats_year_groups = compute_year_groups(stats, role)
 
     stats_current = [s for s in stats if s.year == year and has_appearance(s)]
     stats_current.sort(key=lambda x: x.level_order)
@@ -407,7 +402,7 @@ def _build_role_view(stats, logs, role: str, player, year: int,
 
     # Season-level Statcast entries keyed by year (one row per level, plus a
     # pooled "_combined" entry for years spanning 2+ levels).
-    statcast_by_year = _build_statcast_entries(is_pitcher, stats, logs)
+    statcast_by_year = _build_statcast_entries(role, stats, logs)
 
     return {
         "role": role,
@@ -420,9 +415,9 @@ def _build_role_view(stats, logs, role: str, player, year: int,
         "available_log_years": available_log_years,
         "player_trend_by_year": player_trend_by_year,
         "trend_stat_options": trend_stat_options,
-        "milb_career": compute_career(stats, level_filter="milb"),
-        "mlb_career": compute_career(stats, level_filter="mlb"),
-        "total_career": compute_career(stats, level_filter=None),
+        "milb_career": compute_career(stats, role, level_filter="milb"),
+        "mlb_career": compute_career(stats, role, level_filter="mlb"),
+        "total_career": compute_career(stats, role, level_filter=None),
         "latest_team_stat": latest_team_stat,
         "latest_team_stat_year": latest_team_stat_year,
         "season_combined": season_combined,
@@ -642,7 +637,7 @@ def build_static_site(
     retired_template = env.get_template("retired.j2")
     retired_data = []
     for player, stats, logs in retired_bundles:
-        career = compute_career(stats, level_filter=None)
+        career = compute_career(stats, primary_role(player.position), level_filter=None)
         # Badge shows the highest level ever reached, displayed with the
         # period-accurate name for the year it was reached (e.g. a 2018 High-A
         # peak reads "A(Adv)", not "A+").

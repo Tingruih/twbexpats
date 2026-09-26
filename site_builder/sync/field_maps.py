@@ -1,148 +1,128 @@
-"""MLB Stats API stat-field → local column-name mappings."""
+"""MLB Stats API stat-field → local column-name mappings.
 
+兩個 stat group 同名的 API 欄位只登記一次（``_YEARBYYEAR_SHARED`` /
+``_ADVANCED_SHARED``），寫入時由 ``positions.role_field`` 決定 key：打擊存概念名、
+投球存 ``p_<概念名>``。只屬於一個角色的欄位各自一張表，key 不加前綴。
+
+比率欄位一律存 float：API 以字串給值，分母為零時給 ".---" / "-.--"、
+舊 MiLB 資料可能整欄缺，safe_float 全部收斂成 None，annotate_row 的 is None
+檢查才能補算；顯示格式由 render 的 floatformat 決定。
+"""
+
+from ..positions import BATTER, PITCHER, role_field
 from ..util.numbers import safe_float, safe_int
 
+# (API 欄位, 概念名, 轉型)；概念名必須登記在 positions.ROLE_SPLIT_FIELDS
+_YEARBYYEAR_SHARED = (
+    ("atBats", "ab", safe_int),
+    ("hits", "hits", safe_int),
+    ("doubles", "doubles", safe_int),
+    ("triples", "triples", safe_int),
+    ("homeRuns", "hr", safe_int),
+    ("totalBases", "tb", safe_int),
+    ("runs", "runs", safe_int),
+    ("baseOnBalls", "bb", safe_int),
+    ("intentionalWalks", "ibb", safe_int),
+    ("strikeOuts", "so", safe_int),
+    ("hitByPitch", "hbp", safe_int),
+    ("stolenBases", "sb", safe_int),
+    ("caughtStealing", "cs", safe_int),
+    ("groundIntoDoublePlay", "gdp", safe_int),
+    ("sacBunts", "sac_bunts", safe_int),
+    ("sacFlies", "sac_flies", safe_int),
+    ("groundOuts", "ground_outs", safe_int),
+    ("airOuts", "air_outs", safe_int),
+    ("numberOfPitches", "pitches", safe_int),
+    ("avg", "avg", safe_float),
+    ("obp", "obp", safe_float),
+    ("slg", "slg", safe_float),
+    ("ops", "ops", safe_float),
+    ("babip", "babip", safe_float),
+    ("groundOutsToAirouts", "go_ao", safe_float),
+    ("stolenBasePercentage", "sb_pct", safe_float),
+)
 
-def apply_yearbyyear_fields(stat_doc: dict, group_name: str, stat: dict):
-    # 比率欄位一律存 float：API 以字串給值，分母為零時給 ".---" / "-.--"、
-    # 舊 MiLB 資料可能整欄缺，safe_float 全部收斂成 None，
-    # annotate_row 的 is None 檢查才能補算；顯示格式由 render 的 floatformat 決定
-    if group_name == "pitching":
-        stat_doc.update(
-            {
-                "era": safe_float(stat.get("era")),
-                "whip": safe_float(stat.get("whip")),
-                "ip": safe_float(stat.get("inningsPitched")),
-                "so": safe_int(stat.get("strikeOuts")),
-                "wins": safe_int(stat.get("wins")),
-                "losses": safe_int(stat.get("losses")),
-                "bb": safe_int(stat.get("baseOnBalls")),
-                "sv": safe_int(stat.get("saves")),
-                "hld": safe_int(stat.get("holds")),
-                "gs": safe_int(stat.get("gamesStarted")),
-                "earned_runs": safe_int(stat.get("earnedRuns")),
-                "pitches": safe_int(stat.get("numberOfPitches")),
-                "bf": safe_int(stat.get("battersFaced")),
-                "k_per_9": safe_float(stat.get("strikeoutsPer9Inn")),
-                "bb_per_9": safe_float(stat.get("walksPer9Inn")),
-                "h_per_9": safe_float(stat.get("hitsPer9Inn")),
-                "k_bb_ratio": safe_float(stat.get("strikeoutWalkRatio")),
-                "hr_per_9": safe_float(stat.get("homeRunsPer9")),
-                "p_per_ip": safe_float(stat.get("pitchesPerInning")),
-                "win_pct": safe_float(stat.get("winPercentage")),
-                "strike_pct": safe_float(stat.get("strikePercentage")),
-                "p_ground_outs": safe_int(stat.get("groundOuts")),
-                "p_air_outs": safe_int(stat.get("airOuts")),
-                "runs_allowed": safe_int(stat.get("runs")),
-                "p_hits": safe_int(stat.get("hits")),
-                "p_hr": safe_int(stat.get("homeRuns")),
-                "p_hbp": safe_int(stat.get("hitByPitch")),
-                "p_ibb": safe_int(stat.get("intentionalWalks")),
-                "p_sb": safe_int(stat.get("stolenBases")),
-                "p_cs": safe_int(stat.get("caughtStealing")),
-                "p_gdp": safe_int(stat.get("groundIntoDoublePlay")),
-                "p_doubles": safe_int(stat.get("doubles")),
-                "p_triples": safe_int(stat.get("triples")),
-                "p_tb": safe_int(stat.get("totalBases")),
-                "p_ab": safe_int(stat.get("atBats")),
-                "svo": safe_int(stat.get("saveOpportunities")),
-                "outs": safe_int(stat.get("outs")),
-                "cg": safe_int(stat.get("completeGames")),
-                "sho": safe_int(stat.get("shutouts")),
-                "strikes": safe_int(stat.get("strikes")),
-                "balks": safe_int(stat.get("balks")),
-                "wp": safe_int(stat.get("wildPitches")),
-                "pickoffs": safe_int(stat.get("pickoffs")),
-                "gf": safe_int(stat.get("gamesFinished")),
-                "ir": safe_int(stat.get("inheritedRunners")),
-                "irs": safe_int(stat.get("inheritedRunnersScored")),
-                "p_sac_bunts": safe_int(stat.get("sacBunts")),
-                "p_sac_flies": safe_int(stat.get("sacFlies")),
-                "p_avg": safe_float(stat.get("avg")),
-                "p_obp": safe_float(stat.get("obp")),
-                "p_slg": safe_float(stat.get("slg")),
-                "p_ops": safe_float(stat.get("ops")),
-                "p_sb_pct": safe_float(stat.get("stolenBasePercentage")),
-                "p_babip": safe_float(stat.get("babip")),
-                "p_go_ao": safe_float(stat.get("groundOutsToAirouts")),
-                "qs": safe_int(stat.get("qualityStarts")),
-            }
-        )
-    elif group_name == "hitting":
-        stat_doc.update(
-            {
-                "avg": safe_float(stat.get("avg")),
-                "obp": safe_float(stat.get("obp")),
-                "slg": safe_float(stat.get("slg")),
-                "ops": safe_float(stat.get("ops")),
-                "hr": safe_int(stat.get("homeRuns")),
-                "rbi": safe_int(stat.get("rbi")),
-                "sb": safe_int(stat.get("stolenBases")),
-                "cs": safe_int(stat.get("caughtStealing")),
-                "ab": safe_int(stat.get("atBats")),
-                "hits": safe_int(stat.get("hits")),
-                "hit_bb": safe_int(stat.get("baseOnBalls")),
-                "pa": safe_int(stat.get("plateAppearances")),
-                "doubles": safe_int(stat.get("doubles")),
-                "triples": safe_int(stat.get("triples")),
-                "tb": safe_int(stat.get("totalBases")),
-                "hbp": safe_int(stat.get("hitByPitch")),
-                "gdp": safe_int(stat.get("groundIntoDoublePlay")),
-                "runs": safe_int(stat.get("runs")),
-                "h_so": safe_int(stat.get("strikeOuts")),
-                "ibb": safe_int(stat.get("intentionalWalks")),
-                "h_ground_outs": safe_int(stat.get("groundOuts")),
-                "h_air_outs": safe_int(stat.get("airOuts")),
-                "pitches_seen": safe_int(stat.get("numberOfPitches")),
-                "lob": safe_int(stat.get("leftOnBase")),
-                "sac_bunts": safe_int(stat.get("sacBunts")),
-                "sac_flies": safe_int(stat.get("sacFlies")),
-                "ci": safe_int(stat.get("catchersInterference")),
-                "babip": safe_float(stat.get("babip")),
-                "go_ao": safe_float(stat.get("groundOutsToAirouts")),
-                "sb_pct": safe_float(stat.get("stolenBasePercentage")),
-                "cs_pct": safe_float(stat.get("caughtStealingPercentage")),
-                "ab_per_hr": safe_float(stat.get("atBatsPerHomeRun")),
-            }
-        )
+_YEARBYYEAR_ONLY = {
+    BATTER: (
+        ("plateAppearances", "pa", safe_int),
+        ("rbi", "rbi", safe_int),
+        ("leftOnBase", "lob", safe_int),
+        ("catchersInterference", "ci", safe_int),
+        ("caughtStealingPercentage", "cs_pct", safe_float),
+        ("atBatsPerHomeRun", "ab_per_hr", safe_float),
+    ),
+    PITCHER: (
+        ("era", "era", safe_float),
+        ("whip", "whip", safe_float),
+        ("inningsPitched", "ip", safe_float),
+        ("wins", "wins", safe_int),
+        ("losses", "losses", safe_int),
+        ("saves", "sv", safe_int),
+        ("holds", "hld", safe_int),
+        ("gamesStarted", "gs", safe_int),
+        ("earnedRuns", "earned_runs", safe_int),
+        ("battersFaced", "bf", safe_int),
+        ("strikeoutsPer9Inn", "k_per_9", safe_float),
+        ("walksPer9Inn", "bb_per_9", safe_float),
+        ("hitsPer9Inn", "h_per_9", safe_float),
+        ("strikeoutWalkRatio", "k_bb_ratio", safe_float),
+        ("homeRunsPer9", "hr_per_9", safe_float),
+        ("pitchesPerInning", "p_per_ip", safe_float),
+        ("winPercentage", "win_pct", safe_float),
+        ("strikePercentage", "strike_pct", safe_float),
+        ("saveOpportunities", "svo", safe_int),
+        ("outs", "outs", safe_int),
+        ("completeGames", "cg", safe_int),
+        ("shutouts", "sho", safe_int),
+        ("strikes", "strikes", safe_int),
+        ("balks", "balks", safe_int),
+        ("wildPitches", "wp", safe_int),
+        ("pickoffs", "pickoffs", safe_int),
+        ("gamesFinished", "gf", safe_int),
+        ("inheritedRunners", "ir", safe_int),
+        ("inheritedRunnersScored", "irs", safe_int),
+        ("qualityStarts", "qs", safe_int),
+    ),
+}
+
+# pitchesPerPlateAppearance 兩個 group 同名：打擊是看球數 / PA，投球是用球數 / BF，
+# 與 k_pct 等一樣依角色分存，投影後同一個概念名在各自檢視代表各自的分母
+_ADVANCED_SHARED = (
+    ("gidpOpp", "gidpo", safe_int),
+    ("babip", "babip", safe_float),
+    ("pitchesPerPlateAppearance", "pitches_per_pa", safe_float),
+)
+
+_ADVANCED_ONLY = {
+    BATTER: (
+        ("reachedOnError", "roe", safe_int),
+        ("walkOffs", "wo", safe_int),
+        ("extraBaseHits", "xbh", safe_int),
+    ),
+    PITCHER: (
+        ("qualityStarts", "qs", safe_int),
+        ("bequeathedRunners", "bqr", safe_int),
+        ("bequeathedRunnersScored", "bqr_s", safe_int),
+        ("runSupport", "run_support", safe_int),
+        ("runsScoredPer9", "rs_per_9", safe_float),
+    ),
+}
 
 
-def apply_advanced_fields(stat_doc: dict, group_name: str, stat: dict):
-    if group_name == "hitting":
-        for api_key, local_key in [
-            ("reachedOnError", "roe"),
-            ("walkOffs", "wo"),
-            ("gidpOpp", "gidpo"),
-            ("extraBaseHits", "xbh"),
-        ]:
-            val = safe_int(stat.get(api_key))
-            if val is not None:
-                stat_doc[local_key] = val
-        # pitchesPerPlateAppearance 在兩個 group 同名但意義不同：打擊是
-        # 看球數 / PA，投球是用球數 / BF，各自存成以分子分母命名的 key
-        for api_key, local_key in [
-            ("babip", "babip"),
-            ("pitchesPerPlateAppearance", "pitches_seen_per_pa"),
-        ]:
-            val = safe_float(stat.get(api_key))
-            if val is not None:
-                stat_doc[local_key] = val
-    elif group_name == "pitching":
-        for api_key, local_key in [
-            ("qualityStarts", "qs"),
-            ("bequeathedRunners", "bqr"),
-            ("bequeathedRunnersScored", "bqr_s"),
-            ("gidpOpp", "p_gidpo"),
-            ("runSupport", "run_support"),
-        ]:
-            val = safe_int(stat.get(api_key))
-            if val is not None:
-                stat_doc[local_key] = val
-        for api_key, local_key in [
-            ("runsScoredPer9", "rs_per_9"),
-            ("babip", "p_babip"),
-            ("pitchesPerPlateAppearance", "pitches_per_bf"),
-        ]:
-            val = safe_float(stat.get(api_key))
-            if val is not None:
-                stat_doc[local_key] = val
+def apply_yearbyyear_fields(stat_doc: dict, role: str, stat: dict):
+    """yearByYear 一個角色的 ``stat`` 寫入 ``stat_doc``；缺值也寫 None（整組覆寫）。"""
+    for api_key, name, cast in _YEARBYYEAR_SHARED:
+        stat_doc[role_field(role, name)] = cast(stat.get(api_key))
+    for api_key, key, cast in _YEARBYYEAR_ONLY[role]:
+        stat_doc[key] = cast(stat.get(api_key))
+
+
+def apply_advanced_fields(stat_doc: dict, role: str, stat: dict):
+    """seasonAdvanced 一個角色的 ``stat`` 補進 ``stat_doc``；缺值不寫，保留 yearByYear 的值。"""
+    fields = [(api_key, role_field(role, name), cast)
+              for api_key, name, cast in _ADVANCED_SHARED]
+    fields += _ADVANCED_ONLY[role]
+    for api_key, key, cast in fields:
+        val = cast(stat.get(api_key))
+        if val is not None:
+            stat_doc[key] = val

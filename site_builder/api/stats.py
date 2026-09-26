@@ -9,6 +9,7 @@ sabermetrics / expectedStatistics).
 from typing import Optional
 
 from ..constants import GAME_LOG_GAME_TYPES
+from ..positions import ROLES, stat_group_for_role, stat_groups_param
 from .client import BASE_URL, get_json
 
 # leagueListId：不帶時 API 只回 MLB；mlb_milb（官方 LeagueListsEnum 的 MLB_MILB）
@@ -49,7 +50,9 @@ def get_player_stats(mlb_id: int) -> list:
 
     回傳所有年份的選手MLB與MiLB基礎數據，包含打擊、投球和守備。
     """
-    return _fetch_stats(mlb_id, "stats=yearByYear&group=hitting,pitching,fielding")
+    return _fetch_stats(
+        mlb_id, f"stats=yearByYear&group={stat_groups_param(ROLES, fielding=True)}"
+    )
 
 
 def get_player_advanced_stats(mlb_id: int, years: Optional[list[int]] = None) -> list:
@@ -59,7 +62,9 @@ def get_player_advanced_stats(mlb_id: int, years: Optional[list[int]] = None) ->
     傳入要查詢的 Mlb ID 與 年份
     回傳每年份的選手MLB與MiLB進階數據。
     """
-    return _fetch_stats(mlb_id, "stats=seasonAdvanced&group=hitting,pitching", years)
+    return _fetch_stats(
+        mlb_id, f"stats=seasonAdvanced&group={stat_groups_param(ROLES)}", years
+    )
 
 
 def get_game_logs(mlb_id: int, season: int) -> list:
@@ -72,7 +77,7 @@ def get_game_logs(mlb_id: int, season: int) -> list:
     """
     game_types = ",".join(GAME_LOG_GAME_TYPES)
     return _fetch_stats(
-        mlb_id, f"stats=gameLog&group=hitting,pitching&gameType={game_types}", [season]
+        mlb_id, f"stats=gameLog&group={stat_groups_param(ROLES)}&gameType={game_types}", [season]
     )
 
 
@@ -82,16 +87,19 @@ def get_player_sabermetrics(mlb_id: int, years: Optional[list[int]] = None) -> l
     Returns the raw ``stats`` list from the API; caller walks splits.
     """
     return _fetch_stats(
-        mlb_id, "stats=sabermetrics&group=pitching,hitting", years, leagues=MLB_ONLY
+        mlb_id, f"stats=sabermetrics&group={stat_groups_param(ROLES)}", years, leagues=MLB_ONLY
     )
 
 
 def get_player_expected_stats(
     mlb_id: int,
+    role: str,
     years: Optional[list[int]] = None,
-    group: str = "pitching",
 ) -> list:
-    """Fetch expectedStatistics (xwOBA, xBA, xSLG) — MLB only.
+    """Fetch expectedStatistics (xwOBA, xBA, xSLG) for one role — MLB only.
+
+    ``role`` 刻意沒有預設值：帶錯角色會拿到另一個角色的空結果，而
+    ``db/season_fetches`` 仍會把它登記成「抓過」，過去球季從此不再重抓。
 
     Only fetches the MLB endpoint. MiLB (leagueListId=milb_all / mlb_milb)
     always returns 0.0 for all expected stats fields — the MLB Stats API does
@@ -101,5 +109,5 @@ def get_player_expected_stats(
     Note: API fields are named ``avg``/``slg``/``woba``/``wobaCon`` (no x prefix).
     """
     return _fetch_stats(
-        mlb_id, f"stats=expectedStatistics&group={group}", years, leagues=MLB_ONLY
+        mlb_id, f"stats=expectedStatistics&group={stat_group_for_role(role)}", years, leagues=MLB_ONLY
     )

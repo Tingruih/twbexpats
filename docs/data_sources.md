@@ -61,13 +61,13 @@
 | `era` | `era` | 自責分率 |
 | `whip` | `whip` | 每局被上壘率 |
 | `ip` | `inningsPitched` | 投球局數（棒球記法，如7.2＝7⅓局）|
-| `so` | `strikeOuts` | 三振 |
+| `p_so` | `strikeOuts` | 三振 |
 | `wins` / `losses` | `wins` / `losses` | 勝／敗 |
-| `bb` | `baseOnBalls` | 保送 |
+| `p_bb` | `baseOnBalls` | 保送 |
 | `sv` / `hld` | `saves` / `holds` | 救援成功／中繼成功 |
 | `gs` | `gamesStarted` | 先發場次 |
 | `earned_runs` | `earnedRuns` | 自責分 |
-| `pitches` | `numberOfPitches` | 投球總數 |
+| `p_pitches` | `numberOfPitches` | 投球總數 |
 | `bf` | `battersFaced` | 面對打者數 |
 | `k_per_9` / `bb_per_9` / `h_per_9` / `hr_per_9` | `strikeoutsPer9Inn` / `walksPer9Inn` / `hitsPer9Inn` / `homeRunsPer9` | 每9局三振／保送／被安打／被全壘打（API 已算好）|
 | `k_bb_ratio` | `strikeoutWalkRatio` | 三振保送比（API 已算好）|
@@ -75,7 +75,7 @@
 | `win_pct` | `winPercentage` | 勝率（API 已算好，字串）|
 | `strike_pct` | `strikePercentage` | 好球率（API 已算好，字串）|
 | `p_ground_outs` / `p_air_outs` | `groundOuts` / `airOuts` | 滾地／飛球出局 |
-| `runs_allowed` | `runs` | 被得分 |
+| `p_runs` | `runs` | 被得分 |
 | `p_hits` / `p_hr` / `p_hbp` / `p_ibb` | `hits` / `homeRuns` / `hitByPitch` / `intentionalWalks` | 被安打／被全壘打／觸身球／故意四壞 |
 | `p_sb` / `p_cs` | `stolenBases` / `caughtStealing` | 被盜壘／阻殺 |
 | `p_gdp` | `groundIntoDoublePlay` | 製造雙殺 |
@@ -107,27 +107,27 @@
 | `run_support` | `runSupport`（打線支援得分）|
 | `rs_per_9` | `runsScoredPer9` |
 | `p_babip` | `babip` |
-| `pitches_per_bf` | `pitchesPerPlateAppearance`（pitching group：用球數 / BF）|
+| `p_pitches_per_pa` | `pitchesPerPlateAppearance`（pitching group：用球數 / BF）|
 
 ### 2.3 缺值補算（🟢 計算，僅在 API 未提供該值時才補上）
 
-定義於 `helpers.py _compute_advanced_stats()`（第507–637行），只有目標欄位為 `None` 時才會寫入，絕不覆蓋 API 給的值。
+定義於 `stats/core/annotate.py::annotate_row(s, PITCHER)`，只有目標欄位為 `None` 時才會寫入，絕不覆蓋 API 給的值。在 render 投影（`positions.project_role`）之後執行，下表變數一律是投影後的概念名：投手檢視下的 `so` / `bb` / `hits` / `pitches` 即 DB 的 `p_so` / `p_bb` / `p_hits` / `p_pitches`。
 
 | 欄位 | 公式 |
 |---|---|
 | `pitches_per_pa` | `pitches / bf` |
 | `k_per_9` | `so × 9 / IP實際局數` |
 | `bb_per_9` | `bb × 9 / IP實際局數` |
-| `h_per_9` | `p_hits × 9 / IP實際局數` |
-| `hr_per_9` | `p_hr × 9 / IP實際局數` |
+| `h_per_9` | `hits × 9 / IP實際局數` |
+| `hr_per_9` | `hr × 9 / IP實際局數` |
 | `p_per_ip` | `pitches / IP實際局數` |
 | `rs_per_9` | `run_support × 9 / IP實際局數` |
 | `k_bb_ratio` | `so / bb` |
-| `p_k_pct` | `so / bf` |
-| `p_bb_pct` | `bb / bf` |
+| `k_pct` | `so / bf` |
+| `bb_pct` | `bb / bf` |
 | `strike_pct` | `strikes / pitches` |
-| `p_babip` | `(p_hits − p_hr) / (p_ab − so − p_hr + p_sac_flies)`。註：改用 `p_ab`（對方打數）而非 `bf` 當分母，因為 `bf`≈PA 只扣掉 BB 卻漏扣 HBP／犧牲觸擊，會系統性低估 BABIP |
-| `p_go_ao` | `p_ground_outs / p_air_outs` |
+| `babip` | `(hits − hr) / (ab − so − hr + sac_flies)`。註：改用 `ab`（對方打數）而非 `bf` 當分母，因為 `bf`≈PA 只扣掉 BB 卻漏扣 HBP／犧牲觸擊，會系統性低估 BABIP |
+| `go_ao` | `ground_outs / air_outs` |
 | `win_pct` | `wins / (wins + losses)` |
 | `p_avg` | `p_hits / p_ab` |
 | `p_obp` | `(p_hits + bb + p_hbp) / (p_ab + bb + p_hbp + p_sac_flies)` |
@@ -176,7 +176,7 @@ xWPCT（Pythagenpat 1.83）= 1 / (1 + (FIP / 聯盟RA9)^1.83)
 ### 2.6 Expected Stats：對方期望打擊三圍（🔵 API，僅 MLB）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=expectedStatistics&group=pitching&season={year}`
-對應：`api/stats.py get_player_expected_stats(group="pitching")` → `sync/statcast.py _compute_role_statcast()` → 存 `stat_json.p_expected`（只查該球員有 MLB 投球逐球資料的年份；登記在 `season_fetches` 的 `p_expected`）
+對應：`api/stats.py get_player_expected_stats(mlb_id, PITCHER, ...)`（`group=pitching`）`` → `sync/statcast.py _compute_role_statcast()` → 存 `stat_json.p_expected`（只查該球員有 MLB 投球逐球資料的年份；登記在 `season_fetches` 的 `expected_source(PITCHER)` = `p_expected`）
 
 | 欄位 | API 原始欄位 | 說明 |
 |---|---|---|
@@ -261,16 +261,16 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 | `hr` / `rbi` | `homeRuns` / `rbi` |
 | `sb` / `cs` | `stolenBases` / `caughtStealing` |
 | `ab` / `hits` | `atBats` / `hits` |
-| `hit_bb` | `baseOnBalls` |
+| `bb` | `baseOnBalls` |
 | `pa` | `plateAppearances` |
 | `doubles` / `triples` / `tb` | `doubles` / `triples` / `totalBases` |
 | `hbp` | `hitByPitch` |
 | `gdp` | `groundIntoDoublePlay` |
 | `runs` | `runs` |
-| `h_so` | `strikeOuts` |
+| `so` | `strikeOuts` |
 | `ibb` | `intentionalWalks` |
-| `h_ground_outs` / `h_air_outs` | `groundOuts` / `airOuts` |
-| `pitches_seen` | `numberOfPitches` |
+| `ground_outs` / `air_outs` | `groundOuts` / `airOuts` |
+| `pitches` | `numberOfPitches` |
 | `lob` | `leftOnBase` |
 | `sac_bunts` / `sac_flies` | `sacBunts` / `sacFlies` |
 | `ci` | `catchersInterference` |
@@ -291,28 +291,28 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 | `gidpo` | `gidpOpp` |
 | `xbh` | `extraBaseHits`（API 已算好；缺值時見 3.3）|
 | `babip` | `babip` |
-| `pitches_seen_per_pa` | `pitchesPerPlateAppearance`（hitting group：看球數 / PA）|
+| `pitches_per_pa` | `pitchesPerPlateAppearance`（hitting group：看球數 / PA）|
 
 ### 3.3 缺值補算（🟢 計算，僅在 API 未提供時補上）
 
-定義於 `helpers.py _compute_advanced_stats()`（432–505行）
+定義於 `stats/core/annotate.py::annotate_row(s, BATTER)`
 
 | 欄位 | 公式 |
 |---|---|
-| `pitches_seen_per_pa` | API 值缺時 `pitches_seen / pa`（不退回投手的 `pitches_per_bf`）|
+| `pitches_per_pa` | API 值缺時 `pitches / pa`（打者看球數；不讀投手的 `p_pitches_per_pa`）|
 | `xbh` | `doubles + triples + hr` |
 | `iso` | `slg − avg` |
-| `babip` | `(hits − hr) / (ab − h_so − hr + sac_flies)` |
+| `babip` | `(hits − hr) / (ab − so − hr + sac_flies)` |
 | `ab_per_hr` | `ab / hr` |
-| `go_ao` | `h_ground_outs / h_air_outs` |
+| `go_ao` | `ground_outs / air_outs` |
 | `sb_pct` | `sb / (sb + cs)` |
-| `k_pct` | `h_so / pa` |
-| `bb_pct` | `hit_bb / pa` |
+| `k_pct` | `so / pa` |
+| `bb_pct` | `bb / pa` |
 
 ### 3.4 Expected Stats：期望打擊三圍（🔵 API，僅 MLB）
 
 **端點**：`GET /people/{mlb_id}/stats?stats=expectedStatistics&group=hitting&season={year}`
-對應：`api/stats.py get_player_expected_stats(group="hitting")` → 存 `stat_json.expected`（只查有 MLB 打擊逐球資料的年份；登記在 `season_fetches` 的 `expected`）
+對應：`api/stats.py get_player_expected_stats(mlb_id, BATTER, ...)`（`group=hitting`）`` → 存 `stat_json.expected`（只查有 MLB 打擊逐球資料的年份；登記在 `season_fetches` 的 `expected_source(BATTER)` = `expected`）
 
 | 欄位 | API 原始欄位 |
 |---|---|
@@ -341,7 +341,7 @@ woba_against = Σ(每個打席結果的固定權重) / 有效打席數
 **wOBA**（`compute_woba()` 44–77行，依賽季累計計數計算，不是逐球計算）
 ```
 singles = hits − doubles − triples − hr
-unintentional_bb = hit_bb − ibb
+unintentional_bb = bb − ibb
 wOBA = (0.689×BB非故意 + 0.720×HBP + 0.881×一安 + 1.254×二安 + 1.589×三安 + 2.048×全壘打)
        / (AB + BB非故意 + SF + HBP)
 ```
@@ -407,17 +407,17 @@ wRC+   = round(100 × (wRC/PA / PFm) / 聯盟R/PA)
 
 ## 六、生涯／賽季彙總邏輯
 
-當同一年跨隊、跨層級，或要顯示生涯總計時，`helpers.py` 會把多筆 `season_stats` 列彙總後**重新計算比率型欄位**（而非直接加總比率）：
+當同一年跨隊、跨層級，或要顯示生涯總計時，`stats/core/aggregate.py` 會把多筆 `season_stats` 列彙總後**重新計算比率型欄位**（而非直接加總比率）。輸入列已投影到該檢視的角色（`positions.project_role`），所有函式都帶 `role`，只加總、只重算該角色的欄位：
 
-- `_sum_counting()`（300–306行）：把所有計數型欄位（PA/AB/HR/…／W/L/SV/SO/…）逐筆加總
-- `_compute_rate_stats()`（309–346行）：用加總後的計數重算
-  - `avg = Σhits / Σab`
-  - `obp = calc_obp(Σhits, Σhit_bb, Σhbp, Σab, Σsac_flies)`
+- `sum_counting(stats, result, role)`：把該角色的計數型欄位（打者 PA/AB/HR/…、投手 W/L/SV/SO/…，`constants.BATTER_/PITCHER_COUNTING_FIELDS`）逐筆加總
+- `compute_rate_stats(agg, role)`：用加總後的計數重算
+  - 打者：`avg = Σhits / Σab`
+  - `obp = calc_obp(Σhits, Σbb, Σhbp, Σab, Σsac_flies)`
   - `slg = Σtb / Σab`；`ops = obp + slg`
-  - `era = Σearned_runs / IP實際局數 × 9`
-  - `whip = (Σp_hits + Σbb) / IP實際局數`
+  - 投手：`era = Σearned_runs / IP實際局數 × 9`
+  - `whip = (Σhits + Σbb) / IP實際局數`（投手檢視；`hits` / `bb` 為投影後的被安打、投球保送）
 - 供 `stats/core/career.py` 的 `compute_career()`、`compute_year_groups()` 兩個函式使用（bio 卡的本季合計直接取 `compute_year_groups()` 的當年 `summary`）
-- 彙總完成後仍會呼叫 `_compute_advanced_stats()` 補上 ISO/BABIP/K%/BB%/FIP 相關欄位等衍生指標
+- 彙總完成後仍會呼叫 `annotate_row(agg, role)` 補上 ISO/BABIP/K%/BB% 等衍生指標；投手的被打 AVG/OBP/SLG/OPS 由其中的 `annotate_opponent_slash` 補（任一分量缺就不算）
 
 ---
 
@@ -641,13 +641,14 @@ perceived_velo ≈ start_speed × (聯盟平均 extension / 該投手 extension)
 | 端點 | hitting group | pitching group |
 |---|---|---|
 | yearByYear `gamesPlayed` | `stat_json.gp` | `stat_json.p_gp` |
-| seasonAdvanced `pitchesPerPlateAppearance` | `stat_json.pitches_seen_per_pa` | `stat_json.pitches_per_bf` |
+| seasonAdvanced `pitchesPerPlateAppearance` | `stat_json.pitches_per_pa` | `stat_json.p_pitches_per_pa` |
+| yearByYear / seasonAdvanced 兩個 group 同名的欄位（`strikeOuts`、`baseOnBalls`、`numberOfPitches`、`runs`、`hits`、`avg`…） | `stat_json.<概念名>`（`so`、`bb`、`pitches`、`runs`、`hits`、`avg`） | `stat_json.p_<概念名>`（`p_so`、`p_bb`、`p_pitches`、`p_runs`、`p_hits`、`p_avg`） |
 | gameLog `stat` | `game_logs` `role = 'batter'` 列的 `stats_json` | `role = 'pitcher'` 列的 `stats_json` |
 | sabermetrics（整季 split） | `saber` / `war` / `wrc_plus` | `p_saber` / `p_war` / `fip` / `xfip`（+ 自算 `lg_era` / `xwpct`） |
 | expectedStatistics | `expected`（`group=hitting`） | `p_expected`（`group=pitching`） |
 
 角色對照（`hitting`/`pitching` ↔ `batter`/`pitcher`）與 `p_` 前綴一律經 `site_builder/positions.py`
-（`role_for_stat_group()`、`stat_group_for_role()`、`role_field()`）。yearByYear / seasonAdvanced / gameLog
+（`role_of_stats_entry()`、`stat_groups_param()`、`stat_group_for_role()`、`role_field()`；概念名清單為 `ROLE_SPLIT_FIELDS`）。yearByYear / seasonAdvanced / gameLog
 改以 `leagueListId=mlb_milb` 一次取回 MLB + 所有 MiLB：寫入端依角色分存、與回傳順序無關，
 所以不再需要「MLB 一次 + `milb_all` 一次」固定順序的兩次請求。
 

@@ -616,30 +616,26 @@ HIT_LOCATION_ZONE: dict[str, str] = {
 }
 
 # ── Counting stat fields summed in career / season-combined aggregations ──
-# 依 API stat group 分組：stats.core.aggregate.sum_counting 以「該列這一組有沒有
-# 任何值」判斷某列缺值是「沒有這組數據（貢獻 0）」還是「有這組數據卻缺這一欄
-# （總和未知）」。例如 2005 年以前的 MiLB 投球列有 p_ab 卻沒有 p_tb。
+# 加總發生在 render 投影（positions.project_role）之後，所以一律用概念名：
+# 投手檢視的 "so" 已是投球三振。stats.core.aggregate.sum_counting 以「該列這一組
+# 有沒有任何值」判斷某列缺值是「沒有這組數據（貢獻 0）」還是「有這組數據卻缺
+# 這一欄（總和未知）」。例如 2005 年以前的 MiLB 投球列有 ab（被打數）卻沒有 tb。
+# gp 自成一組：只登錄出賽、其他欄位全空的列，不該讓整組總和變成未知。
 SHARED_COUNTING_FIELDS = ["gp"]
-HITTING_COUNTING_FIELDS = [
+BATTER_COUNTING_FIELDS = [
     "pa", "ab", "runs", "hits", "doubles", "triples", "hr", "rbi", "tb",
-    "hit_bb", "h_so", "hbp", "ibb", "sb", "cs", "gdp", "lob",
-    "sac_bunts", "sac_flies", "h_ground_outs", "h_air_outs", "pitches_seen",
+    "bb", "so", "hbp", "ibb", "sb", "cs", "gdp", "lob",
+    "sac_bunts", "sac_flies", "ground_outs", "air_outs", "pitches",
     # seasonAdvanced
     "gidpo", "roe", "wo", "xbh",
 ]
-PITCHING_COUNTING_FIELDS = [
+PITCHER_COUNTING_FIELDS = [
     "wins", "losses", "sv", "hld", "so", "bb", "gs", "bf",
     "earned_runs", "pitches", "svo", "outs", "cg", "sho", "strikes",
     "balks", "wp", "pickoffs", "gf", "ir", "irs", "qs",
-    "runs_allowed", "p_hits", "p_hr", "p_hbp", "p_ibb",
-    "p_sb", "p_cs", "p_gdp", "p_doubles", "p_triples", "p_tb", "p_ab",
-    "p_ground_outs", "p_air_outs", "p_sac_bunts", "p_sac_flies",
+    "runs", "hits", "hr", "hbp", "ibb",
+    "sb", "cs", "gdp", "doubles", "triples", "tb", "ab",
+    "ground_outs", "air_outs", "sac_bunts", "sac_flies",
     # seasonAdvanced
-    "bqr", "bqr_s", "run_support", "p_gidpo",
+    "bqr", "bqr_s", "run_support", "gidpo",
 ]
-COUNTING_FIELD_GROUPS = [
-    SHARED_COUNTING_FIELDS,
-    HITTING_COUNTING_FIELDS,
-    PITCHING_COUNTING_FIELDS,
-]
-COUNTING_FIELDS = [f for group in COUNTING_FIELD_GROUPS for f in group]

@@ -95,16 +95,16 @@
     <div class="mc-grid">
         {{ mcell('H/9', s.h_per_9|floatformat(1)) }}
         {{ mcell('HR/9', s.hr_per_9|floatformat(2)) }}
-        {{ mcell('K%', s.p_k_pct|pct_fmt) }}
-        {{ mcell('BB%', s.p_bb_pct|pct_fmt) }}
+        {{ mcell('K%', s.k_pct|pct_fmt) }}
+        {{ mcell('BB%', s.bb_pct|pct_fmt) }}
         {{ mcell('Strike%', s.strike_pct|floatformat(3)) }}
-        {{ mcell('AVG', s.p_avg|floatformat(3)) }}
-        {{ mcell('OBP', s.p_obp|floatformat(3)) }}
-        {{ mcell('SLG', s.p_slg|floatformat(3)) }}
-        {{ mcell('OPS', s.p_ops|floatformat(3)) }}
-        {{ mcell('BABIP', s.p_babip|floatformat(3)) }}
-        {{ mcell('GO/AO', s.p_go_ao|floatformat(2)) }}
-        {{ mcell('P/PA', s.pitches_per_bf|floatformat(2)) }}
+        {{ mcell('AVG', s.avg|floatformat(3)) }}
+        {{ mcell('OBP', s.obp|floatformat(3)) }}
+        {{ mcell('SLG', s.slg|floatformat(3)) }}
+        {{ mcell('OPS', s.ops|floatformat(3)) }}
+        {{ mcell('BABIP', s.babip|floatformat(3)) }}
+        {{ mcell('GO/AO', s.go_ao|floatformat(2)) }}
+        {{ mcell('P/PA', s.pitches_per_pa|floatformat(2)) }}
     </div>
     {% else %}
     <div class="mc-hero">
@@ -118,7 +118,7 @@
         {{ mcell('AB/HR', s.ab_per_hr|floatformat(1)) }}
         {{ mcell('GO/AO', s.go_ao|floatformat(2)) }}
         {{ mcell('SB%', s.sb_pct|floatformat(3)) }}
-        {{ mcell('P/PA', s.pitches_seen_per_pa|floatformat(2)) }}
+        {{ mcell('P/PA', s.pitches_per_pa|floatformat(2)) }}
         {{ mcell('IBB', s.ibb|num_dash) }}
         {{ mcell('HBP', s.hbp|num_dash) }}
         {{ mcell('GIDP', s.gdp|num_dash) }}

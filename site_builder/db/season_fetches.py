@@ -17,17 +17,23 @@ import datetime
 from typing import Iterable, Optional
 
 from ..constants import is_season_in_progress
+from ..positions import role_field
 
 # source 值：登記表內每種資料來源的名稱
 SABERMETRICS = "sabermetrics"
-# expectedStatistics 依角色分開登記：打擊（group=hitting）與投球（group=pitching）
-# 是兩個請求，一個成功不代表另一個也抓過
-EXPECTED_STATS = "expected"
-P_EXPECTED_STATS = "p_expected"
 FIP_CONSTANTS = "fip_constants"
 
 # {(subject, year)}，由 load_fetched 產生
 FetchedSet = set[tuple[str, int]]
+
+
+def expected_source(role: str) -> str:
+    """expectedStatistics 某角色的 source 值，與 stat_json 的 key 同名（``expected`` / ``p_expected``）。
+
+    依角色分開登記：打擊（group=hitting）與投球（group=pitching）是兩個請求，
+    一個成功不代表另一個也抓過。
+    """
+    return role_field(role, "expected")
 
 
 def load_fetched(cur, source: str) -> FetchedSet:

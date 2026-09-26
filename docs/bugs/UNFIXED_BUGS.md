@@ -48,9 +48,9 @@
 ### 11. `ci` 有寫入但未納入 career/combined counting fields
 
 - 目前位置：`site_builder/sync/field_maps.py`、`site_builder/constants.py`
-- 證據：hitting mapping 寫入 `"ci"`，但 `COUNTING_FIELDS` 沒有 `"ci"`。
+- 證據：hitting mapping 寫入 `"ci"`，但 `BATTER_COUNTING_FIELDS` 沒有 `"ci"`。
 - 影響：單季列可能有 CI；生涯/合計列不會加總。
-- 建議修法：把 `"ci"` 加入 `COUNTING_FIELDS`，或移除不使用的寫入。
+- 建議修法：把 `"ci"` 加入 `constants.BATTER_COUNTING_FIELDS`，或移除不使用的寫入。
 
 ### 12. WHIP 在 `bb is None` 時仍把 BB 當 0
 

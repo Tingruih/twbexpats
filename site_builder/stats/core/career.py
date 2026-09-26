@@ -10,8 +10,11 @@ def _teams_display(stats) -> str:
     return " / ".join(f"{level_display(s.sport_level, s.year)} {s.team_name}" for s in stats)
 
 
-def compute_career(stats, level_filter=None):
-    """Aggregate counting stats across multiple seasons and compute rates."""
+def compute_career(stats, role: str, level_filter=None):
+    """Aggregate ``role``'s counting stats across multiple seasons and compute rates.
+
+    ``stats`` 必須已投影到 ``role``（見 ``aggregate.py``）。
+    """
     if level_filter == "mlb":
         stats = [s for s in stats if is_mlb(s.sport_level)]
     elif level_filter == "milb":
@@ -20,7 +23,7 @@ def compute_career(stats, level_filter=None):
     if not stats:
         return None
 
-    career = aggregate_stats(stats)
+    career = aggregate_stats(stats, role)
 
     career["teams_display"] = _teams_display(stats)
 
@@ -35,7 +38,7 @@ def compute_career(stats, level_filter=None):
     return career
 
 
-def compute_year_groups(all_stats):
+def compute_year_groups(all_stats, role: str):
     """Group stats by year, producing a summary row + per-team detail rows.
 
     Returns a list of dicts (ordered most-recent year first)::
@@ -63,7 +66,7 @@ def compute_year_groups(all_stats):
         # Sort rows: MLB first, then by level order
         yr_stats.sort(key=lambda s: s.level_order)
 
-        summary = aggregate_stats(yr_stats)
+        summary = aggregate_stats(yr_stats, role)
         summary["year"] = yr
         summary["teams_display"] = _teams_display(yr_stats)
 
@@ -71,7 +74,7 @@ def compute_year_groups(all_stats):
         summary["np"] = summary.get("pitches")
 
         # Fill in all advanced / derived stats
-        annotate_row(summary)
+        annotate_row(summary, role)
 
         groups.append({
             "year": yr,

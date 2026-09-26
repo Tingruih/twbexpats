@@ -130,18 +130,18 @@ API、不算統計）；`sync/` 負責寫入；`stats/`+`render/` 負責讀取�
 **第一層（`sync/players.py::_write_player_to_db()` 寫入，來自 yearByYear + seasonAdvanced 端點）**：
 
 - `gp` / `p_gp`：hitting 分組的 `gamesPlayed` 寫 `gp`、pitching 分組寫 `p_gp`（經 `positions.role_field`）。兩者是不同的數（例：499614 2013 Frisco 打擊 125 場、投球 1 場），過去共用 `gp` 時後寫者蓋掉先寫者。fielding 分組的 `gamesPlayed` 是逐位置的，不寫進來
-- P/PA：seasonAdvanced 的 `pitchesPerPlateAppearance` 兩個分組同名，hitting 寫 `pitches_seen_per_pa`（看球數 / PA）、pitching 寫 `pitches_per_bf`（用球數 / BF）；舊名 `pitches_per_pa` 已不再寫入
-- 打擊/投球欄位由 `sync/field_maps.py::apply_yearbyyear_fields()` / `apply_advanced_fields()` 決定 key 名稱（如 `era`/`whip`/`ip`/`so`/`avg`/`obp`/…），**完整欄位對照表見 `docs/data_sources.md` §2.1、§2.2、§3.1、§3.2**，這裡不重複列。
+- P/PA：seasonAdvanced 的 `pitchesPerPlateAppearance` 兩個分組同名，hitting 寫 `pitches_per_pa`（看球數 / PA）、pitching 寫 `p_pitches_per_pa`（用球數 / BF）
+- 打擊/投球欄位由 `sync/field_maps.py::apply_yearbyyear_fields()` / `apply_advanced_fields()` 決定 key 名稱：兩個分組同名的欄位（`so`/`bb`/`hits`/`avg`/…）打擊寫 `so`、投球寫 `p_so`；只屬一個角色的（`era`/`whip`/`ip`/`bf`、`pa`/`rbi`/`lob`）不加前綴。**完整欄位對照表見 `docs/data_sources.md` §2.1、§2.2、§3.1、§3.2**，這裡不重複列。
 
 **第二層（statcast 管線另外合併進同一個 dict）**：`statcast` / `expected`（與投球的 `p_` 版本）由 `sync/statcast.py::_attach_statcast()` 只寫入 `sport_level` 相符的那一列；其餘進階欄位由 `sync/advanced.py::sync_season_advanced()` 掃過每一列、依該列有出賽的角色（`stats/core/selectors.py::appeared_roles()`）寫入，不看該年有沒有逐球資料，也不看球員的主要守位。
 
-**打擊/投球共用名稱的 key 一律拆開**（`positions.ROLE_SPLIT_FIELDS`，key 名由 `positions.role_field()` 決定）：打擊不加前綴、投球加 `p_`。一列同時容納兩個角色，所以不另加 `role` 欄位。render 端以 `positions.project_role()` 把主要角色的值投影到不帶前綴的 key。
+**打擊/投球共用名稱的 key 一律拆開**（`positions.ROLE_SPLIT_FIELDS`，key 名由 `positions.role_field()` 決定）：打擊不加前綴、投球加 `p_`，沒有例外（例：打者三振 `so`、投手三振 `p_so`；打者看球數 `pitches`、投手用球數 `p_pitches`；投手被得分 `p_runs`）。一列同時容納兩個角色，所以不另加 `role` 欄位。render 端以 `positions.project_role()` 把主要角色的值投影到不帶前綴的 key。這套命名由 `PRAGMA user_version` 標記（見 §8）。
 
 | key | 型別 | 說明 |
 |---|---|---|
 | `statcast` / `p_statcast` | dict | 打擊：`stats/batter_statcast.py::compute_batter_statcast()`（`game_logs.role = 'batter'` 的逐球）；投球：`stats/pitcher_statcast.py::compute_pitcher_statcast()`（`role = 'pitcher'` 的逐球）。完整回傳值（`pitch_arsenal`/`pitch_outcomes`/discipline/batted-ball 等，key 清單見 `docs/functions_list.md` §3.8）。該角色在該 (年, 層級) 有逐球資料才寫，不設門檻 |
 | `saber` / `p_saber` | dict | 僅 MLB。`api/stats.py::get_player_sabermetrics()` hitting / pitching group 的**整季合計** split `stat`（投球含 `fip`/`xfip`/`war`，打擊含 `war`/`wRcPlus`）；轉隊球員不取各隊 split（見 `sync/advanced.py::_season_total_saber()`），該年每一隊的 MLB 列都存同一份。當季每次重抓；過去球季抓過一次後登記在 `season_fetches`，之後 `fip`/`war`/`wrc_plus` 等欄位改由這份存下的整包重算 |
-| `expected` / `p_expected` | dict | 僅 MLB。`api/stats.py::get_player_expected_stats()`（`group=hitting` / `group=pitching`）的原始回傳（`avg`/`slg`/`woba`/`wobaCon`）。只查該角色有 MLB 逐球資料的年份；抓取規則同 `saber`（`season_fetches` 的 `expected` / `p_expected`）；沒抓的年份保留既有值 |
+| `expected` / `p_expected` | dict | 僅 MLB。`api/stats.py::get_player_expected_stats()`（`group=hitting` / `group=pitching`）的原始回傳（`avg`/`slg`/`woba`/`wobaCon`）。只查該角色有 MLB 逐球資料的年份；抓取規則同 `saber`（`season_fetches` 的 source 為 `db/season_fetches.py::expected_source(role)`，即 `expected` / `p_expected`）；沒抓的年份保留既有值 |
 | `fip` | float | **未捨入**（顯示時才捨入到兩位）。MiLB 由 `stats/advanced/fip.py::compute_fip()` 自算，該層級/年份沒有常數（2005 年以前 MiLB）時不存在此 key；MLB 直接取自 `saber.fip`（API 五位小數原值）。舊 DB 裡的值是兩位小數，下次 `statcast`（`sync_season_advanced` 每列都會重寫）後即更新 |
 | `lg_era` | float | 該 `(sport_level, year)` 整層平均自責分，`xwpct` 的分母來源 |
 | `xwpct` | float | `stats/advanced/xwpct.py::compute_xwpct(fip, lg_era)` |
@@ -366,8 +366,7 @@ SQLite 沒有宣告 FOREIGN KEY，以下關聯純靠程式邏輯維持一致：
 
 - **`game_logs.role`、打擊/投球角色拆分（2026-09-25）：必須刪除 DB 從頭重建。**
   `game_logs` 改為每個角色一列（`UNIQUE(player_mlb_id, game_id, role)`），`season_stats.stat_json`
-  的 `gp`/`statcast`/`expected`/`saber`/`war` 依角色拆成打擊與 `p_` 投球兩組、P/PA 改名為
-  `pitches_seen_per_pa` / `pitches_per_bf`，逐球資料改歸實際投打的人（`PBP_EXTRACT_VERSION` 2，
+  的 `gp`/`statcast`/`expected`/`saber`/`war` 依角色拆成打擊與 `p_` 投球兩組、P/PA 依角色分存，逐球資料改歸實際投打的人（`PBP_EXTRACT_VERSION` 2，
   見 §3）。舊表的唯一鍵與逐球資料都無法就地轉換，**不做遷移**：`init_db()` 發現既有 `game_logs`
   沒有 `role` 欄位時直接 `SystemExit`（`_require_game_logs_role()`，結構檢查，不回補），避免 CI
   拿舊 DB 靜默寫出錯誤資料。重建方式：
@@ -378,6 +377,23 @@ SQLite 沒有宣告 FOREIGN KEY，以下關聯純靠程式邏輯維持一致：
   ```
 
   完成後把新 DB 上傳 Google Drive 取代舊檔。因為是全新 DB，不需要清除舊 key。
+- **角色欄位統一命名（`PRAGMA user_version` 1，2026-09-26）：以一次性腳本就地遷移，不需重建。**
+  `season_stats.stat_json` 裡 7 組不符合「打擊存概念名、投球存 `p_<概念名>`」的 key 改名：
+  打擊 `h_so`→`so`、`hit_bb`→`bb`、`pitches_seen`→`pitches`、`h_ground_outs`→`ground_outs`、
+  `h_air_outs`→`air_outs`、`pitches_seen_per_pa`→`pitches_per_pa`；投球 `so`→`p_so`、`bb`→`p_bb`、
+  `pitches`→`p_pitches`、`runs_allowed`→`p_runs`、`pitches_per_bf`→`p_pitches_per_pa`。
+  改名後的資料與舊資料無法區分（只投球的舊列有 `so`，只打擊的新列也有 `so`），重跑會把打者三振
+  搬到 `p_so`，所以用 `PRAGMA user_version` 標記是否已遷移：
+  - `init_db()` 的 `_require_role_field_names()`：`season_stats` 有資料但 `user_version` 小於
+    `ROLE_FIELD_NAMES_VERSION` 時 `SystemExit`（結構檢查，不回補），避免 CI 拿舊 DB 讓新程式
+    把投手三振讀成打者三振。空表（全新 DB）在 `init_db()` 結尾直接標為目前版本。
+  - 遷移腳本 `scripts/migrate_role_field_names.py` 只在 `user_version` 為 0 時執行，逐列整批改名
+    （撞名即中止），改寫與 `PRAGMA user_version = 1` 在同一個 transaction 內。
+
+  ```bash
+  python scripts/migrate_role_field_names.py --dry-run   # 只統計各 key 被改名的列數
+  python scripts/migrate_role_field_names.py             # 實際改寫；重跑會顯示 already migrated
+  ```
   `game_logs` 的所有欄位（含 `sport_level`、`pbp_version`、`pitches_json`、`events_json`）
   都寫在 `CREATE TABLE` 裡，`game_logs` 的 `ALTER TABLE` 遷移與 `_drop_column()` 已刪除。
 - **`players.roster_status_code`、`players.roster_is_active`、`league_fip_constants.lg_era`

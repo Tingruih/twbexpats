@@ -21,6 +21,6 @@ it into the relevant assembler:
     - pitcher statcast summary  → ``pitcher_statcast.py``
     - batter statcast summary   → ``batter_statcast.py``
     - cross-level combined row  → no separate hook: ``render/pages.py``
-                                  reruns the statcast entry points on pooled
-                                  pitches
+                                  reruns ``role_statcast.compute_statcast`` on
+                                  pooled pitches (sync uses the same entry)
 """

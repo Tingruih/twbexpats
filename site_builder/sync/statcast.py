@@ -40,9 +40,8 @@ from ..api.content import extract_play_videos
 from ..constants import CONTENT_RETRY_DAYS, GAME_FETCH_WORKERS, PBP_EXTRACT_VERSION
 from ..db.game_logs import load_all_pitches_for_player
 from ..db.season_fetches import (
-    EXPECTED_STATS,
-    P_EXPECTED_STATS,
     FetchedSet,
+    expected_source,
     load_fetched,
     mark_fetched,
     needs_fetch,
@@ -56,10 +55,9 @@ from ..db.schema import init_db
 from ..db.season_stats import save_season_row
 from ..league_constant.pitching import PitchingConstants
 from ..levels import MLB_KEY, is_mlb, sport_to_tier_key
-from ..positions import BATTER, PITCHER, ROLES, role_field, stat_group_for_role
+from ..positions import ROLES, role_field
 from ..roster import build_roster_map
-from ..stats.batter_statcast import compute_batter_statcast
-from ..stats.pitcher_statcast import compute_pitcher_statcast
+from ..stats.role_statcast import compute_statcast
 from ..util.json import dumps_json, loads_json_dict, loads_json_list
 from ..util.log import describe_exc
 from ..util.numbers import safe_float, safe_int
@@ -68,12 +66,6 @@ from .extract import extract_pitch_logs
 
 logger = logging.getLogger(__name__)
 
-
-# expectedStatistics 在 season_fetches 的登記來源，依角色分開（見 db/season_fetches.py）
-_EXPECTED_SOURCES = {BATTER: EXPECTED_STATS, PITCHER: P_EXPECTED_STATS}
-
-# 每個角色的 Statcast 聚合函式
-_COMPUTE_STATCAST = {BATTER: compute_batter_statcast, PITCHER: compute_pitcher_statcast}
 
 
 class FetchedGame(NamedTuple):
@@ -267,7 +259,7 @@ def _compute_role_statcast(
     if mlb_years:
         try:
             expected = _parse_expected_stats(get_player_expected_stats(
-                mlb_id, years=mlb_years, group=stat_group_for_role(role),
+                mlb_id, role, years=mlb_years,
             ))
             # 回應裡沒有的年份（2015 年以前沒有 expected stats）也算抓過
             fetched_years = mlb_years
@@ -278,10 +270,9 @@ def _compute_role_statcast(
                 role, mlb_id, mlb_years, describe_exc(e),
             )
 
-    compute = _COMPUTE_STATCAST[role]
     return {
         (yr, lvl): {
-            "statcast": compute(pitches),
+            "statcast": compute_statcast(role, pitches),
             "expected_stats": expected.get((yr, lvl)),
         }
         for (yr, lvl), pitches in pitches_by_year_level.items()
@@ -375,7 +366,7 @@ def _aggregate_statcast(
     logger.info("  aggregating statcast per player-role-year-level (%d workers) ...", GAME_FETCH_WORKERS)
     cur = conn.cursor()
     # 在主執行緒讀一次，worker 只讀不寫
-    fetched = {role: load_fetched(cur, _EXPECTED_SOURCES[role]) for role in ROLES}
+    fetched = {role: load_fetched(cur, expected_source(role)) for role in ROLES}
     with ThreadPoolExecutor(max_workers=GAME_FETCH_WORKERS) as executor:
         future_to_id = {
             executor.submit(
@@ -397,7 +388,7 @@ def _aggregate_statcast(
                             data["statcast"], data["expected_stats"],
                         )
                     mark_fetched(
-                        cur, _EXPECTED_SOURCES[role], mlb_id, fetched_years.get(role, [])
+                        cur, expected_source(role), mlb_id, fetched_years.get(role, [])
                     )
                 conn.commit()
                 logger.info(

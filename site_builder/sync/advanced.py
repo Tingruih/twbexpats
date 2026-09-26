@@ -34,7 +34,7 @@ from ..db.season_fetches import SABERMETRICS, load_fetched, mark_fetched, needs_
 from ..db.season_stats import save_season_row
 from ..league_constant.pitching import PitchingConstants
 from ..levels import MLB_KEY, is_mlb
-from ..positions import BATTER, PITCHER, ROLES, role_field, stat_group_for_role
+from ..positions import BATTER, PITCHER, ROLES, role_field, role_of_stats_entry
 from ..stats.advanced.fip import LeagueFipConstant, compute_fip
 from ..stats.advanced.xwpct import compute_xwpct
 from ..stats.core.selectors import appeared_roles
@@ -48,8 +48,8 @@ logger = logging.getLogger(__name__)
 _MILB_FIP_FIELDS = ("fip", "lg_era", "xwpct")
 
 
-def _season_total_saber(saber_groups: list, target_group: str) -> dict[int, dict]:
-    """``{year: stat}``，每年只取 sabermetrics 的整季合計 split。
+def _season_total_saber(saber_groups: list, role: str) -> dict[int, dict]:
+    """``{year: stat}``，``role`` 那個 group 每年只取 sabermetrics 的整季合計 split。
 
     ``stats[].splits[]`` 對同一年轉隊球員的回傳順序是：整季合計一筆（沒有
     ``team``、帶 ``numTeams``），接著依隊名字母順序各隊一筆（帶 ``team``）。
@@ -60,7 +60,7 @@ def _season_total_saber(saber_groups: list, target_group: str) -> dict[int, dict
     """
     splits_by_year: dict[int, list[dict]] = {}
     for grp in saber_groups:
-        if grp.get("group", {}).get("displayName", "").lower() != target_group:
+        if role_of_stats_entry(grp) != role:
             continue
         for sp in grp.get("splits", []):
             yr = safe_int(sp.get("season"))
@@ -90,7 +90,7 @@ def _fetch_season_saber(mlb_id: int, year: int) -> dict[str, dict]:
     groups = get_player_sabermetrics(mlb_id, years=[year])
     by_role: dict[str, dict] = {}
     for role in ROLES:
-        stat = _season_total_saber(groups, stat_group_for_role(role)).get(year)
+        stat = _season_total_saber(groups, role).get(year)
         if stat:
             by_role[role] = stat
     return by_role
@@ -144,10 +144,10 @@ def _milb_fip_fields(
     level_wide = constants.get("")
     own_league = constants.get(league_name) or level_wide
     fip = compute_fip(
-        hr=stat_doc.get("p_hr"),
-        bb=stat_doc.get("bb"),
-        hbp=stat_doc.get("p_hbp"),
-        k=stat_doc.get("so"),
+        hr=stat_doc.get(role_field(PITCHER, "hr")),
+        bb=stat_doc.get(role_field(PITCHER, "bb")),
+        hbp=stat_doc.get(role_field(PITCHER, "hbp")),
+        k=stat_doc.get(role_field(PITCHER, "so")),
         ip=safe_float(stat_doc.get("ip")),
         c_fip=own_league.fip_constant if own_league else None,
     )

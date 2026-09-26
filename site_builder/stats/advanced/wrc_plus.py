@@ -96,7 +96,8 @@ def annotate_wrc_plus(bundles, batting_lookup) -> None:
                     row[calc_field] = calc
 
             if len(rows) > 1:
-                group_calc = _wrc_plus_of(aggregate_stats(rows))
+                # 在投影前執行：原始列的概念名（hits / bb 等）就是打擊的值
+                group_calc = _wrc_plus_of(aggregate_stats(rows, BATTER))
                 if group_calc is not None:
                     for row in rows:
                         row[calc_field + "_group"] = group_calc

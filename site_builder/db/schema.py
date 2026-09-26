@@ -33,8 +33,36 @@ def _require_game_logs_role(conn: sqlite3.Connection) -> None:
         )
 
 
+# PRAGMA user_version：season_stats.stat_json 的角色欄位已採統一命名
+# （positions.ROLE_SPLIT_FIELDS）。須與 scripts/migrate_role_field_names.py 的
+# TARGET_VERSION 一致
+ROLE_FIELD_NAMES_VERSION = 1
+
+
+def _require_role_field_names(conn: sqlite3.Connection) -> None:
+    """season_stats 有資料但 stat_json 仍是舊命名（user_version 落後）時中止。
+
+    舊命名的 ``so`` / ``bb`` / ``pitches`` 是投球的值，新命名同一個 key 是打擊的值：
+    新程式對舊 DB 同步會把打者三振寫進投手三振所在的 key，兩刀流列從此無法分辨。
+    在這裡擋下，要求先跑 scripts/migrate_role_field_names.py；這是結構檢查，不做任何回補。
+    """
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if version >= ROLE_FIELD_NAMES_VERSION:
+        return
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'season_stats'"
+    ).fetchone()
+    if has_table and conn.execute("SELECT 1 FROM season_stats LIMIT 1").fetchone():
+        raise SystemExit(
+            "Error: season_stats uses the pre-unification role field names "
+            f"(PRAGMA user_version={version}). Run "
+            "'python scripts/migrate_role_field_names.py --db <path>' first."
+        )
+
+
 def init_db(conn: sqlite3.Connection):
     _require_game_logs_role(conn)
+    _require_role_field_names(conn)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS players (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -180,4 +208,8 @@ def init_db(conn: sqlite3.Connection):
             PRIMARY KEY (source, subject, year)
         )
     """)
+    # 通過 _require_role_field_names 而版本仍落後，代表 season_stats 是空的：
+    # 之後寫入的一律是新命名，直接標記
+    if conn.execute("PRAGMA user_version").fetchone()[0] < ROLE_FIELD_NAMES_VERSION:
+        conn.execute(f"PRAGMA user_version = {ROLE_FIELD_NAMES_VERSION}")
     conn.commit()
